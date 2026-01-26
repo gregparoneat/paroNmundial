@@ -1,0 +1,49 @@
+{
+  "data": [
+    {
+      "id": 743,
+      "sport_id": 1,
+      "country_id": 458,
+      "name": "Liga MX",
+      "active": true,
+      "short_code": "MEX AL",
+      "image_path": "https://cdn.sportmonks.com/images/soccer/leagues/7/743.png",
+      "type": "league",
+      "sub_type": "domestic",
+      "last_played_at": "2026-01-19 01:06:00",
+      "category": 2,
+      "has_jerseys": false
+    }
+  ],
+  "pagination": {
+    "count": 1,
+    "per_page": 50,
+    "current_page": 1,
+    "next_page": null,
+    "has_more": false
+  },
+  "subscription": [
+    {
+      "meta": {
+        "trial_ends_at": null,
+        "ends_at": "2026-02-26 20:31:37",
+        "current_timestamp": 1769459895
+      },
+      "plans": [
+        {
+          "plan": "paroNfantasy Custom Plan 1",
+          "sport": "Football",
+          "category": "Standard"
+        }
+      ],
+      "add_ons": [],
+      "widgets": []
+    }
+  ],
+  "rate_limit": {
+    "resets_in_seconds": 3573,
+    "remaining": 2998,
+    "requested_entity": "League"
+  },
+  "timezone": "UTC"
+}

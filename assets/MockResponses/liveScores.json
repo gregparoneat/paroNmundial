@@ -1,0 +1,90 @@
+{
+  "data": [
+    {
+      "id": 19443094,
+      "sport_id": 1,
+      "league_id": 600,
+      "season_id": 25682,
+      "stage_id": 77476955,
+      "group_id": null,
+      "aggregate_id": null,
+      "round_id": 373695,
+      "state_id": 5,
+      "venue_id": 1886,
+      "name": "Eyüpspor vs Beşiktaş",
+      "starting_at": "2026-01-26 17:00:00",
+      "result_info": "Game ended in draw.",
+      "leg": "1/1",
+      "details": null,
+      "length": 90,
+      "placeholder": false,
+      "has_odds": true,
+      "has_premium_odds": true,
+      "starting_at_timestamp": 1769446800,
+      "participants": [
+        {
+          "id": 3224,
+          "sport_id": 1,
+          "country_id": 404,
+          "venue_id": 1886,
+          "gender": "male",
+          "name": "Eyüpspor",
+          "short_code": null,
+          "image_path": "https://cdn.sportmonks.com/images/soccer/teams/24/3224.png",
+          "founded": 1919,
+          "type": "domestic",
+          "placeholder": false,
+          "last_played_at": "2026-01-26 17:00:00",
+          "meta": {
+            "location": "home",
+            "winner": false,
+            "position": 17
+          }
+        },
+        {
+          "id": 554,
+          "sport_id": 1,
+          "country_id": 404,
+          "venue_id": 340175,
+          "gender": "male",
+          "name": "Beşiktaş",
+          "short_code": "BES",
+          "image_path": "https://cdn.sportmonks.com/images/soccer/teams/10/554.png",
+          "founded": 1903,
+          "type": "domestic",
+          "placeholder": false,
+          "last_played_at": "2026-01-26 17:00:00",
+          "meta": {
+            "location": "away",
+            "winner": false,
+            "position": 5
+          }
+        }
+      ]
+    }
+  ],
+  "subscription": [
+    {
+      "meta": {
+        "trial_ends_at": null,
+        "ends_at": "2026-02-26 18:53:12",
+        "current_timestamp": 1769454364
+      },
+      "plans": [
+        {
+          "plan": "European Plan",
+          "sport": "Football",
+          "category": "Standard"
+        }
+      ],
+      "add_ons": [],
+      "widgets": []
+    }
+  ],
+  "rate_limit": {
+    "resets_in_seconds": 2316,
+    "remaining": 2987,
+    "requested_entity": "Fixture"
+  },
+  "timezone": "UTC"
+}
