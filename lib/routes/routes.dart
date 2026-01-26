@@ -11,6 +11,7 @@ import 'package:fantacy11/features/home/contests.dart';
 import 'package:fantacy11/features/home/create_new_team.dart';
 import 'package:fantacy11/features/home/team_preview.dart';
 import 'package:fantacy11/features/language/language_ui.dart';
+import 'package:fantacy11/features/match/models/match_info.dart';
 import 'package:fantacy11/features/my_matches/match_completed.dart';
 import 'package:fantacy11/features/my_matches/match_live.dart';
 import 'package:fantacy11/features/my_matches/winnings.dart';
@@ -62,55 +63,58 @@ class AppNavigator extends StatelessWidget {
           late Widget Function(BuildContext, Animation, Animation) builder;
           switch (settings.name) {
             case PageRoutes.appNavigation:
-              builder = (_, _, _) => const AppNavigation();
+              builder = (c, a1, a2) => const AppNavigation();
               break;
             case PageRoutes.aboutUs:
-              builder = (_, _, _) => const AboutUs();
+              builder = (c, a1, a2) => const AboutUs();
               break;
             case PageRoutes.faqs:
-              builder = (_, _, _) => const Faqs();
+              builder = (c, a1, a2) => const Faqs();
               break;
             case PageRoutes.leaderboard:
-              builder = (_, _, _) => const Leaderboard();
+              builder = (c, a1, a2) => const Leaderboard();
               break;
             case PageRoutes.level:
-              builder = (_, _, _) => const Level();
+              builder = (c, a1, a2) => const Level();
               break;
             case PageRoutes.privacyPolicy:
-              builder = (_, _, _) => const PrivacyPolicy();
+              builder = (c, a1, a2) => const PrivacyPolicy();
               break;
             case PageRoutes.profile:
-              builder = (_, _, _) => const Profile();
+              builder = (c, a1, a2) => const Profile();
               break;
             case PageRoutes.changeLanguage:
-              builder = (_, _, _) => const LanguageUI();
+              builder = (c, a1, a2) => const LanguageUI();
               break;
             case PageRoutes.contests:
-              builder = (_, _, _) => const Contests();
+              builder = (c, a1, a2) {
+                final matchInfo = settings.arguments as MatchInfo?;
+                return Contests(matchInfo: matchInfo);
+              };
               break;
             case PageRoutes.createNewTeam:
-              builder = (_, _, _) => const CreateNewTeam();
+              builder = (c, a1, a2) => const CreateNewTeam();
               break;
             case PageRoutes.teamPreview:
-              builder = (_, _, _) => const TeamPreview();
+              builder = (c, a1, a2) => const TeamPreview();
               break;
             case PageRoutes.chooseCaptain:
-              builder = (_, _, _) => const ChooseCaptain();
+              builder = (c, a1, a2) => const ChooseCaptain();
               break;
             case PageRoutes.winnings:
-              builder = (_, _, _) => Winnings();
+              builder = (c, a1, a2) => Winnings();
               break;
             case PageRoutes.matchLive:
-              builder = (_, _, _) => const MatchLive();
+              builder = (c, a1, a2) => const MatchLive();
               break;
             case PageRoutes.matchCompleted:
-              builder = (_, _, _) => MatchCompleted();
+              builder = (c, a1, a2) => MatchCompleted();
               break;
             case PageRoutes.support:
-              builder = (_, _, _) => const Support();
+              builder = (c, a1, a2) => const Support();
               break;
             case PageRoutes.wallet:
-              builder = (_, _, _) => const Wallet();
+              builder = (c, a1, a2) => const Wallet();
               break;
           }
           return PageRouteBuilder(pageBuilder: builder, settings: settings);

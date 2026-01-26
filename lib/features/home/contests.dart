@@ -5,19 +5,26 @@ import 'package:fantacy11/features/components/custom_button.dart';
 import 'package:fantacy11/features/components/custom_scaffold.dart';
 import 'package:fantacy11/features/components/my_team_container.dart';
 import 'package:fantacy11/features/components/signle_team_container.dart';
+import 'package:fantacy11/features/match/models/match_info.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/routes/routes.dart';
 import 'package:flutter/material.dart';
 
 class Contests extends StatelessWidget {
-  const Contests({super.key});
+  final MatchInfo? matchInfo;
+
+  const Contests({super.key, this.matchInfo});
 
   @override
   Widget build(BuildContext context) {
     var theme = Theme.of(context);
     var locale = S.of(context);
+    
+    // Use match time from matchInfo or fallback to default
+    final pageTitle = matchInfo?.matchTime ?? '0h 9m left';
+    
     return CustomScaffold(
-      pageTitle: '0h 9m left',
+      pageTitle: pageTitle,
       actions: [
         IconButton(
           icon: Icon(
@@ -28,7 +35,7 @@ class Contests extends StatelessWidget {
             showModalBottomSheet(
               context: context,
               builder: (BuildContext context) {
-                return const SetReminderSheet();
+                return SetReminderSheet(matchInfo: matchInfo);
               },
             );
           },
@@ -46,7 +53,7 @@ class Contests extends StatelessWidget {
         Tab(text: locale.myContestsTwo),
         Tab(text: locale.myTeamThree),
       ],
-      tabBarChild: const SingleTeamContainer(),
+      tabBarChild: SingleTeamContainer(matchInfo: matchInfo),
       tabBarViewItems: [
         FadedSlideAnimation(
           beginOffset: const Offset(0, 2),
@@ -214,7 +221,9 @@ class Contests extends StatelessWidget {
 }
 
 class SetReminderSheet extends StatefulWidget {
-  const SetReminderSheet({super.key});
+  final MatchInfo? matchInfo;
+
+  const SetReminderSheet({super.key, this.matchInfo});
 
   @override
   SetReminderSheetState createState() => SetReminderSheetState();
@@ -257,7 +266,9 @@ class SetReminderSheetState extends State<SetReminderSheet> {
             ),
             ListTile(
               title: Text(
-                locale.matchvs,
+                widget.matchInfo != null
+                    ? 'Match - ${widget.matchInfo!.team1Name} vs ${widget.matchInfo!.team2Name}'
+                    : locale.matchvs,
                 style: theme.textTheme.bodyMedium!.copyWith(
                   fontSize: 14,
                 ),
@@ -281,7 +292,9 @@ class SetReminderSheetState extends State<SetReminderSheet> {
             ListTile(
               tileColor: bgColor,
               title: Text(
-                locale.tour,
+                widget.matchInfo != null
+                    ? 'Tour - ${widget.matchInfo!.leagueName}'
+                    : locale.tour,
                 style: theme.textTheme.bodyMedium!.copyWith(
                   fontSize: 14,
                 ),

@@ -64,19 +64,31 @@ class Fixtures extends StatelessWidget {
         MatchList.vertical(
           '0h 9m',
           'Lineup Announced',
-              () => Navigator.pushNamed(context, PageRoutes.contests),
+          (matchInfo) => Navigator.pushNamed(
+            context,
+            PageRoutes.contests,
+            arguments: matchInfo,
+          ),
           itemCount: 3,
         ),
         MatchList.vertical(
           locale.live,
           '',
-              () => Navigator.pushNamed(context, PageRoutes.matchLive),
+          (matchInfo) => Navigator.pushNamed(
+            context,
+            PageRoutes.matchLive,
+            arguments: matchInfo,
+          ),
           itemCount: 2,
         ),
         MatchList.vertical(
           locale.completed,
           'You\'ve earned \$50',
-              () => Navigator.pushNamed(context, PageRoutes.matchCompleted),
+          (matchInfo) => Navigator.pushNamed(
+            context,
+            PageRoutes.matchCompleted,
+            arguments: matchInfo,
+          ),
           itemCount: 4,
         ),
       ],

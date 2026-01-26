@@ -148,7 +148,11 @@ class HomeState extends State<Home> {
                   MatchList.horizontal(
                     locale.live,
                     '',
-                    () => Navigator.pushNamed(context, PageRoutes.matchLive),
+                    (matchInfo) => Navigator.pushNamed(
+                      context,
+                      PageRoutes.matchLive,
+                      arguments: matchInfo,
+                    ),
                   ),
                   if (_anchoredBanner != null)
                     Container(
@@ -173,7 +177,11 @@ class HomeState extends State<Home> {
                     child: MatchList.vertical(
                       '0h 9m',
                       'Lineup Announced',
-                      () => Navigator.pushNamed(context, PageRoutes.contests),
+                      (matchInfo) => Navigator.pushNamed(
+                        context,
+                        PageRoutes.contests,
+                        arguments: matchInfo,
+                      ),
                     ),
                   ),
                 ],

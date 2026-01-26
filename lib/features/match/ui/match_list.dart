@@ -11,7 +11,7 @@ class MatchList extends StatelessWidget {
   final int? itemCount;
   final String matchTime;
   final String rightText;
-  final VoidCallback? onTap;
+  final void Function(MatchInfo matchInfo)? onTap;
 
   const MatchList(
     this.axis,
@@ -25,7 +25,7 @@ class MatchList extends StatelessWidget {
   factory MatchList.horizontal(
     String matchTime,
     String rightText,
-    VoidCallback? onTap, {
+    void Function(MatchInfo matchInfo)? onTap, {
     int? itemCount,
   }) =>
       MatchList(Axis.horizontal, matchTime, rightText, onTap,
@@ -34,7 +34,7 @@ class MatchList extends StatelessWidget {
   factory MatchList.vertical(
     String matchTime,
     String rightText,
-    VoidCallback? onTap, {
+    void Function(MatchInfo matchInfo)? onTap, {
     int? itemCount,
   }) =>
       MatchList(Axis.vertical, matchTime, rightText, onTap,
@@ -75,7 +75,12 @@ class MatchList extends StatelessWidget {
               scrollDirection: axis,
               itemBuilder: (context, index) {
                 var matchInfo = matches[index]; // Now 'matches' is a List<MatchInfo>
-                return MatchCard(matchInfo, matchTime, rightText, onTap);
+                return MatchCard(
+                  matchInfo,
+                  matchTime,
+                  rightText,
+                  onTap != null ? () => onTap!(matchInfo) : null,
+                );
               },
             );
           }
@@ -167,7 +172,7 @@ class HorizontalMatchListWithData extends StatefulWidget {
   final int? itemCount;
   final String matchTime;
   final String rightText;
-  final VoidCallback? onTap;
+  final void Function(MatchInfo matchInfo)? onTap;
 
   const HorizontalMatchListWithData({ // Use named parameters for clarity
     super.key,
@@ -198,7 +203,11 @@ class HorizontalMatchListWithDataState extends State<HorizontalMatchListWithData
           itemBuilder: (context, index, pageIndex) {
             final matchInfo = matches[index];
             return MatchCard(
-                matchInfo, widget.matchTime, widget.rightText, widget.onTap);
+              matchInfo,
+              widget.matchTime,
+              widget.rightText,
+              widget.onTap != null ? () => widget.onTap!(matchInfo) : null,
+            );
           },
           options: CarouselOptions(
             height: 162,

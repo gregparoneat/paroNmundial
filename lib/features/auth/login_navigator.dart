@@ -34,13 +34,13 @@ class LoginNavigator extends StatelessWidget {
           late Widget Function(BuildContext, Animation, Animation) builder;
           switch (settings.name) {
             case LoginRoutes.loginRoot:
-              builder = (_, _, _) => const LoginPage();
+              builder = (c, a1, a2) => const LoginPage();
               break;
             case LoginRoutes.registration:
-              builder = (_, _, _) => const RegisterPage();
+              builder = (c, a1, a2) => const RegisterPage();
               break;
             case LoginRoutes.verification:
-              builder = (_, _, _) => VerificationPage(
+              builder = (c, a1, a2) => VerificationPage(
                     "",
                     () => Navigator.pushReplacementNamed(
                         context, "/app_navigation"),
