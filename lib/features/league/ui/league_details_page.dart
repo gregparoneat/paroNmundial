@@ -1,0 +1,1275 @@
+import 'package:animation_wrappers/animation_wrappers.dart';
+import 'package:fantacy11/api/repositories/league_repository.dart';
+import 'package:fantacy11/app_config/colors.dart';
+import 'package:fantacy11/features/league/models/league_models.dart';
+import 'package:fantacy11/features/league/ui/team_builder_page.dart';
+import 'package:fantacy11/features/league/ui/widgets/soccer_field_widget.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
+
+/// League details page showing info, members, standings
+class LeagueDetailsPage extends StatefulWidget {
+  final League league;
+  
+  const LeagueDetailsPage({super.key, required this.league});
+
+  @override
+  State<LeagueDetailsPage> createState() => _LeagueDetailsPageState();
+}
+
+class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTickerProviderStateMixin {
+  final LeagueRepository _repository = LeagueRepository();
+  late TabController _tabController;
+  
+  late League _league;
+  List<LeagueMember> _members = [];
+  List<FantasyTeam> _teams = [];
+  LeagueMember? _currentMember;
+  FantasyTeam? _myTeam;
+  bool _isLoading = true;
+  bool _isMember = false;
+  
+  // Formation for team visualization
+  Formation _selectedFormation = Formation.f433;
+
+  @override
+  void initState() {
+    super.initState();
+    _league = widget.league;
+    _tabController = TabController(length: 3, vsync: this);
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    
+    try {
+      await _repository.init();
+      
+      // Reload league data
+      final updatedLeague = await _repository.getLeague(_league.id);
+      if (updatedLeague != null) {
+        _league = updatedLeague;
+      }
+      
+      // Load members
+      final members = await _repository.getLeagueMembers(_league.id);
+      
+      // Load teams for standings
+      final teams = await _repository.getLeagueTeams(_league.id);
+      
+      // Check if current user is a member
+      final currentUser = await _repository.getCurrentUser();
+      final currentMember = members.where((m) => m.oderId == currentUser.oderId).firstOrNull;
+      
+      // Load my team if I'm a member
+      FantasyTeam? myTeam;
+      if (currentMember != null) {
+        myTeam = await _repository.getFantasyTeam(_league.id, currentUser.oderId);
+      }
+      
+      if (mounted) {
+        setState(() {
+          _members = members;
+          _teams = teams;
+          _currentMember = currentMember;
+          _isMember = currentMember != null;
+          _myTeam = myTeam;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading league data: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _joinLeague() async {
+    final member = await _repository.joinLeague(_league.id);
+    if (member != null) {
+      _loadData();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You have joined the league!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  Future<void> _leaveLeague() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Leave League?'),
+        content: const Text('Are you sure you want to leave this league? Your team will be deleted.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Leave'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirm == true) {
+      final success = await _repository.leaveLeague(_league.id);
+      if (success && mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You have left the league')),
+        );
+      }
+    }
+  }
+
+  void _shareInvite() {
+    if (_league.inviteCode != null) {
+      Share.share(_league.shareText);
+    } else {
+      // For public leagues, share the name
+      Share.share('Join ${_league.name} on Fantasy 11!');
+    }
+  }
+
+  void _copyInviteCode() {
+    if (_league.inviteCode != null) {
+      Clipboard.setData(ClipboardData(text: _league.inviteCode!));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invite code copied!')),
+      );
+    }
+  }
+
+  void _navigateToTeamBuilder() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TeamBuilderPage(
+          league: _league,
+          existingTeam: _myTeam,
+        ),
+      ),
+    );
+    _loadData();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : CustomScrollView(
+              slivers: [
+                // App Bar with league banner
+                _buildAppBar(theme),
+                
+                // League info card
+                SliverToBoxAdapter(child: _buildLeagueInfoCard(theme)),
+                
+                // Tab bar
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _SliverTabBarDelegate(
+                    TabBar(
+                      controller: _tabController,
+                      indicatorColor: theme.primaryColor,
+                      labelColor: Colors.white,
+                      unselectedLabelColor: bgTextColor,
+                      tabs: const [
+                        Tab(text: 'Overview'),
+                        Tab(text: 'Members'),
+                        Tab(text: 'Standings'),
+                      ],
+                    ),
+                    theme.colorScheme.surface,
+                  ),
+                ),
+                
+                // Tab content
+                SliverFillRemaining(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildOverviewTab(theme),
+                      _buildMembersTab(theme),
+                      _buildStandingsTab(theme),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+      bottomNavigationBar: _buildBottomBar(theme),
+    );
+  }
+
+  Widget _buildAppBar(ThemeData theme) {
+    return SliverAppBar(
+      expandedHeight: 180,
+      pinned: true,
+      backgroundColor: theme.colorScheme.surface,
+      flexibleSpace: FlexibleSpaceBar(
+        title: Text(
+          _league.name,
+          style: const TextStyle(fontSize: 16),
+        ),
+        background: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                theme.primaryColor.withValues(alpha: 0.8),
+                theme.primaryColor.withValues(alpha: 0.4),
+                theme.colorScheme.surface,
+              ],
+            ),
+          ),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 40),
+              child: Icon(
+                _league.isPrivate ? Icons.lock : Icons.public,
+                size: 64,
+                color: Colors.white.withValues(alpha: 0.3),
+              ),
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        if (_league.isPrivate && _isMember)
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: _shareInvite,
+            tooltip: 'Share invite',
+          ),
+        PopupMenuButton<String>(
+          onSelected: (value) {
+            switch (value) {
+              case 'share':
+                _shareInvite();
+                break;
+              case 'copy':
+                _copyInviteCode();
+                break;
+              case 'leave':
+                _leaveLeague();
+                break;
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'share',
+              child: Row(
+                children: [
+                  Icon(Icons.share, size: 20),
+                  SizedBox(width: 12),
+                  Text('Share'),
+                ],
+              ),
+            ),
+            if (_league.inviteCode != null)
+              const PopupMenuItem(
+                value: 'copy',
+                child: Row(
+                  children: [
+                    Icon(Icons.copy, size: 20),
+                    SizedBox(width: 12),
+                    Text('Copy Code'),
+                  ],
+                ),
+              ),
+            if (_isMember && !_currentMember!.isCreator)
+              const PopupMenuItem(
+                value: 'leave',
+                child: Row(
+                  children: [
+                    Icon(Icons.exit_to_app, size: 20, color: Colors.red),
+                    SizedBox(width: 12),
+                    Text('Leave', style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLeagueInfoCard(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          // Status and type row
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _league.status.color.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _league.status == LeagueStatus.active
+                          ? Icons.circle
+                          : Icons.schedule,
+                      size: 12,
+                      color: _league.status.color,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _league.status.displayName,
+                      style: TextStyle(
+                        color: _league.status.color,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: (_league.isPublic ? Colors.green : Colors.orange)
+                      .withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _league.type.icon,
+                      size: 12,
+                      color: _league.isPublic ? Colors.green : Colors.orange,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _league.type.displayName,
+                      style: TextStyle(
+                        color: _league.isPublic ? Colors.green : Colors.orange,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              if (_league.entryFee != null && _league.entryFee! > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: theme.primaryColor.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '\$${_league.entryFee!.toStringAsFixed(0)} Entry',
+                    style: TextStyle(
+                      color: theme.primaryColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'FREE',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          
+          if (_league.description != null && _league.description!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              _league.description!,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: bgTextColor,
+              ),
+            ),
+          ],
+          
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+          const SizedBox(height: 16),
+          
+          // Stats row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildStatColumn(
+                Icons.people,
+                '${_league.memberCount}/${_league.maxMembers}',
+                'Members',
+              ),
+              _buildStatColumn(
+                Icons.account_balance_wallet,
+                '${_league.budget.toInt()}',
+                'Budget',
+              ),
+              if (_league.prizePool != null && _league.prizePool! > 0)
+                _buildStatColumn(
+                  Icons.emoji_events,
+                  '\$${_league.prizePool!.toStringAsFixed(0)}',
+                  'Prize Pool',
+                  color: Colors.amber,
+                ),
+            ],
+          ),
+          
+          // Invite code for private leagues
+          if (_league.isPrivate && _league.inviteCode != null && _isMember) ...[
+            const SizedBox(height: 16),
+            const Divider(height: 1),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Icon(Icons.vpn_key, color: bgTextColor, size: 16),
+                const SizedBox(width: 8),
+                Text('Invite Code: ', style: TextStyle(color: bgTextColor)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    _league.inviteCode!,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.bold,
+                      color: theme.primaryColor,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 18),
+                  onPressed: _copyInviteCode,
+                  tooltip: 'Copy code',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.share, size: 18),
+                  onPressed: _shareInvite,
+                  tooltip: 'Share',
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatColumn(IconData icon, String value, String label, {Color? color}) {
+    return Column(
+      children: [
+        Icon(icon, color: color ?? bgTextColor, size: 24),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            color: bgTextColor,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOverviewTab(ThemeData theme) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // Match info
+        _buildSectionCard(
+          theme,
+          'Match',
+          Icons.sports_soccer,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _league.matchName ?? 'To Be Determined',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (_league.matchDateTime != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.schedule, size: 16, color: bgTextColor),
+                    const SizedBox(width: 6),
+                    Text(
+                      DateFormat('EEEE, MMM d, yyyy • h:mm a')
+                          .format(_league.matchDateTime!),
+                      style: TextStyle(color: bgTextColor),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        
+        const SizedBox(height: 16),
+        
+        // My Team visualization (if member)
+        if (_isMember)
+          _buildMyTeamSection(theme),
+        
+        if (_isMember) const SizedBox(height: 16),
+        
+        // Rules
+        _buildSectionCard(
+          theme,
+          'Rules',
+          Icons.rule,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildRuleItem('Select 15 players (11 starters + 4 subs) within ${_league.budget.toInt()} credits'),
+              _buildRuleItem('Squad: 2 GK, 5 DEF, 5 MID, 3 FWD'),
+              _buildRuleItem('Captain gets 2x points, Vice-captain gets 1.5x'),
+              _buildRuleItem('Max 4 players from one team'),
+              _buildRuleItem('Team locks when match starts'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMyTeamSection(ThemeData theme) {
+    final hasTeam = _myTeam != null && _myTeam!.players.isNotEmpty;
+    
+    if (!hasTeam) {
+      // No team - show prompt to create one
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: bgColor,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.groups_outlined,
+                size: 40,
+                color: bgTextColor,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No Team Yet',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Build your fantasy team to compete in this league!',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: bgTextColor),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _navigateToTeamBuilder,
+              icon: const Icon(Icons.add),
+              label: const Text('Build Team'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // Has team - show soccer field visualization
+    final players = _myTeam!.players;
+    final starters = _getStartingXI(players);
+    final subs = _getSubstitutes(players);
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header with edit button
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.groups, color: theme.primaryColor),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'My Team',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '${players.length}/15 players • ${_myTeam!.budgetRemaining.toStringAsFixed(1)} credits left',
+                      style: TextStyle(color: bgTextColor, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: _navigateToTeamBuilder,
+                icon: const Icon(Icons.edit),
+                tooltip: 'Edit Team',
+              ),
+            ],
+          ),
+        ),
+        
+        // Formation selector
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          color: theme.colorScheme.surface,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Formation',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: bgTextColor,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 8),
+              FormationSelector(
+                selectedFormation: _selectedFormation,
+                onFormationChanged: (formation) {
+                  setState(() => _selectedFormation = formation);
+                },
+              ),
+            ],
+          ),
+        ),
+        
+        // Soccer field
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: SoccerFieldWidget(
+            players: starters,
+            formation: _selectedFormation,
+            isEditable: false,
+            onPlayerTap: (player) => _showPlayerOptions(player),
+          ),
+        ),
+        
+        // Bench/Substitutes
+        if (subs.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: BenchWidget(
+              benchPlayers: subs,
+              onPlayerTap: (player) => _showPlayerOptions(player),
+            ),
+          ),
+        
+        // Team validation status
+        if (!_myTeam!.isValid)
+          Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orange.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.warning, color: Colors.orange, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Team incomplete - you need ${15 - players.length} more players',
+                    style: const TextStyle(color: Colors.orange, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Get starting XI players (prioritize by position for formation)
+  List<FantasyTeamPlayer> _getStartingXI(List<FantasyTeamPlayer> allPlayers) {
+    // Get required starters for selected formation
+    final gks = allPlayers.where((p) => p.position == PlayerPosition.goalkeeper).take(1).toList();
+    final defs = allPlayers.where((p) => p.position == PlayerPosition.defender).take(_selectedFormation.lines[0]).toList();
+    final mids = allPlayers.where((p) => p.position == PlayerPosition.midfielder).take(_selectedFormation.lines[1]).toList();
+    final fwds = allPlayers.where((p) => 
+        p.position == PlayerPosition.attacker || p.position == PlayerPosition.forward)
+        .take(_selectedFormation.lines[2]).toList();
+    
+    return [...gks, ...defs, ...mids, ...fwds];
+  }
+
+  /// Get substitute players
+  List<FantasyTeamPlayer> _getSubstitutes(List<FantasyTeamPlayer> allPlayers) {
+    final starters = _getStartingXI(allPlayers);
+    final starterIds = starters.map((p) => p.playerId).toSet();
+    return allPlayers.where((p) => !starterIds.contains(p.playerId)).toList();
+  }
+
+  /// Show options for a player (view profile, swap, etc.)
+  void _showPlayerOptions(FantasyTeamPlayer player) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Player info header
+              Row(
+                children: [
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: bgColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        player.playerName.split(' ').map((s) => s.isNotEmpty ? s[0] : '').take(2).join().toUpperCase(),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          player.playerName,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          '${player.position.name} • ${player.teamName}',
+                          style: TextStyle(color: bgTextColor),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (player.isCaptain)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.amber,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text('C', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                    ),
+                  if (player.isViceCaptain)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.grey,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text('VC', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                ],
+              ),
+              
+              const SizedBox(height: 16),
+              const Divider(),
+              
+              // Actions
+              ListTile(
+                leading: const Icon(Icons.edit),
+                title: const Text('Edit Team'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _navigateToTeamBuilder();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRuleItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 6),
+            width: 4,
+            height: 4,
+            decoration: BoxDecoration(
+              color: bgTextColor,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: TextStyle(color: Colors.grey[400])),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMembersTab(ThemeData theme) {
+    if (_members.isEmpty) {
+      return Center(
+        child: Text('No members yet', style: TextStyle(color: bgTextColor)),
+      );
+    }
+    
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _members.length,
+      itemBuilder: (context, index) {
+        final member = _members[index];
+        return FadedSlideAnimation(
+          beginOffset: Offset(0, 0.1 * (index + 1)),
+          endOffset: Offset.zero,
+          child: _buildMemberCard(theme, member, index + 1),
+        );
+      },
+    );
+  }
+
+  Widget _buildMemberCard(ThemeData theme, LeagueMember member, int position) {
+    final isMe = member.oderId == _currentMember?.oderId;
+    
+    return Card(
+      color: isMe ? theme.primaryColor.withValues(alpha: 0.1) : theme.colorScheme.surface,
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: isMe ? BorderSide(color: theme.primaryColor, width: 1) : BorderSide.none,
+      ),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: member.isCreator ? Colors.amber : bgColor,
+          child: member.userImageUrl != null
+              ? ClipOval(
+                  child: Image.network(
+                    member.userImageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Text(
+                      member.userName[0].toUpperCase(),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                )
+              : Text(
+                  member.userName[0].toUpperCase(),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: member.isCreator ? Colors.black : null,
+                  ),
+                ),
+        ),
+        title: Row(
+          children: [
+            Text(
+              member.userName,
+              style: TextStyle(
+                fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+            if (isMe)
+              Container(
+                margin: const EdgeInsets.only(left: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: theme.primaryColor,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'YOU',
+                  style: TextStyle(fontSize: 10, color: Colors.white),
+                ),
+              ),
+            if (member.isCreator)
+              Container(
+                margin: const EdgeInsets.only(left: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.amber,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'CREATOR',
+                  style: TextStyle(fontSize: 10, color: Colors.black),
+                ),
+              ),
+          ],
+        ),
+        subtitle: Text(
+          member.hasTeam ? 'Team created' : 'No team yet',
+          style: TextStyle(
+            color: member.hasTeam ? Colors.green : bgTextColor,
+            fontSize: 12,
+          ),
+        ),
+        trailing: member.totalPoints > 0
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${member.totalPoints.toStringAsFixed(1)} pts',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: theme.primaryColor,
+                    ),
+                  ),
+                  Text(
+                    '#$position',
+                    style: TextStyle(color: bgTextColor, fontSize: 12),
+                  ),
+                ],
+              )
+            : null,
+      ),
+    );
+  }
+
+  Widget _buildStandingsTab(ThemeData theme) {
+    if (_teams.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.leaderboard, size: 64, color: bgTextColor),
+            const SizedBox(height: 16),
+            Text(
+              'No standings yet',
+              style: theme.textTheme.titleMedium?.copyWith(color: bgTextColor),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Standings will appear after match starts',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _teams.length,
+      itemBuilder: (context, index) {
+        final team = _teams[index];
+        final position = index + 1;
+        
+        return FadedSlideAnimation(
+          beginOffset: Offset(0, 0.1 * (index + 1)),
+          endOffset: Offset.zero,
+          child: _buildStandingCard(theme, team, position),
+        );
+      },
+    );
+  }
+
+  Widget _buildStandingCard(ThemeData theme, FantasyTeam team, int position) {
+    final isMe = team.userId == _currentMember?.oderId;
+    
+    Color? positionColor;
+    if (position == 1) positionColor = Colors.amber;
+    else if (position == 2) positionColor = Colors.grey[400];
+    else if (position == 3) positionColor = Colors.orange[300];
+    
+    return Card(
+      color: isMe ? theme.primaryColor.withValues(alpha: 0.1) : theme.colorScheme.surface,
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: isMe ? BorderSide(color: theme.primaryColor, width: 1) : BorderSide.none,
+      ),
+      child: ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: positionColor?.withValues(alpha: 0.2) ?? bgColor,
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Text(
+              '#$position',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: positionColor,
+              ),
+            ),
+          ),
+        ),
+        title: Row(
+          children: [
+            Text(
+              team.userName,
+              style: TextStyle(
+                fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+            if (isMe)
+              Container(
+                margin: const EdgeInsets.only(left: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: theme.primaryColor,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'YOU',
+                  style: TextStyle(fontSize: 10, color: Colors.white),
+                ),
+              ),
+          ],
+        ),
+        subtitle: Text(
+          '${team.players.length} players • ${team.budgetRemaining.toStringAsFixed(1)} credits left',
+          style: TextStyle(color: bgTextColor, fontSize: 12),
+        ),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '${team.totalPoints.toStringAsFixed(1)}',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+                color: theme.primaryColor,
+              ),
+            ),
+            Text(
+              'points',
+              style: TextStyle(color: bgTextColor, fontSize: 10),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionCard(ThemeData theme, String title, IconData icon, Widget child) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: theme.primaryColor, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(ThemeData theme) {
+    if (_isLoading) return const SizedBox.shrink();
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 10,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: _isMember
+            ? ElevatedButton(
+                onPressed: _league.status == LeagueStatus.draft
+                    ? _navigateToTeamBuilder
+                    : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _myTeam != null && _myTeam!.players.isNotEmpty
+                          ? Icons.edit
+                          : Icons.add,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _myTeam != null && _myTeam!.players.isNotEmpty
+                          ? 'Edit Team'
+                          : 'Build Team',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : ElevatedButton(
+                onPressed: _league.canJoin ? _joinLeague : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.login),
+                    const SizedBox(width: 8),
+                    Text(
+                      _league.isFull
+                          ? 'League Full'
+                          : _league.entryFee != null && _league.entryFee! > 0
+                              ? 'Join (\$${_league.entryFee!.toStringAsFixed(0)})'
+                              : 'Join League',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
+  final TabBar tabBar;
+  final Color backgroundColor;
+
+  _SliverTabBarDelegate(this.tabBar, this.backgroundColor);
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: backgroundColor,
+      child: tabBar,
+    );
+  }
+
+  @override
+  double get maxExtent => tabBar.preferredSize.height;
+
+  @override
+  double get minExtent => tabBar.preferredSize.height;
+
+  @override
+  bool shouldRebuild(covariant _SliverTabBarDelegate oldDelegate) {
+    return tabBar != oldDelegate.tabBar;
+  }
+}
+

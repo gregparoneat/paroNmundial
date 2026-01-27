@@ -353,6 +353,122 @@ class SportMonksClient {
     );
   }
 
+  /// Get all teams with their players (current roster)
+  /// Since the API plan only covers Liga MX, this returns only Liga MX teams
+  /// The players array contains basic player info including IDs
+  Future<SportMonksResponse<List<Map<String, dynamic>>>> getAllTeamsWithPlayers({
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+      'include': 'players',  // Simple include to get player list with basic info
+    };
+    
+    return get<List<Map<String, dynamic>>>(
+      '/teams',
+      queryParams: queryParams,
+      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+    );
+  }
+
+  /// Get all players with pagination
+  /// Returns players with full details
+  Future<SportMonksResponse<List<Map<String, dynamic>>>> getAllPlayers({
+    List<String>? includes,
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+    };
+    
+    final defaultIncludes = includes ?? [
+      'nationality',
+      'position',
+      'detailedPosition',
+      'currentTeam',
+      'statistics.details',
+    ];
+    queryParams['include'] = SportMonksConfig.buildIncludes(defaultIncludes);
+    
+    return get<List<Map<String, dynamic>>>(
+      '/players',
+      queryParams: queryParams,
+      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+    );
+  }
+
+  /// Get teams by season ID with their current squad
+  Future<SportMonksResponse<List<Map<String, dynamic>>>> getTeamsBySeason(
+    int seasonId, {
+    List<String>? includes,
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+    };
+    
+    final defaultIncludes = includes ?? [
+      'players.player.nationality',
+      'players.player.position',
+      'players.player.statistics.details',
+    ];
+    queryParams['include'] = SportMonksConfig.buildIncludes(defaultIncludes);
+    
+    return get<List<Map<String, dynamic>>>(
+      '/teams/seasons/$seasonId',
+      queryParams: queryParams,
+      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+    );
+  }
+
+  /// Get standings for a season (includes team IDs)
+  Future<SportMonksResponse<List<Map<String, dynamic>>>> getStandingsBySeason(
+    int seasonId, {
+    List<String>? includes,
+  }) async {
+    final queryParams = <String, String>{};
+    
+    final defaultIncludes = includes ?? [
+      'participant',  // Team info
+    ];
+    queryParams['include'] = SportMonksConfig.buildIncludes(defaultIncludes);
+    
+    return get<List<Map<String, dynamic>>>(
+      '/standings/seasons/$seasonId',
+      queryParams: queryParams,
+      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+    );
+  }
+
+  /// Get multiple players by IDs in a single request
+  Future<SportMonksResponse<List<Map<String, dynamic>>>> getPlayersByIds(
+    List<int> playerIds, {
+    List<String>? includes,
+  }) async {
+    if (playerIds.isEmpty) {
+      return SportMonksResponse(data: []);
+    }
+    
+    final queryParams = <String, String>{};
+    final defaultIncludes = includes ?? SportMonksConfig.playerIncludes;
+    queryParams['include'] = SportMonksConfig.buildIncludes(defaultIncludes);
+    
+    // Join player IDs with comma
+    final idsStr = playerIds.take(50).join(','); // API limit
+    queryParams['filters'] = 'playerIds:$idsStr';
+    
+    return get<List<Map<String, dynamic>>>(
+      '/players',
+      queryParams: queryParams,
+      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+    );
+  }
   /// Dispose the client
   void dispose() {
     _httpClient.close();

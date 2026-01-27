@@ -1187,6 +1187,483 @@ class S {
   String get submit {
     return Intl.message('Submit', name: 'submit', desc: '', args: []);
   }
+
+  // ==================== Player Profile Localizations ====================
+
+  /// `Player Details`
+  String get playerDetails {
+    return Intl.message('Player Details', name: 'playerDetails', desc: '', args: []);
+  }
+
+  /// `Player not found`
+  String get playerNotFound {
+    return Intl.message('Player not found', name: 'playerNotFound', desc: '', args: []);
+  }
+
+  /// `Fantasy Points Prediction`
+  String get fantasyPointsPrediction {
+    return Intl.message('Fantasy Points Prediction', name: 'fantasyPointsPrediction', desc: '', args: []);
+  }
+
+  /// `Last 5 Form`
+  String get last5Form {
+    return Intl.message('Last 5 Form', name: 'last5Form', desc: '', args: []);
+  }
+
+  /// `Confidence`
+  String get confidence {
+    return Intl.message('Confidence', name: 'confidence', desc: '', args: []);
+  }
+
+  /// `Key Factors`
+  String get keyFactors {
+    return Intl.message('Key Factors', name: 'keyFactors', desc: '', args: []);
+  }
+
+  /// `Loading next match...`
+  String get loadingNextMatch {
+    return Intl.message('Loading next match...', name: 'loadingNextMatch', desc: '', args: []);
+  }
+
+  /// `Next Match`
+  String get nextMatch {
+    return Intl.message('Next Match', name: 'nextMatch', desc: '', args: []);
+  }
+
+  /// `Tournament Statistics`
+  String get tournamentStatistics {
+    return Intl.message('Tournament Statistics', name: 'tournamentStatistics', desc: '', args: []);
+  }
+
+  /// `Recent Form`
+  String get recentForm {
+    return Intl.message('Recent Form', name: 'recentForm', desc: '', args: []);
+  }
+
+  /// `matches`
+  String get matches {
+    return Intl.message('matches', name: 'matches', desc: '', args: []);
+  }
+
+  /// `Last {count} matches`
+  String lastNMatches(int count) {
+    return Intl.message(
+      'Last $count matches',
+      name: 'lastNMatches',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count} matches`
+  String nMatches(int count) {
+    return Intl.message(
+      '$count matches',
+      name: 'nMatches',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Loading tournament stats...`
+  String get loadingTournamentStats {
+    return Intl.message('Loading tournament stats...', name: 'loadingTournamentStats', desc: '', args: []);
+  }
+
+  /// `Games`
+  String get games {
+    return Intl.message('Games', name: 'games', desc: '', args: []);
+  }
+
+  /// `Minutes`
+  String get minutes {
+    return Intl.message('Minutes', name: 'minutes', desc: '', args: []);
+  }
+
+  /// `Yellow`
+  String get yellow {
+    return Intl.message('Yellow', name: 'yellow', desc: '', args: []);
+  }
+
+  /// `Red`
+  String get red {
+    return Intl.message('Red', name: 'red', desc: '', args: []);
+  }
+
+  /// `Clean Sheets`
+  String get cleanSheets {
+    return Intl.message('Clean Sheets', name: 'cleanSheets', desc: '', args: []);
+  }
+
+  /// `Saves`
+  String get saves {
+    return Intl.message('Saves', name: 'saves', desc: '', args: []);
+  }
+
+  /// `Avg Rating`
+  String get avgRating {
+    return Intl.message('Avg Rating', name: 'avgRating', desc: '', args: []);
+  }
+
+  /// `Full Season Statistics`
+  String get fullSeasonStatistics {
+    return Intl.message('Full Season Statistics', name: 'fullSeasonStatistics', desc: '', args: []);
+  }
+
+  /// `Includes Apertura + Clausura tournaments`
+  String get includesAperturaClausura {
+    return Intl.message('Includes Apertura + Clausura tournaments', name: 'includesAperturaClausura', desc: '', args: []);
+  }
+
+  /// `Appearances`
+  String get appearances {
+    return Intl.message('Appearances', name: 'appearances', desc: '', args: []);
+  }
+
+  /// `Age`
+  String get age {
+    return Intl.message('Age', name: 'age', desc: '', args: []);
+  }
+
+  /// `Height`
+  String get height {
+    return Intl.message('Height', name: 'height', desc: '', args: []);
+  }
+
+  /// `Weight`
+  String get weight {
+    return Intl.message('Weight', name: 'weight', desc: '', args: []);
+  }
+
+  /// `Nationality`
+  String get nationality {
+    return Intl.message('Nationality', name: 'nationality', desc: '', args: []);
+  }
+
+  /// `Position`
+  String get position {
+    return Intl.message('Position', name: 'position', desc: '', args: []);
+  }
+
+  /// `Team`
+  String get team {
+    return Intl.message('Team', name: 'team', desc: '', args: []);
+  }
+
+  /// `years old`
+  String get yearsOld {
+    return Intl.message('years old', name: 'yearsOld', desc: '', args: []);
+  }
+
+  /// `Based on {position} metrics`
+  String basedOnMetrics(String position) {
+    return Intl.message(
+      'Based on $position metrics',
+      name: 'basedOnMetrics',
+      desc: '',
+      args: [position],
+    );
+  }
+
+  /// `Season averages`
+  String get seasonAverages {
+    return Intl.message('Season averages', name: 'seasonAverages', desc: '', args: []);
+  }
+
+  /// `matchup`
+  String get matchup {
+    return Intl.message('matchup', name: 'matchup', desc: '', args: []);
+  }
+
+  /// `Elite Pick`
+  String get elitePick {
+    return Intl.message('Elite Pick', name: 'elitePick', desc: '', args: []);
+  }
+
+  /// `Strong Pick`
+  String get strongPick {
+    return Intl.message('Strong Pick', name: 'strongPick', desc: '', args: []);
+  }
+
+  /// `Good Pick`
+  String get goodPick {
+    return Intl.message('Good Pick', name: 'goodPick', desc: '', args: []);
+  }
+
+  /// `Risky Pick`
+  String get riskyPick {
+    return Intl.message('Risky Pick', name: 'riskyPick', desc: '', args: []);
+  }
+
+  /// `Avoid`
+  String get avoid {
+    return Intl.message('Avoid', name: 'avoid', desc: '', args: []);
+  }
+
+  /// `Excellent`
+  String get excellent {
+    return Intl.message('Excellent', name: 'excellent', desc: '', args: []);
+  }
+
+  /// `Good`
+  String get good {
+    return Intl.message('Good', name: 'good', desc: '', args: []);
+  }
+
+  /// `Average`
+  String get average {
+    return Intl.message('Average', name: 'average', desc: '', args: []);
+  }
+
+  /// `Poor`
+  String get poor {
+    return Intl.message('Poor', name: 'poor', desc: '', args: []);
+  }
+
+  /// `Very High`
+  String get veryHigh {
+    return Intl.message('Very High', name: 'veryHigh', desc: '', args: []);
+  }
+
+  /// `High`
+  String get high {
+    return Intl.message('High', name: 'high', desc: '', args: []);
+  }
+
+  /// `Medium`
+  String get medium {
+    return Intl.message('Medium', name: 'medium', desc: '', args: []);
+  }
+
+  /// `Low`
+  String get low {
+    return Intl.message('Low', name: 'low', desc: '', args: []);
+  }
+
+  /// `Goalkeeper`
+  String get goalkeeper {
+    return Intl.message('Goalkeeper', name: 'goalkeeper', desc: '', args: []);
+  }
+
+  /// `Defender`
+  String get defender {
+    return Intl.message('Defender', name: 'defender', desc: '', args: []);
+  }
+
+  /// `Midfielder`
+  String get midfielder {
+    return Intl.message('Midfielder', name: 'midfielder', desc: '', args: []);
+  }
+
+  /// `Attacker`
+  String get attacker {
+    return Intl.message('Attacker', name: 'attacker', desc: '', args: []);
+  }
+
+  /// `Forward`
+  String get forward {
+    return Intl.message('Forward', name: 'forward', desc: '', args: []);
+  }
+
+  /// `Search Players`
+  String get searchPlayers {
+    return Intl.message('Search Players', name: 'searchPlayers', desc: '', args: []);
+  }
+
+  /// `Search by name...`
+  String get searchByName {
+    return Intl.message('Search by name...', name: 'searchByName', desc: '', args: []);
+  }
+
+  /// `No players found`
+  String get noPlayersFound {
+    return Intl.message('No players found', name: 'noPlayersFound', desc: '', args: []);
+  }
+
+  /// `Recent Searches`
+  String get recentSearches {
+    return Intl.message('Recent Searches', name: 'recentSearches', desc: '', args: []);
+  }
+
+  /// `Clear All`
+  String get clearAll {
+    return Intl.message('Clear All', name: 'clearAll', desc: '', args: []);
+  }
+
+  /// `Statistics`
+  String get statistics {
+    return Intl.message('Statistics', name: 'statistics', desc: '', args: []);
+  }
+
+  /// `{stageName} Statistics`
+  String stageStatistics(String stageName) {
+    return Intl.message(
+      '$stageName Statistics',
+      name: 'stageStatistics',
+      desc: '',
+      args: [stageName],
+    );
+  }
+
+  /// `Transfer History`
+  String get transferHistory {
+    return Intl.message('Transfer History', name: 'transferHistory', desc: '', args: []);
+  }
+
+  /// `Current Team`
+  String get currentTeam {
+    return Intl.message('Current Team', name: 'currentTeam', desc: '', args: []);
+  }
+
+  /// `Previous Teams`
+  String get previousTeams {
+    return Intl.message('Previous Teams', name: 'previousTeams', desc: '', args: []);
+  }
+
+  /// `Jersey Number`
+  String get jerseyNumber {
+    return Intl.message('Jersey Number', name: 'jerseyNumber', desc: '', args: []);
+  }
+
+  /// `Rating`
+  String get rating {
+    return Intl.message('Rating', name: 'rating', desc: '', args: []);
+  }
+
+  /// `vs`
+  String get vs {
+    return Intl.message('vs', name: 'vs', desc: '', args: []);
+  }
+
+  /// `Player Info`
+  String get playerInfo {
+    return Intl.message('Player Info', name: 'playerInfo', desc: '', args: []);
+  }
+
+  /// `Date of Birth`
+  String get dateOfBirth {
+    return Intl.message('Date of Birth', name: 'dateOfBirth', desc: '', args: []);
+  }
+
+  /// `Role`
+  String get role {
+    return Intl.message('Role', name: 'role', desc: '', args: []);
+  }
+
+  /// `Captain`
+  String get captain {
+    return Intl.message('Captain', name: 'captain', desc: '', args: []);
+  }
+
+  /// `Transfers`
+  String get transfers {
+    return Intl.message('Transfers', name: 'transfers', desc: '', args: []);
+  }
+
+  /// `Apps`
+  String get apps {
+    return Intl.message('Apps', name: 'apps', desc: '', args: []);
+  }
+
+  /// `Average Rating`
+  String get averageRating {
+    return Intl.message('Average Rating', name: 'averageRating', desc: '', args: []);
+  }
+
+  /// `Career Totals`
+  String get careerTotals {
+    return Intl.message('Career Totals', name: 'careerTotals', desc: '', args: []);
+  }
+
+  /// `Clear History`
+  String get clearHistoryTitle {
+    return Intl.message('Clear History', name: 'clearHistoryTitle', desc: '', args: []);
+  }
+
+  /// `Are you sure you want to clear your recent players history?`
+  String get clearHistoryMessage {
+    return Intl.message(
+      'Are you sure you want to clear your recent players history?',
+      name: 'clearHistoryMessage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Cancel`
+  String get cancel {
+    return Intl.message('Cancel', name: 'cancel', desc: '', args: []);
+  }
+
+  /// `Clear`
+  String get clear {
+    return Intl.message('Clear', name: 'clear', desc: '', args: []);
+  }
+
+  /// `Search history cleared`
+  String get searchHistoryCleared {
+    return Intl.message('Search history cleared', name: 'searchHistoryCleared', desc: '', args: []);
+  }
+
+  /// `Search players by name...`
+  String get searchPlayersHint {
+    return Intl.message('Search players by name...', name: 'searchPlayersHint', desc: '', args: []);
+  }
+
+  /// `Retry`
+  String get retry {
+    return Intl.message('Retry', name: 'retry', desc: '', args: []);
+  }
+
+  /// `No players found for "{query}"`
+  String noPlayersFoundFor(String query) {
+    return Intl.message(
+      'No players found for "$query"',
+      name: 'noPlayersFoundFor',
+      desc: '',
+      args: [query],
+    );
+  }
+
+  /// `Try a different search term`
+  String get tryDifferentSearch {
+    return Intl.message('Try a different search term', name: 'tryDifferentSearch', desc: '', args: []);
+  }
+
+  /// `Search Results`
+  String get searchResultsTitle {
+    return Intl.message('Search Results', name: 'searchResultsTitle', desc: '', args: []);
+  }
+
+  /// `Recent Players`
+  String get recentPlayersTitle {
+    return Intl.message('Recent Players', name: 'recentPlayersTitle', desc: '', args: []);
+  }
+
+  /// `Search for Players`
+  String get searchForPlayers {
+    return Intl.message('Search for Players', name: 'searchForPlayers', desc: '', args: []);
+  }
+
+  /// `Enter at least 3 characters to search`
+  String get enterAtLeast3Chars {
+    return Intl.message('Enter at least 3 characters to search', name: 'enterAtLeast3Chars', desc: '', args: []);
+  }
+
+  /// `Last {count} matches`
+  String lastMatchesPlus(int count) {
+    return Intl.message(
+      'Last $count matches',
+      name: 'lastMatchesPlus',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `+ matchup`
+  String get plusMatchup {
+    return Intl.message('+ matchup', name: 'plusMatchup', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

@@ -7,6 +7,7 @@ import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/fantasy/fantasy_points_predictor.dart';
 import 'package:fantacy11/features/match/models/match_info.dart';
 import 'package:fantacy11/features/player/models/player_info.dart';
+import 'package:fantacy11/generated/l10n.dart';
 import 'package:flutter/material.dart';
 
 class PlayerDetailsPage extends StatefulWidget {
@@ -362,11 +363,11 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
-          title: const Text('Player Details'),
+          title: Text(S.of(context).playerDetails),
         ),
         body: Center(
           child: Text(
-            _error ?? 'Player not found',
+            _error ?? S.of(context).playerNotFound,
             style: TextStyle(color: iconColor),
           ),
         ),
@@ -706,7 +707,7 @@ class _PlayerDetailsContent extends StatelessWidget {
               Icon(Icons.auto_graph, color: Color(prediction.tierColorValue), size: 20),
               const SizedBox(width: 8),
               Text(
-                'Fantasy Points Prediction',
+                S.of(context).fantasyPointsPrediction,
                 style: theme.textTheme.bodyMedium!.copyWith(
                   color: bgTextColor,
                   fontSize: 12,
@@ -760,7 +761,7 @@ class _PlayerDetailsContent extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      'Last 5 Form',
+                      S.of(context).last5Form,
                       style: theme.textTheme.bodySmall!.copyWith(
                         color: Colors.grey[600],
                         fontSize: 10,
@@ -781,7 +782,7 @@ class _PlayerDetailsContent extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    'Confidence',
+                    S.of(context).confidence,
                     style: theme.textTheme.bodySmall!.copyWith(
                       color: Colors.grey[600],
                       fontSize: 10,
@@ -813,7 +814,7 @@ class _PlayerDetailsContent extends StatelessWidget {
 
           // Top Factors
           Text(
-            'Key Factors',
+            S.of(context).keyFactors,
             style: theme.textTheme.bodySmall!.copyWith(
               color: bgTextColor,
               fontSize: 11,
@@ -873,7 +874,7 @@ class _PlayerDetailsContent extends StatelessWidget {
                 ),
               Expanded(
                 child: Text(
-                  _getDataSourceDescription(prediction),
+                  _getDataSourceDescription(context, prediction),
                   style: theme.textTheme.bodySmall!.copyWith(
                     color: Colors.grey[600],
                     fontSize: 10,
@@ -888,20 +889,20 @@ class _PlayerDetailsContent extends StatelessWidget {
     );
   }
 
-  String _getDataSourceDescription(FantasyPrediction prediction) {
+  String _getDataSourceDescription(BuildContext context, FantasyPrediction prediction) {
     final hasRealRecentForm = recentMatchStats != null && recentMatchStats!.matchesPlayed > 0;
     final matchCount = recentMatchStats?.matchesPlayed ?? 0;
     
-    String base = 'Based on ${prediction.position} metrics';
+    String base = S.of(context).basedOnMetrics(prediction.position);
     
     if (hasRealRecentForm) {
-      base += ' • Last $matchCount matches';
+      base += ' • ${S.of(context).lastMatchesPlus(matchCount)}';
     } else {
-      base += ' • Season averages';
+      base += ' • ${S.of(context).seasonAverages}';
     }
     
     if (prediction.hasOpponentAnalysis) {
-      base += ' + matchup';
+      base += ' ${S.of(context).plusMatchup}';
     }
     
     return base;
@@ -930,7 +931,7 @@ class _PlayerDetailsContent extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Text(
-              'Loading next match...',
+              S.of(context).loadingNextMatch,
               style: theme.textTheme.bodySmall!.copyWith(
                 color: Colors.grey[500],
               ),
@@ -976,7 +977,7 @@ class _PlayerDetailsContent extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               Text(
-                'Next Match',
+                S.of(context).nextMatch,
                 style: theme.textTheme.bodySmall!.copyWith(
                   fontWeight: FontWeight.w600,
                   color: difficultyColor,
@@ -1204,25 +1205,25 @@ class _PlayerDetailsContent extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildStatItem(context, 'Age', '${player.age ?? "-"}', Icons.cake),
+          _buildStatItem(context, S.of(context).age, '${player.age ?? "-"}', Icons.cake),
           _buildStatDivider(),
           // Show goals if stats available, otherwise height
           if (currentSeasonStats?.goals != null)
-            _buildStatItem(context, 'Goals', '${currentSeasonStats!.goals}', Icons.sports_score)
+            _buildStatItem(context, S.of(context).goals, '${currentSeasonStats!.goals}', Icons.sports_score)
           else
-            _buildStatItem(context, 'Height', player.formattedHeight, Icons.height),
+            _buildStatItem(context, S.of(context).height, player.formattedHeight, Icons.height),
           _buildStatDivider(),
           // Show assists if stats available, otherwise weight
           if (currentSeasonStats?.assists != null)
-            _buildStatItem(context, 'Assists', '${currentSeasonStats!.assists}', Icons.handshake)
+            _buildStatItem(context, S.of(context).assists, '${currentSeasonStats!.assists}', Icons.handshake)
           else
-            _buildStatItem(context, 'Weight', player.formattedWeight, Icons.fitness_center),
+            _buildStatItem(context, S.of(context).weight, player.formattedWeight, Icons.fitness_center),
           _buildStatDivider(),
           // Show appearances if stats available, otherwise transfers
           if (currentSeasonStats?.appearances != null)
-            _buildStatItem(context, 'Apps', '${currentSeasonStats!.appearances}', Icons.sports_soccer)
+            _buildStatItem(context, S.of(context).apps, '${currentSeasonStats!.appearances}', Icons.sports_soccer)
           else
-            _buildStatItem(context, 'Transfers', '${player.transfers.length}', Icons.swap_horiz),
+            _buildStatItem(context, S.of(context).transfers, '${player.transfers.length}', Icons.swap_horiz),
         ],
       ),
     );
@@ -1279,7 +1280,7 @@ class _PlayerDetailsContent extends StatelessWidget {
               Icon(Icons.info_outline, color: theme.primaryColor, size: 20),
               const SizedBox(width: 8),
               Text(
-                'Player Info',
+                S.of(context).playerInfo,
                 style: theme.textTheme.bodyMedium!.copyWith(
                   color: bgTextColor,
                   fontSize: 12,
@@ -1288,13 +1289,13 @@ class _PlayerDetailsContent extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _buildInfoRow(context, 'Full Name', player.name),
-          _buildInfoRow(context, 'Date of Birth', player.dateOfBirth ?? '-'),
+          _buildInfoRow(context, S.of(context).fullName, player.name),
+          _buildInfoRow(context, S.of(context).dateOfBirth, player.dateOfBirth ?? '-'),
           _buildInfoRow(
-              context, 'Nationality', player.nationality?.name ?? '-'),
-          _buildInfoRow(context, 'Position',
+              context, S.of(context).nationality, player.nationality?.name ?? '-'),
+          _buildInfoRow(context, S.of(context).position,
               player.detailedPosition?.name ?? player.position?.name ?? '-'),
-          if (player.isCaptain) _buildInfoRow(context, 'Role', '⭐ Captain'),
+          if (player.isCaptain) _buildInfoRow(context, S.of(context).role, '⭐ ${S.of(context).captain}'),
         ],
       ),
     );
@@ -1379,7 +1380,7 @@ class _PlayerDetailsContent extends StatelessWidget {
                 Icon(Icons.trending_up, color: theme.primaryColor, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  stageName != null ? '$stageName Statistics' : 'Tournament Statistics',
+                  stageName != null ? S.of(context).stageStatistics(stageName) : S.of(context).tournamentStatistics,
                   style: theme.textTheme.bodyMedium!.copyWith(
                     color: bgTextColor,
                     fontSize: 12,
@@ -1399,7 +1400,7 @@ class _PlayerDetailsContent extends StatelessWidget {
             const SizedBox(height: 24),
             Center(
               child: Text(
-                'Loading tournament stats...',
+                S.of(context).loadingTournamentStats,
                 style: theme.textTheme.bodySmall!.copyWith(color: Colors.grey),
               ),
             ),
@@ -1413,11 +1414,11 @@ class _PlayerDetailsContent extends StatelessWidget {
     
     // Determine the label based on whether we have actual tournament data or just recent form
     final sectionTitle = isTournamentData && stageName != null 
-        ? '$stageName Statistics' 
-        : 'Recent Form';
+        ? S.of(context).stageStatistics(stageName) 
+        : S.of(context).recentForm;
     final badgeText = isTournamentData 
-        ? '${stats.matchesPlayed} matches' 
-        : 'Last ${stats.matchesPlayed} matches';
+        ? S.of(context).nMatches(stats.matchesPlayed) 
+        : S.of(context).lastNMatches(stats.matchesPlayed);
     
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1466,21 +1467,21 @@ class _PlayerDetailsContent extends StatelessWidget {
           // Stats from tournament matches
           Row(
             children: [
-              _buildStatBox(context, 'Games', stats.matchesPlayed.toString(), Icons.sports_soccer),
+              _buildStatBox(context, S.of(context).games, stats.matchesPlayed.toString(), Icons.sports_soccer),
               const SizedBox(width: 12),
-              _buildStatBox(context, 'Goals', stats.goals.toString(), Icons.sports_score),
+              _buildStatBox(context, S.of(context).goals, stats.goals.toString(), Icons.sports_score),
               const SizedBox(width: 12),
-              _buildStatBox(context, 'Assists', stats.assists.toString(), Icons.handshake),
+              _buildStatBox(context, S.of(context).assists, stats.assists.toString(), Icons.handshake),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              _buildStatBox(context, 'Minutes', _formatMinutes(stats.minutesPlayed), Icons.timer),
+              _buildStatBox(context, S.of(context).minutes, _formatMinutes(stats.minutesPlayed), Icons.timer),
               const SizedBox(width: 12),
-              _buildStatBox(context, 'Yellow', stats.yellowCards.toString(), Icons.square, color: Colors.amber),
+              _buildStatBox(context, S.of(context).yellow, stats.yellowCards.toString(), Icons.square, color: Colors.amber),
               const SizedBox(width: 12),
-              _buildStatBox(context, 'Red', stats.redCards.toString(), Icons.square, color: Colors.red),
+              _buildStatBox(context, S.of(context).red, stats.redCards.toString(), Icons.square, color: Colors.red),
             ],
           ),
 
@@ -1489,9 +1490,9 @@ class _PlayerDetailsContent extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
-                Expanded(child: _buildStatBox(context, 'Clean Sheets', stats.cleanSheets.toString(), Icons.shield)),
+                Expanded(child: _buildStatBox(context, S.of(context).cleanSheets, stats.cleanSheets.toString(), Icons.shield)),
                 const SizedBox(width: 12),
-                Expanded(child: _buildStatBox(context, 'Saves', stats.saves.toString(), Icons.sports_handball)),
+                Expanded(child: _buildStatBox(context, S.of(context).saves, stats.saves.toString(), Icons.sports_handball)),
                 const SizedBox(width: 12),
                 const Expanded(child: SizedBox()), // Placeholder
               ],
@@ -1514,7 +1515,7 @@ class _PlayerDetailsContent extends StatelessWidget {
                   Icon(Icons.star, color: Colors.amber, size: 16),
                   const SizedBox(width: 6),
                   Text(
-                    'Avg Rating: ${stats.averageRating!.toStringAsFixed(2)}',
+                    '${S.of(context).avgRating}: ${stats.averageRating!.toStringAsFixed(2)}',
                     style: theme.textTheme.bodyMedium!.copyWith(
                       fontWeight: FontWeight.w500,
                     ),
@@ -1547,7 +1548,7 @@ class _PlayerDetailsContent extends StatelessWidget {
               Icon(Icons.bar_chart, color: Colors.grey[600], size: 20),
               const SizedBox(width: 8),
               Text(
-                'Full Season Statistics',
+                S.of(context).fullSeasonStatistics,
                 style: theme.textTheme.bodyMedium!.copyWith(
                   color: bgTextColor,
                   fontSize: 12,
@@ -1575,7 +1576,7 @@ class _PlayerDetailsContent extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              'Includes Apertura + Clausura tournaments',
+              S.of(context).includesAperturaClausura,
               style: theme.textTheme.bodySmall!.copyWith(
                 color: Colors.grey[500],
                 fontSize: 10,
@@ -1588,21 +1589,21 @@ class _PlayerDetailsContent extends StatelessWidget {
           // Main stats grid
           Row(
             children: [
-              _buildStatBox(context, 'Appearances', stats.appearances?.toString() ?? '-', Icons.sports_soccer),
+              _buildStatBox(context, S.of(context).appearances, stats.appearances?.toString() ?? '-', Icons.sports_soccer),
               const SizedBox(width: 12),
-              _buildStatBox(context, 'Goals', stats.goals?.toString() ?? '-', Icons.sports_score),
+              _buildStatBox(context, S.of(context).goals, stats.goals?.toString() ?? '-', Icons.sports_score),
               const SizedBox(width: 12),
-              _buildStatBox(context, 'Assists', stats.assists?.toString() ?? '-', Icons.handshake),
+              _buildStatBox(context, S.of(context).assists, stats.assists?.toString() ?? '-', Icons.handshake),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              _buildStatBox(context, 'Minutes', stats.formattedMinutes, Icons.timer),
+              _buildStatBox(context, S.of(context).minutes, stats.formattedMinutes, Icons.timer),
               const SizedBox(width: 12),
-              _buildStatBox(context, 'Yellow', stats.yellowCards?.toString() ?? '-', Icons.square, color: Colors.amber),
+              _buildStatBox(context, S.of(context).yellow, stats.yellowCards?.toString() ?? '-', Icons.square, color: Colors.amber),
               const SizedBox(width: 12),
-              _buildStatBox(context, 'Red', stats.redCards?.toString() ?? '-', Icons.square, color: Colors.red),
+              _buildStatBox(context, S.of(context).red, stats.redCards?.toString() ?? '-', Icons.square, color: Colors.red),
             ],
           ),
 
@@ -1612,11 +1613,11 @@ class _PlayerDetailsContent extends StatelessWidget {
             Row(
               children: [
                 if (stats.cleanSheets != null)
-                  Expanded(child: _buildStatBox(context, 'Clean Sheets', stats.cleanSheets.toString(), Icons.shield)),
+                  Expanded(child: _buildStatBox(context, S.of(context).cleanSheets, stats.cleanSheets.toString(), Icons.shield)),
                 if (stats.cleanSheets != null && stats.saves != null)
                   const SizedBox(width: 12),
                 if (stats.saves != null)
-                  Expanded(child: _buildStatBox(context, 'Saves', stats.saves.toString(), Icons.sports_handball)),
+                  Expanded(child: _buildStatBox(context, S.of(context).saves, stats.saves.toString(), Icons.sports_handball)),
                 // Placeholder to maintain grid
                 if (stats.cleanSheets != null && stats.saves == null)
                   const Spacer(),
@@ -1646,7 +1647,7 @@ class _PlayerDetailsContent extends StatelessWidget {
                   Icon(Icons.star, color: Colors.amber, size: 20),
                   const SizedBox(width: 8),
                   Text(
-                    'Average Rating',
+                    S.of(context).averageRating,
                     style: theme.textTheme.bodyMedium!.copyWith(
                       color: Colors.white70,
                     ),
@@ -1677,7 +1678,7 @@ class _PlayerDetailsContent extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Career Totals',
+                    S.of(context).careerTotals,
                     style: theme.textTheme.bodySmall!.copyWith(
                       color: bgTextColor,
                       fontSize: 10,
@@ -1687,9 +1688,9 @@ class _PlayerDetailsContent extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _buildCareerStat(context, 'Apps', player.careerAppearances.toString()),
-                      _buildCareerStat(context, 'Goals', player.careerGoals.toString()),
-                      _buildCareerStat(context, 'Assists', player.careerAssists.toString()),
+                      _buildCareerStat(context, S.of(context).apps, player.careerAppearances.toString()),
+                      _buildCareerStat(context, S.of(context).goals, player.careerGoals.toString()),
+                      _buildCareerStat(context, S.of(context).assists, player.careerAssists.toString()),
                     ],
                   ),
                 ],
@@ -1789,7 +1790,7 @@ class _PlayerDetailsContent extends StatelessWidget {
               Icon(Icons.swap_horiz, color: theme.primaryColor, size: 20),
               const SizedBox(width: 8),
               Text(
-                'Transfer History',
+                S.of(context).transferHistory,
                 style: theme.textTheme.bodyMedium!.copyWith(
                   color: bgTextColor,
                   fontSize: 12,

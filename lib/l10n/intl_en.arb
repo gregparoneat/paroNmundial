@@ -147,5 +147,138 @@
   "writeUs": "Write us",
   "addYourIssuefeedback": "Add your issue/feedback",
   "writeYourMessage": "Write your message",
-  "submit": "Submit"
+  "submit": "Submit",
+
+  "playerDetails": "Player Details",
+  "playerNotFound": "Player not found",
+  "fantasyPointsPrediction": "Fantasy Points Prediction",
+  "last5Form": "Last 5 Form",
+  "confidence": "Confidence",
+  "keyFactors": "Key Factors",
+  "loadingNextMatch": "Loading next match...",
+  "nextMatch": "Next Match",
+  "tournamentStatistics": "Tournament Statistics",
+  "recentForm": "Recent Form",
+  "matches": "matches",
+  "lastNMatches": "Last {count} matches",
+  "@lastNMatches": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "nMatches": "{count} matches",
+  "@nMatches": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "loadingTournamentStats": "Loading tournament stats...",
+  "games": "Games",
+  "minutes": "Minutes",
+  "yellow": "Yellow",
+  "red": "Red",
+  "cleanSheets": "Clean Sheets",
+  "saves": "Saves",
+  "avgRating": "Avg Rating",
+  "fullSeasonStatistics": "Full Season Statistics",
+  "includesAperturaClausura": "Includes Apertura + Clausura tournaments",
+  "appearances": "Appearances",
+  "age": "Age",
+  "height": "Height",
+  "weight": "Weight",
+  "nationality": "Nationality",
+  "position": "Position",
+  "team": "Team",
+  "yearsOld": "years old",
+  "cm": "cm",
+  "kg": "kg",
+  "basedOnMetrics": "Based on {position} metrics",
+  "@basedOnMetrics": {
+    "placeholders": {
+      "position": {
+        "type": "String"
+      }
+    }
+  },
+  "seasonAverages": "Season averages",
+  "matchup": "matchup",
+  "elitePick": "Elite Pick",
+  "strongPick": "Strong Pick",
+  "goodPick": "Good Pick",
+  "riskyPick": "Risky Pick",
+  "avoid": "Avoid",
+  "excellent": "Excellent",
+  "good": "Good",
+  "average": "Average",
+  "poor": "Poor",
+  "veryHigh": "Very High",
+  "high": "High",
+  "medium": "Medium",
+  "low": "Low",
+  "goalkeeper": "Goalkeeper",
+  "defender": "Defender",
+  "midfielder": "Midfielder",
+  "attacker": "Attacker",
+  "forward": "Forward",
+  "searchPlayers": "Search Players",
+  "searchByName": "Search by name...",
+  "noPlayersFound": "No players found",
+  "recentSearches": "Recent Searches",
+  "clearAll": "Clear All",
+  "statistics": "Statistics",
+  "stageStatistics": "{stageName} Statistics",
+  "@stageStatistics": {
+    "placeholders": {
+      "stageName": {
+        "type": "String"
+      }
+    }
+  },
+  "transferHistory": "Transfer History",
+  "currentTeam": "Current Team",
+  "previousTeams": "Previous Teams",
+  "jerseyNumber": "Jersey Number",
+  "rating": "Rating",
+  "vs": "vs",
+  "playerInfo": "Player Info",
+  "dateOfBirth": "Date of Birth",
+  "role": "Role",
+  "captain": "Captain",
+  "transfers": "Transfers",
+  "apps": "Apps",
+  "averageRating": "Average Rating",
+  "careerTotals": "Career Totals",
+  "clearHistoryTitle": "Clear History",
+  "clearHistoryMessage": "Are you sure you want to clear your recent players history?",
+  "cancel": "Cancel",
+  "clear": "Clear",
+  "searchHistoryCleared": "Search history cleared",
+  "searchPlayersHint": "Search players by name...",
+  "retry": "Retry",
+  "noPlayersFoundFor": "No players found for \"{query}\"",
+  "@noPlayersFoundFor": {
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "tryDifferentSearch": "Try a different search term",
+  "searchResultsTitle": "Search Results",
+  "recentPlayersTitle": "Recent Players",
+  "searchForPlayers": "Search for Players",
+  "enterAtLeast3Chars": "Enter at least 3 characters to search",
+  "lastMatchesPlus": "Last {count} matches",
+  "@lastMatchesPlus": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "plusMatchup": "+ matchup"
 }
