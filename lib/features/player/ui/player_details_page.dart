@@ -1,7 +1,11 @@
 import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:fantacy11/api/repositories/fixtures_repository.dart';
 import 'package:fantacy11/api/repositories/players_repository.dart';
+import 'package:fantacy11/api/repositories/seasons_repository.dart';
 import 'package:fantacy11/app_config/colors.dart';
+import 'package:fantacy11/features/fantasy/fantasy_points_predictor.dart';
+import 'package:fantacy11/features/match/models/match_info.dart';
 import 'package:fantacy11/features/player/models/player_info.dart';
 import 'package:flutter/material.dart';
 
@@ -16,18 +20,296 @@ class PlayerDetailsPage extends StatefulWidget {
 
 class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
   final PlayersRepository _repository = PlayersRepository();
+  final FixturesRepository _fixturesRepository = FixturesRepository();
+  final SeasonsRepository _seasonsRepository = SeasonsRepository();
   Player? _player;
   bool _isLoading = true;
+  bool _isLoadingTeams = false;
+  bool _isLoadingNextMatch = false;
+  bool _isLoadingRecentForm = false;
+  bool _isLoadingTournamentStats = false;
+  MatchInfo? _nextMatch;
+  OpponentInfo? _opponentInfo;
+  RecentMatchStats? _recentMatchStats;
+  RecentMatchStats? _tournamentStats; // Stats for the current tournament only
+  SeasonInfo? _currentSeason;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    // Load current season first, then player data
+    _loadCurrentSeason();
+    
     if (widget.player != null) {
       _player = widget.player;
       _isLoading = false;
+      // Fetch team details (current team and transfer teams)
+      _loadTeamDetails();
+      // Fetch next match and recent form in parallel
+      _loadNextMatch();
+      _loadRecentForm();
     } else {
       _loadDemoPlayer();
+    }
+  }
+
+  Future<void> _loadCurrentSeason() async {
+    try {
+      final season = await _seasonsRepository.getCurrentLigaMxSeason();
+      if (mounted && season != null) {
+        setState(() {
+          _currentSeason = season;
+        });
+        debugPrint('Current season loaded: ${season.name} (ID: ${season.id})');
+        if (season.currentStage != null) {
+          debugPrint('Current stage: ${season.currentStage!.name} (ID: ${season.currentStage!.id})');
+          debugPrint('Stage start date: ${season.currentStage!.startDate}');
+          // Now that we have the stage info, load tournament-specific stats
+          _loadTournamentStats();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading current season: $e');
+    }
+  }
+
+  /// Load tournament-specific stats using the current stage's date range
+  Future<void> _loadTournamentStats() async {
+    if (_player == null || _currentSeason?.currentStage == null) {
+      debugPrint('_loadTournamentStats: Missing player or stage info');
+      return;
+    }
+
+    final stage = _currentSeason!.currentStage!;
+    final startDate = stage.startDate;
+    
+    if (startDate == null) {
+      debugPrint('_loadTournamentStats: No start date for stage ${stage.name}');
+      return;
+    }
+
+    final teamId = _player!.currentTeam?.teamId;
+    final playerId = _player!.id;
+
+    if (teamId == null || teamId <= 0) {
+      debugPrint('_loadTournamentStats: No valid team ID');
+      return;
+    }
+
+    debugPrint('_loadTournamentStats: Loading stats for ${stage.name} (${startDate.toIso8601String().split('T')[0]} to now)');
+    setState(() {
+      _isLoadingTournamentStats = true;
+    });
+
+    try {
+      final tournamentStats = await _fixturesRepository.getPlayerTournamentStats(
+        playerId,
+        teamId,
+        startDate: startDate,
+        endDate: DateTime.now(),
+      );
+
+      if (mounted) {
+        setState(() {
+          _tournamentStats = tournamentStats;
+          _isLoadingTournamentStats = false;
+        });
+
+        if (tournamentStats != null) {
+          debugPrint('_loadTournamentStats: Got stats from ${tournamentStats.matchesPlayed} tournament matches');
+          debugPrint('_loadTournamentStats: Goals: ${tournamentStats.goals}, Assists: ${tournamentStats.assists}');
+        } else {
+          debugPrint('_loadTournamentStats: No tournament stats available');
+        }
+      }
+    } catch (e) {
+      debugPrint('_loadTournamentStats: Error - $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingTournamentStats = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadTeamDetails() async {
+    if (_player == null) return;
+    
+    setState(() {
+      _isLoadingTeams = true;
+    });
+
+    try {
+      // Debug: Check if team data came from API include
+      debugPrint('Player teams count: ${_player!.teams.length}');
+      if (_player!.currentTeam != null) {
+        debugPrint('Current team ID: ${_player!.currentTeam!.teamId}');
+        debugPrint('Current team name from include: ${_player!.currentTeam!.teamName}');
+      }
+
+      // Load current team info if not populated from API include
+      if (_player!.currentTeam != null && _player!.currentTeam!.teamName == null) {
+        try {
+          final teamInfo = await _repository.getTeamInfo(_player!.currentTeam!.teamId);
+          if (mounted && teamInfo.isNotEmpty) {
+            _player!.currentTeam!.teamName = teamInfo['name'];
+            _player!.currentTeam!.teamLogo = teamInfo['logo'];
+            _player!.currentTeam!.teamShortCode = teamInfo['shortCode'];
+            debugPrint('Loaded team info: ${teamInfo['name']}');
+          }
+        } catch (e) {
+          debugPrint('Error loading current team: $e');
+        }
+      }
+      
+      // Also load transfer team names
+      try {
+        await _repository.populateTransferTeamNames(_player!);
+      } catch (e) {
+        debugPrint('Error loading transfer teams: $e');
+      }
+      
+      if (mounted) {
+        setState(() {
+          _isLoadingTeams = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading team details: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingTeams = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadNextMatch() async {
+    if (_player == null) {
+      debugPrint('_loadNextMatch: Player is null, skipping');
+      return;
+    }
+
+    debugPrint('_loadNextMatch: Starting to load next match');
+    setState(() {
+      _isLoadingNextMatch = true;
+    });
+
+    try {
+      final teamId = _player!.currentTeam?.teamId;
+      debugPrint('_loadNextMatch: Team ID: $teamId');
+      
+      MatchInfo? nextMatch;
+      if (teamId != null && teamId > 0) {
+        nextMatch = await _fixturesRepository.getNextMatchForTeam(teamId);
+      } else {
+        // No team ID - still try to get a fixture for demo purposes
+        debugPrint('_loadNextMatch: No valid team ID, fetching demo fixture');
+        nextMatch = await _fixturesRepository.getNextMatchForTeam(0);
+      }
+      
+      debugPrint('_loadNextMatch: Result - ${nextMatch?.team1Name} vs ${nextMatch?.team2Name}');
+      
+      if (mounted && nextMatch != null) {
+        // Determine opponent info
+        final isHomeTeam = teamId != null && nextMatch.homeTeam?.id == teamId;
+        final opponent = isHomeTeam ? nextMatch.awayTeam : nextMatch.homeTeam;
+        
+        debugPrint('_loadNextMatch: isHomeTeam=$isHomeTeam, opponent=${opponent?.name}');
+        
+        // Create opponent info (use away team if no match or for demo)
+        final opponentTeam = opponent ?? nextMatch.awayTeam;
+        if (opponentTeam != null) {
+          _opponentInfo = OpponentInfo(
+            name: opponentTeam.name,
+            logoUrl: opponentTeam.imagePath,
+            leaguePosition: opponentTeam.leaguePosition,
+            isHomeGame: isHomeTeam,
+            matchDateTime: nextMatch.startDateTime,
+            venueName: nextMatch.venue?.name,
+          );
+          debugPrint('_loadNextMatch: Created OpponentInfo for ${opponentTeam.name}');
+        } else {
+          // Fallback: create basic opponent info from match data
+          _opponentInfo = OpponentInfo(
+            name: nextMatch.team2Name.isNotEmpty ? nextMatch.team2Name : 'Opponent',
+            logoUrl: nextMatch.team2Logo,
+            isHomeGame: true,
+            matchDateTime: nextMatch.startDateTime,
+            venueName: nextMatch.venue?.name,
+          );
+          debugPrint('_loadNextMatch: Created fallback OpponentInfo for ${nextMatch.team2Name}');
+        }
+        
+        setState(() {
+          _nextMatch = nextMatch;
+          _isLoadingNextMatch = false;
+        });
+        debugPrint('_loadNextMatch: State updated with next match');
+      } else if (mounted) {
+        debugPrint('_loadNextMatch: No next match found or widget not mounted');
+        setState(() {
+          _isLoadingNextMatch = false;
+        });
+      }
+    } catch (e, stackTrace) {
+      debugPrint('_loadNextMatch: Error - $e');
+      debugPrint('_loadNextMatch: Stack trace - $stackTrace');
+      if (mounted) {
+        setState(() {
+          _isLoadingNextMatch = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadRecentForm() async {
+    if (_player == null) {
+      debugPrint('_loadRecentForm: Player is null, skipping');
+      return;
+    }
+
+    final teamId = _player!.currentTeam?.teamId;
+    final playerId = _player!.id;
+
+    if (teamId == null || teamId <= 0) {
+      debugPrint('_loadRecentForm: No valid team ID, skipping');
+      return;
+    }
+
+    debugPrint('_loadRecentForm: Loading recent form for player $playerId on team $teamId');
+    setState(() {
+      _isLoadingRecentForm = true;
+    });
+
+    try {
+      final recentStats = await _fixturesRepository.getPlayerRecentStats(
+        playerId,
+        teamId,
+        matchCount: 5,
+      );
+
+      if (mounted) {
+        setState(() {
+          _recentMatchStats = recentStats;
+          _isLoadingRecentForm = false;
+        });
+
+        if (recentStats != null) {
+          debugPrint('_loadRecentForm: Got stats from ${recentStats.matchesPlayed} matches');
+          debugPrint('_loadRecentForm: Goals: ${recentStats.goals}, Assists: ${recentStats.assists}, Minutes: ${recentStats.minutesPlayed}');
+        } else {
+          debugPrint('_loadRecentForm: No recent stats available');
+        }
+      }
+    } catch (e) {
+      debugPrint('_loadRecentForm: Error - $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingRecentForm = false;
+        });
+      }
     }
   }
 
@@ -40,6 +322,11 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
           _player = player;
           _isLoading = false;
         });
+        // Fetch team details (current team and transfer teams)
+        _loadTeamDetails();
+        // Fetch next match and recent form
+        _loadNextMatch();
+        _loadRecentForm();
       } else {
         setState(() {
           _error = 'No player data found';
@@ -57,6 +344,8 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
   @override
   void dispose() {
     _repository.dispose();
+    _fixturesRepository.dispose();
+    _seasonsRepository.dispose();
     super.dispose();
   }
 
@@ -84,14 +373,50 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
       );
     }
 
-    return _PlayerDetailsContent(player: _player!);
+    return _PlayerDetailsContent(
+      player: _player!,
+      isLoadingTeams: _isLoadingTeams,
+      isLoadingNextMatch: _isLoadingNextMatch,
+      isLoadingRecentForm: _isLoadingRecentForm,
+      isLoadingTournamentStats: _isLoadingTournamentStats,
+      nextMatch: _nextMatch,
+      opponentInfo: _opponentInfo,
+      recentMatchStats: _recentMatchStats,
+      tournamentStats: _tournamentStats,
+      currentSeason: _currentSeason,
+    );
   }
 }
 
 class _PlayerDetailsContent extends StatelessWidget {
   final Player player;
+  final bool isLoadingTeams;
+  final bool isLoadingNextMatch;
+  final bool isLoadingRecentForm;
+  final bool isLoadingTournamentStats;
+  final MatchInfo? nextMatch;
+  final OpponentInfo? opponentInfo;
+  final RecentMatchStats? recentMatchStats;
+  final RecentMatchStats? tournamentStats;
+  final SeasonInfo? currentSeason;
 
-  const _PlayerDetailsContent({required this.player});
+  const _PlayerDetailsContent({
+    required this.player,
+    this.isLoadingTeams = false,
+    this.isLoadingNextMatch = false,
+    this.isLoadingRecentForm = false,
+    this.isLoadingTournamentStats = false,
+    this.nextMatch,
+    this.opponentInfo,
+    this.recentMatchStats,
+    this.tournamentStats,
+    this.currentSeason,
+  });
+
+  /// Get the stats for the current season, with fallback
+  PlayerStatistics? get currentSeasonStats {
+    return player.getStatsForCurrentSeason(currentSeason?.id);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -134,6 +459,10 @@ class _PlayerDetailsContent extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Fantasy Points Prediction
+                    _buildFantasyPrediction(context),
+                    const SizedBox(height: 20),
+
                     // Quick Stats
                     _buildQuickStats(context),
                     const SizedBox(height: 20),
@@ -142,15 +471,15 @@ class _PlayerDetailsContent extends StatelessWidget {
                     _buildBioSection(context),
                     const SizedBox(height: 20),
 
-                    // Career Section
-                    if (player.transfers.isNotEmpty) ...[
-                      _buildCareerSection(context),
+                    // Statistics Section (current tournament only)
+                    if (currentSeasonStats != null) ...[
+                      _buildStatisticsSection(context),
                       const SizedBox(height: 20),
                     ],
 
-                    // Trophies Section
-                    if (player.trophies.isNotEmpty) ...[
-                      _buildTrophiesSection(context),
+                    // Career Section
+                    if (player.transfers.isNotEmpty) ...[
+                      _buildCareerSection(context),
                       const SizedBox(height: 20),
                     ],
                   ],
@@ -287,6 +616,44 @@ class _PlayerDetailsContent extends StatelessWidget {
                 ],
               ],
             ),
+
+            // Current Team (compact inline display)
+            if (player.currentTeam != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (player.currentTeamLogo != null)
+                    CachedNetworkImage(
+                      imageUrl: player.currentTeamLogo!,
+                      width: 20,
+                      height: 20,
+                      errorWidget: (context, url, error) => Icon(
+                        Icons.shield,
+                        color: theme.primaryColor,
+                        size: 18,
+                      ),
+                    )
+                  else
+                    Icon(Icons.shield, color: theme.primaryColor, size: 18),
+                  const SizedBox(width: 6),
+                  Text(
+                    player.currentTeam!.teamDisplay,
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (player.isCaptain) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      '⭐',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -300,6 +667,527 @@ class _PlayerDetailsContent extends StatelessWidget {
         Icons.person,
         size: 60,
         color: bgTextColor,
+      ),
+    );
+  }
+
+  Widget _buildFantasyPrediction(BuildContext context) {
+    var theme = Theme.of(context);
+    final prediction = FantasyPointsPredictor.predict(
+      player,
+      recentForm: recentMatchStats,
+      opponent: opponentInfo,
+      currentSeasonId: currentSeason?.id,
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(prediction.tierColorValue).withValues(alpha: 0.3),
+            theme.colorScheme.surface,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Color(prediction.tierColorValue).withValues(alpha: 0.5),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Icon(Icons.auto_graph, color: Color(prediction.tierColorValue), size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Fantasy Points Prediction',
+                style: theme.textTheme.bodyMedium!.copyWith(
+                  color: bgTextColor,
+                  fontSize: 12,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Color(prediction.tierColorValue).withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  prediction.tier,
+                  style: theme.textTheme.bodySmall!.copyWith(
+                    color: Color(prediction.tierColorValue),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Main Score
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${prediction.totalPoints}',
+                style: theme.textTheme.displayMedium!.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Color(prediction.tierColorValue),
+                  fontSize: 48,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8, left: 4),
+                child: Text(
+                  '/ 100',
+                  style: theme.textTheme.bodyLarge!.copyWith(
+                    color: Colors.grey[500],
+                  ),
+                ),
+              ),
+              const Spacer(),
+              // Recent Form indicator
+              if (prediction.recentFormScore != null) ...[
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'Last 5 Form',
+                      style: theme.textTheme.bodySmall!.copyWith(
+                        color: Colors.grey[600],
+                        fontSize: 10,
+                      ),
+                    ),
+                    Text(
+                      prediction.formDescription,
+                      style: theme.textTheme.bodyMedium!.copyWith(
+                        fontWeight: FontWeight.w500,
+                        color: Color(prediction.formColorValue),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 16),
+              ],
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'Confidence',
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: Colors.grey[600],
+                      fontSize: 10,
+                    ),
+                  ),
+                  Text(
+                    prediction.confidenceDescription,
+                    style: theme.textTheme.bodyMedium!.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Progress Bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: prediction.totalPoints / 100,
+              backgroundColor: Colors.grey[800],
+              valueColor: AlwaysStoppedAnimation<Color>(Color(prediction.tierColorValue)),
+              minHeight: 8,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Top Factors
+          Text(
+            'Key Factors',
+            style: theme.textTheme.bodySmall!.copyWith(
+              color: bgTextColor,
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...prediction.topFactors.map((factor) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                Icon(
+                  factor.value >= 0 ? Icons.add_circle_outline : Icons.remove_circle_outline,
+                  size: 14,
+                  color: factor.value >= 0 ? Colors.green : Colors.red,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    factor.key,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+                Text(
+                  factor.value >= 0 
+                      ? '+${factor.value.toStringAsFixed(1)}'
+                      : factor.value.toStringAsFixed(1),
+                  style: theme.textTheme.bodySmall!.copyWith(
+                    color: factor.value >= 0 ? Colors.green : Colors.red,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          )),
+
+          // Next Match section (if available) - shows above opponent analysis
+          if (nextMatch != null || isLoadingNextMatch) ...[
+            const SizedBox(height: 12),
+            _buildNextMatchSection(context, theme, prediction),
+          ],
+
+          // Data source note
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              if (isLoadingRecentForm)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: SizedBox(
+                    width: 10,
+                    height: 10,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: Colors.grey[500],
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: Text(
+                  _getDataSourceDescription(prediction),
+                  style: theme.textTheme.bodySmall!.copyWith(
+                    color: Colors.grey[600],
+                    fontSize: 10,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getDataSourceDescription(FantasyPrediction prediction) {
+    final hasRealRecentForm = recentMatchStats != null && recentMatchStats!.matchesPlayed > 0;
+    final matchCount = recentMatchStats?.matchesPlayed ?? 0;
+    
+    String base = 'Based on ${prediction.position} metrics';
+    
+    if (hasRealRecentForm) {
+      base += ' • Last $matchCount matches';
+    } else {
+      base += ' • Season averages';
+    }
+    
+    if (prediction.hasOpponentAnalysis) {
+      base += ' + matchup';
+    }
+    
+    return base;
+  }
+
+  Widget _buildNextMatchSection(BuildContext context, ThemeData theme, FantasyPrediction prediction) {
+    if (isLoadingNextMatch) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: theme.primaryColor.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: theme.primaryColor.withValues(alpha: 0.2),
+          ),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: theme.primaryColor,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Loading next match...',
+              style: theme.textTheme.bodySmall!.copyWith(
+                color: Colors.grey[500],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (nextMatch == null) return const SizedBox.shrink();
+
+    final opponent = opponentInfo;
+    final difficultyColor = opponent != null 
+        ? Color(opponent.difficultyColorValue) 
+        : theme.primaryColor;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            difficultyColor.withValues(alpha: 0.15),
+            theme.colorScheme.surface.withValues(alpha: 0.5),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: difficultyColor.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row with "Next Match" label and time remaining
+          Row(
+            children: [
+              Icon(
+                Icons.calendar_today,
+                size: 14,
+                color: difficultyColor,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Next Match',
+                style: theme.textTheme.bodySmall!.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: difficultyColor,
+                  fontSize: 11,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: difficultyColor.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  opponent?.timeRemaining ?? nextMatch!.getTimeRemaining(),
+                  style: theme.textTheme.bodySmall!.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: difficultyColor,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          
+          // Match info row
+          Row(
+            children: [
+              // Home team
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        nextMatch!.homeTeam?.name ?? nextMatch!.team1Name,
+                        style: theme.textTheme.bodySmall!.copyWith(
+                          fontWeight: FontWeight.w500,
+                          fontSize: 11,
+                        ),
+                        textAlign: TextAlign.right,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    _buildTeamLogo(nextMatch!.team1Logo, 24),
+                  ],
+                ),
+              ),
+              
+              // VS separator
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Column(
+                  children: [
+                    Text(
+                      'vs',
+                      style: theme.textTheme.bodySmall!.copyWith(
+                        color: Colors.grey[500],
+                        fontWeight: FontWeight.w600,
+                        fontSize: 10,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      opponent?.formattedMatchTime ?? nextMatch!.formattedDateTime,
+                      style: theme.textTheme.bodySmall!.copyWith(
+                        color: Colors.grey[600],
+                        fontSize: 9,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Away team
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    _buildTeamLogo(nextMatch!.team2Logo, 24),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        nextMatch!.awayTeam?.name ?? nextMatch!.team2Name,
+                        style: theme.textTheme.bodySmall!.copyWith(
+                          fontWeight: FontWeight.w500,
+                          fontSize: 11,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          
+          // Venue and matchup difficulty info
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              if (nextMatch!.venue?.name != null || opponent?.venueName != null) ...[
+                Icon(
+                  Icons.stadium,
+                  size: 12,
+                  color: Colors.grey[500],
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    nextMatch!.venue?.name ?? opponent?.venueName ?? '',
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: Colors.grey[500],
+                      fontSize: 9,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ] else
+                const Spacer(),
+              // Matchup difficulty if available
+              if (opponent != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: difficultyColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        opponent.difficultyLabel,
+                        style: theme.textTheme.bodySmall!.copyWith(
+                          color: difficultyColor,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 9,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        opponent.isHomeGame ? '(H)' : '(A)',
+                        style: theme.textTheme.bodySmall!.copyWith(
+                          color: Colors.grey[500],
+                          fontSize: 9,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTeamLogo(String logoUrl, double size) {
+    if (logoUrl.isEmpty) {
+      return Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: bgColor,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(Icons.shield, size: size * 0.6, color: Colors.grey[600]),
+      );
+    }
+    
+    if (logoUrl.startsWith('assets/')) {
+      return Image.asset(
+        logoUrl,
+        width: size,
+        height: size,
+        errorBuilder: (context, error, stackTrace) => Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: bgColor,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.shield, size: size * 0.6, color: Colors.grey[600]),
+        ),
+      );
+    }
+    
+    return CachedNetworkImage(
+      imageUrl: logoUrl,
+      width: size,
+      height: size,
+      placeholder: (context, url) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: bgColor,
+          shape: BoxShape.circle,
+        ),
+      ),
+      errorWidget: (context, url, error) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: bgColor,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(Icons.shield, size: size * 0.6, color: Colors.grey[600]),
       ),
     );
   }
@@ -318,14 +1206,23 @@ class _PlayerDetailsContent extends StatelessWidget {
         children: [
           _buildStatItem(context, 'Age', '${player.age ?? "-"}', Icons.cake),
           _buildStatDivider(),
-          _buildStatItem(
-              context, 'Height', player.formattedHeight, Icons.height),
+          // Show goals if stats available, otherwise height
+          if (currentSeasonStats?.goals != null)
+            _buildStatItem(context, 'Goals', '${currentSeasonStats!.goals}', Icons.sports_score)
+          else
+            _buildStatItem(context, 'Height', player.formattedHeight, Icons.height),
           _buildStatDivider(),
-          _buildStatItem(context, 'Weight', player.formattedWeight,
-              Icons.fitness_center),
+          // Show assists if stats available, otherwise weight
+          if (currentSeasonStats?.assists != null)
+            _buildStatItem(context, 'Assists', '${currentSeasonStats!.assists}', Icons.handshake)
+          else
+            _buildStatItem(context, 'Weight', player.formattedWeight, Icons.fitness_center),
           _buildStatDivider(),
-          _buildStatItem(context, 'Trophies', '${player.trophies.length}',
-              Icons.emoji_events),
+          // Show appearances if stats available, otherwise transfers
+          if (currentSeasonStats?.appearances != null)
+            _buildStatItem(context, 'Apps', '${currentSeasonStats!.appearances}', Icons.sports_soccer)
+          else
+            _buildStatItem(context, 'Transfers', '${player.transfers.length}', Icons.swap_horiz),
         ],
       ),
     );
@@ -427,6 +1324,445 @@ class _PlayerDetailsContent extends StatelessWidget {
     );
   }
 
+  Widget _buildStatisticsSection(BuildContext context) {
+    var theme = Theme.of(context);
+    final stats = currentSeasonStats;
+
+    // Use tournament stats if available, otherwise fall back to recent form
+    final tournamentOrRecentStats = tournamentStats ?? recentMatchStats;
+    final hasTournamentData = tournamentOrRecentStats != null && tournamentOrRecentStats.matchesPlayed > 0;
+
+    if (stats == null && !hasTournamentData) return const SizedBox.shrink();
+
+    // Get the current stage/tournament name if available
+    final currentStageName = currentSeason?.currentStage?.name;
+
+    return Column(
+      children: [
+        // Current Tournament Stats (from fixtures within tournament date range - most accurate)
+        if (hasTournamentData || isLoadingTournamentStats)
+          _buildCurrentTournamentStats(context, theme, currentStageName),
+        
+        if (hasTournamentData && stats != null)
+          const SizedBox(height: 16),
+        
+        // Full Season Stats (aggregated from both tournaments)
+        if (stats != null)
+          _buildSeasonStats(context, theme, stats),
+      ],
+    );
+  }
+
+  /// Builds the current tournament stats section using actual fixture data
+  Widget _buildCurrentTournamentStats(BuildContext context, ThemeData theme, String? stageName) {
+    // Use tournament stats if available, otherwise fall back to recent form
+    final stats = tournamentStats ?? recentMatchStats;
+    final isTournamentData = tournamentStats != null;
+    
+    // Show loading indicator while fetching
+    if (isLoadingTournamentStats && stats == null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: theme.primaryColor.withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.trending_up, color: theme.primaryColor, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  stageName != null ? '$stageName Statistics' : 'Tournament Statistics',
+                  style: theme.textTheme.bodyMedium!.copyWith(
+                    color: bgTextColor,
+                    fontSize: 12,
+                  ),
+                ),
+                const Spacer(),
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: theme.primaryColor,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Center(
+              child: Text(
+                'Loading tournament stats...',
+                style: theme.textTheme.bodySmall!.copyWith(color: Colors.grey),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
+      );
+    }
+    
+    if (stats == null) return const SizedBox.shrink();
+    
+    // Determine the label based on whether we have actual tournament data or just recent form
+    final sectionTitle = isTournamentData && stageName != null 
+        ? '$stageName Statistics' 
+        : 'Recent Form';
+    final badgeText = isTournamentData 
+        ? '${stats.matchesPlayed} matches' 
+        : 'Last ${stats.matchesPlayed} matches';
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.primaryColor.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.trending_up, color: theme.primaryColor, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  sectionTitle,
+                  style: theme.textTheme.bodyMedium!.copyWith(
+                    color: bgTextColor,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: theme.primaryColor.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  badgeText,
+                  style: theme.textTheme.bodySmall!.copyWith(
+                    color: theme.primaryColor,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Stats from tournament matches
+          Row(
+            children: [
+              _buildStatBox(context, 'Games', stats.matchesPlayed.toString(), Icons.sports_soccer),
+              const SizedBox(width: 12),
+              _buildStatBox(context, 'Goals', stats.goals.toString(), Icons.sports_score),
+              const SizedBox(width: 12),
+              _buildStatBox(context, 'Assists', stats.assists.toString(), Icons.handshake),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildStatBox(context, 'Minutes', _formatMinutes(stats.minutesPlayed), Icons.timer),
+              const SizedBox(width: 12),
+              _buildStatBox(context, 'Yellow', stats.yellowCards.toString(), Icons.square, color: Colors.amber),
+              const SizedBox(width: 12),
+              _buildStatBox(context, 'Red', stats.redCards.toString(), Icons.square, color: Colors.red),
+            ],
+          ),
+
+          // Goalkeeper-specific stats
+          if (player.isGoalkeeper && (stats.cleanSheets > 0 || stats.saves > 0)) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _buildStatBox(context, 'Clean Sheets', stats.cleanSheets.toString(), Icons.shield)),
+                const SizedBox(width: 12),
+                Expanded(child: _buildStatBox(context, 'Saves', stats.saves.toString(), Icons.sports_handball)),
+                const SizedBox(width: 12),
+                const Expanded(child: SizedBox()), // Placeholder
+              ],
+            ),
+          ],
+
+          // Average rating if available
+          if (stats.averageRating != null && stats.averageRating! > 0) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.star, color: Colors.amber, size: 16),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Avg Rating: ${stats.averageRating!.toStringAsFixed(2)}',
+                    style: theme.textTheme.bodyMedium!.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Builds the full season statistics section
+  Widget _buildSeasonStats(BuildContext context, ThemeData theme, PlayerStatistics stats) {
+    // Get the season name from the stats
+    final seasonDisplayName = stats.seasonName ?? currentSeason?.name;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bar_chart, color: Colors.grey[600], size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Full Season Statistics',
+                style: theme.textTheme.bodyMedium!.copyWith(
+                  color: bgTextColor,
+                  fontSize: 12,
+                ),
+              ),
+              const Spacer(),
+              if (seasonDisplayName != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    seasonDisplayName,
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: Colors.grey[600],
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          // Note about full season data
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              'Includes Apertura + Clausura tournaments',
+              style: theme.textTheme.bodySmall!.copyWith(
+                color: Colors.grey[500],
+                fontSize: 10,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Main stats grid
+          Row(
+            children: [
+              _buildStatBox(context, 'Appearances', stats.appearances?.toString() ?? '-', Icons.sports_soccer),
+              const SizedBox(width: 12),
+              _buildStatBox(context, 'Goals', stats.goals?.toString() ?? '-', Icons.sports_score),
+              const SizedBox(width: 12),
+              _buildStatBox(context, 'Assists', stats.assists?.toString() ?? '-', Icons.handshake),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildStatBox(context, 'Minutes', stats.formattedMinutes, Icons.timer),
+              const SizedBox(width: 12),
+              _buildStatBox(context, 'Yellow', stats.yellowCards?.toString() ?? '-', Icons.square, color: Colors.amber),
+              const SizedBox(width: 12),
+              _buildStatBox(context, 'Red', stats.redCards?.toString() ?? '-', Icons.square, color: Colors.red),
+            ],
+          ),
+
+          // Goalkeeper-specific stats (only show for goalkeepers)
+          if (player.isGoalkeeper && (stats.cleanSheets != null || stats.saves != null)) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (stats.cleanSheets != null)
+                  Expanded(child: _buildStatBox(context, 'Clean Sheets', stats.cleanSheets.toString(), Icons.shield)),
+                if (stats.cleanSheets != null && stats.saves != null)
+                  const SizedBox(width: 12),
+                if (stats.saves != null)
+                  Expanded(child: _buildStatBox(context, 'Saves', stats.saves.toString(), Icons.sports_handball)),
+                // Placeholder to maintain grid
+                if (stats.cleanSheets != null && stats.saves == null)
+                  const Spacer(),
+                if (stats.cleanSheets == null && stats.saves != null)
+                  const Spacer(),
+              ],
+            ),
+          ],
+
+          // Rating if available
+          if (stats.rating != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    theme.primaryColor.withValues(alpha: 0.2),
+                    theme.primaryColor.withValues(alpha: 0.1),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.star, color: Colors.amber, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Average Rating',
+                    style: theme.textTheme.bodyMedium!.copyWith(
+                      color: Colors.white70,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    stats.rating!.toStringAsFixed(2),
+                    style: theme.textTheme.headlineSmall!.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: theme.primaryColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // Career totals
+          if (player.statistics.length > 1) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Career Totals',
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: bgTextColor,
+                      fontSize: 10,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildCareerStat(context, 'Apps', player.careerAppearances.toString()),
+                      _buildCareerStat(context, 'Goals', player.careerGoals.toString()),
+                      _buildCareerStat(context, 'Assists', player.careerAssists.toString()),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Format minutes played for display
+  String _formatMinutes(int minutes) {
+    if (minutes >= 1000) {
+      return '${(minutes / 1000).toStringAsFixed(1)}k min';
+    }
+    return '$minutes min';
+  }
+
+  Widget _buildStatBox(BuildContext context, String label, String value, IconData icon, {Color? color}) {
+    var theme = Theme.of(context);
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color ?? theme.primaryColor, size: 18),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: theme.textTheme.titleMedium!.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: theme.textTheme.bodySmall!.copyWith(
+                color: bgTextColor,
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCareerStat(BuildContext context, String label, String value) {
+    var theme = Theme.of(context);
+    return Column(
+      children: [
+        Text(
+          value,
+          style: theme.textTheme.titleMedium!.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall!.copyWith(
+            color: bgTextColor,
+            fontSize: 10,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildCareerSection(BuildContext context) {
     var theme = Theme.of(context);
 
@@ -459,6 +1795,17 @@ class _PlayerDetailsContent extends StatelessWidget {
                   fontSize: 12,
                 ),
               ),
+              if (isLoadingTeams) ...[
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: theme.primaryColor,
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 16),
@@ -497,33 +1844,58 @@ class _PlayerDetailsContent extends StatelessWidget {
           const SizedBox(width: 12),
           // Transfer info
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Text(
-                      'Team ${transfer.fromTeamId ?? "?"}',
-                      style: theme.textTheme.bodySmall!.copyWith(
-                        color: bgTextColor,
-                        fontSize: 11,
-                      ),
+                // From team
+                if (transfer.fromTeamLogo != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: CachedNetworkImage(
+                      imageUrl: transfer.fromTeamLogo!,
+                      width: 16,
+                      height: 16,
+                      errorWidget: (context, url, error) => const SizedBox.shrink(),
                     ),
-                    const SizedBox(width: 4),
-                    Icon(Icons.arrow_forward, size: 12, color: theme.primaryColor),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Team ${transfer.toTeamId ?? "?"}',
-                      style: theme.textTheme.bodySmall!.copyWith(
-                        color: bgTextColor,
-                        fontSize: 11,
-                      ),
+                  ),
+                Flexible(
+                  child: Text(
+                    transfer.fromTeamDisplay,
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: Colors.white70,
+                      fontSize: 11,
                     ),
-                  ],
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Icon(Icons.arrow_forward, size: 12, color: theme.primaryColor),
+                ),
+                // To team
+                if (transfer.toTeamLogo != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: CachedNetworkImage(
+                      imageUrl: transfer.toTeamLogo!,
+                      width: 16,
+                      height: 16,
+                      errorWidget: (context, url, error) => const SizedBox.shrink(),
+                    ),
+                  ),
+                Flexible(
+                  child: Text(
+                    transfer.toTeamDisplay,
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           // Amount
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -547,72 +1919,5 @@ class _PlayerDetailsContent extends StatelessWidget {
     );
   }
 
-  Widget _buildTrophiesSection(BuildContext context) {
-    var theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.emoji_events, color: Colors.amber, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'Trophies & Awards',
-                style: theme.textTheme.bodyMedium!.copyWith(
-                  color: bgTextColor,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: List.generate(
-              player.trophies.length,
-              (index) => Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.amber.withValues(alpha: 0.3),
-                      Colors.orange.withValues(alpha: 0.2),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.amber.withValues(alpha: 0.5),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.emoji_events,
-                        color: Colors.amber, size: 16),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Trophy ${index + 1}',
-                      style: theme.textTheme.bodySmall!.copyWith(
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 

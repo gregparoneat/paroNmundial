@@ -1,6 +1,7 @@
 import 'package:fantacy11/features/auth/login_navigator.dart';
 import 'package:fantacy11/features/responsive_widget.dart';
 import 'package:fantacy11/generated/l10n.dart';
+import 'package:fantacy11/services/cache_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -12,8 +13,12 @@ import 'app_config/styles.dart';
 import 'features/language/language_cubit.dart';
 import 'routes/routes.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize cache service (Hive)
+  await CacheService().init();
+  
   MobileAds.instance.initialize();
 
   SystemChrome.setPreferredOrientations(

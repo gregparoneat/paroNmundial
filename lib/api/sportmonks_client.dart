@@ -204,7 +204,7 @@ class SportMonksClient {
   }
 
   /// Get team by ID
-  Future<SportMonksResponse<Map<String, dynamic>>> getTeamById(
+  Future<SportMonksResponse<Map<String, dynamic>?>> getTeamById(
     int teamId, {
     List<String>? includes,
   }) async {
@@ -213,10 +213,10 @@ class SportMonksClient {
       queryParams['include'] = SportMonksConfig.buildIncludes(includes);
     }
     
-    return get<Map<String, dynamic>>(
+    return get<Map<String, dynamic>?>(
       '/teams/$teamId',
       queryParams: queryParams,
-      parser: (data) => data as Map<String, dynamic>,
+      parser: (data) => data as Map<String, dynamic>?,
     );
   }
 
@@ -248,6 +248,106 @@ class SportMonksClient {
     
     return get<List<Map<String, dynamic>>>(
       '/leagues',
+      queryParams: queryParams,
+      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+    );
+  }
+
+  /// Get fixtures for a specific team within a date range
+  /// Uses endpoint: /fixtures/between/{startDate}/{endDate}/{teamId}
+  Future<SportMonksResponse<List<Map<String, dynamic>>>> getFixturesByTeam(
+    int teamId, {
+    DateTime? startDate,
+    DateTime? endDate,
+    List<String>? includes,
+  }) async {
+    // Default to today and 7 days from now
+    final start = startDate ?? DateTime.now();
+    final end = endDate ?? DateTime.now().add(const Duration(days: 7));
+    
+    final startStr = _formatDate(start);
+    final endStr = _formatDate(end);
+    
+    final queryParams = <String, String>{};
+    if (includes != null && includes.isNotEmpty) {
+      queryParams['include'] = SportMonksConfig.buildIncludes(includes);
+    }
+    
+    return get<List<Map<String, dynamic>>>(
+      '/fixtures/between/$startStr/$endStr/$teamId',
+      queryParams: queryParams,
+      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+    );
+  }
+
+  /// Get recent past fixtures for a team (last N days)
+  /// Used to calculate player's recent form from actual match data
+  Future<SportMonksResponse<List<Map<String, dynamic>>>> getRecentFixturesForTeam(
+    int teamId, {
+    int daysBack = 60,
+    List<String>? includes,
+  }) async {
+    final end = DateTime.now();
+    final start = end.subtract(Duration(days: daysBack));
+    
+    final startStr = _formatDate(start);
+    final endStr = _formatDate(end);
+    
+    final queryParams = <String, String>{};
+    // Include events for goals/assists/cards, lineups for minutes played
+    final defaultIncludes = includes ?? [
+      'participants',
+      'events.player',
+      'lineups.player',
+      'scores',
+      'state',
+    ];
+    queryParams['include'] = SportMonksConfig.buildIncludes(defaultIncludes);
+    
+    return get<List<Map<String, dynamic>>>(
+      '/fixtures/between/$startStr/$endStr/$teamId',
+      queryParams: queryParams,
+      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+    );
+  }
+
+  /// Format date as YYYY-MM-DD
+  String _formatDate(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  /// Get season info by ID
+  /// Use includes like 'currentStage', 'stages', 'groups' for more details
+  Future<SportMonksResponse<Map<String, dynamic>?>> getSeasonById(
+    int seasonId, {
+    List<String>? includes,
+  }) async {
+    final queryParams = <String, String>{};
+    if (includes != null && includes.isNotEmpty) {
+      queryParams['include'] = SportMonksConfig.buildIncludes(includes);
+    }
+    
+    return get<Map<String, dynamic>?>(
+      '/seasons/$seasonId',
+      queryParams: queryParams,
+      parser: (data) => data as Map<String, dynamic>?,
+    );
+  }
+
+  /// Get all seasons for a league
+  Future<SportMonksResponse<List<Map<String, dynamic>>>> getSeasonsByLeague(
+    int leagueId, {
+    List<String>? includes,
+  }) async {
+    final queryParams = <String, String>{
+      'filters': 'seasonLeagues:$leagueId',
+    };
+    if (includes != null && includes.isNotEmpty) {
+      queryParams['include'] = SportMonksConfig.buildIncludes(includes);
+    }
+    
+    return get<List<Map<String, dynamic>>>(
+      '/seasons',
       queryParams: queryParams,
       parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
     );

@@ -97,6 +97,28 @@ class _MatchListState extends State<MatchList> {
           final List<MatchInfo> matches = snapshot.data!;
 
           if (matches.isEmpty) {
+            // Compact empty state for horizontal lists (My Matches section)
+            if (widget.axis == Axis.horizontal) {
+              return Container(
+                height: 100,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.sports_soccer_outlined, size: 24, color: Colors.grey[600]),
+                    const SizedBox(width: 12),
+                    Text(
+                      'No live matches',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.grey[500],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+            
+            // Full empty state for vertical lists (Upcoming Matches section)
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(32.0),

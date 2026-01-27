@@ -86,6 +86,83 @@ class PlayersRepository {
     return _loadMockPlayer();
   }
 
+  /// Get team info by ID
+  Future<Map<String, dynamic>?> getTeamById(int teamId) async {
+    if (!SportMonksConfig.isConfigured) {
+      return null;
+    }
+
+    try {
+      final response = await _client.getTeamById(teamId);
+      return response.data;
+    } on SportMonksException catch (e) {
+      print('SportMonks API Error fetching team $teamId: $e');
+      return null;
+    } catch (e) {
+      print('Unexpected error fetching team $teamId: $e');
+      return null;
+    }
+  }
+
+  /// Cache for team names to avoid repeated API calls
+  final Map<int, Map<String, String?>> _teamCache = {};
+
+  /// Get team name and logo by ID (with caching)
+  Future<Map<String, String?>> getTeamInfo(int teamId) async {
+    // Check cache first
+    if (_teamCache.containsKey(teamId)) {
+      return _teamCache[teamId]!;
+    }
+
+    final teamData = await getTeamById(teamId);
+    if (teamData != null) {
+      final info = {
+        'name': teamData['name'] as String?,
+        'shortCode': teamData['short_code'] as String?,
+        'logo': teamData['image_path'] as String?,
+      };
+      _teamCache[teamId] = info;
+      return info;
+    }
+
+    return {'name': null, 'shortCode': null, 'logo': null};
+  }
+
+  /// Populate transfer team names for a player
+  Future<void> populateTransferTeamNames(Player player) async {
+    if (!SportMonksConfig.isConfigured) return;
+
+    // Collect unique team IDs
+    final teamIds = <int>{};
+    for (var transfer in player.transfers) {
+      if (transfer.fromTeamId != null) teamIds.add(transfer.fromTeamId!);
+      if (transfer.toTeamId != null) teamIds.add(transfer.toTeamId!);
+    }
+
+    // Fetch team info for each unique team ID
+    final teamInfoFutures = teamIds.map((id) async {
+      final info = await getTeamInfo(id);
+      return MapEntry(id, info);
+    });
+
+    final results = await Future.wait(teamInfoFutures);
+    final teamInfoMap = Map.fromEntries(results);
+
+    // Populate transfer records with team names
+    for (var transfer in player.transfers) {
+      if (transfer.fromTeamId != null) {
+        final info = teamInfoMap[transfer.fromTeamId];
+        transfer.fromTeamName = info?['name'] ?? info?['shortCode'];
+        transfer.fromTeamLogo = info?['logo'];
+      }
+      if (transfer.toTeamId != null) {
+        final info = teamInfoMap[transfer.toTeamId];
+        transfer.toTeamName = info?['name'] ?? info?['shortCode'];
+        transfer.toTeamLogo = info?['logo'];
+      }
+    }
+  }
+
   /// Load mock player from assets (fallback)
   Future<Player?> _loadMockPlayer() async {
     try {
