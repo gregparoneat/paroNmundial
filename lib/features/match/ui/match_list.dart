@@ -1,17 +1,17 @@
-import 'dart:convert';
 import 'package:carousel_slider/carousel_slider.dart';
+import 'package:fantacy11/api/repositories/fixtures_repository.dart';
 import 'package:fantacy11/features/match/models/match_info.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'match_card.dart';
 
-class MatchList extends StatelessWidget {
+class MatchList extends StatefulWidget {
   final Axis axis;
   final int? itemCount;
   final String matchTime;
   final String rightText;
   final void Function(MatchInfo matchInfo)? onTap;
+  final DateTime? selectedDate;
 
   const MatchList(
     this.axis,
@@ -20,72 +20,139 @@ class MatchList extends StatelessWidget {
     this.onTap, {
     super.key,
     this.itemCount,
+    this.selectedDate,
   });
 
   factory MatchList.horizontal(
     String matchTime,
     String rightText,
     void Function(MatchInfo matchInfo)? onTap, {
+    Key? key,
     int? itemCount,
+    DateTime? selectedDate,
   }) =>
       MatchList(Axis.horizontal, matchTime, rightText, onTap,
-          itemCount: itemCount);
+          key: key, itemCount: itemCount, selectedDate: selectedDate);
 
   factory MatchList.vertical(
     String matchTime,
     String rightText,
     void Function(MatchInfo matchInfo)? onTap, {
+    Key? key,
     int? itemCount,
+    DateTime? selectedDate,
   }) =>
       MatchList(Axis.vertical, matchTime, rightText, onTap,
-          itemCount: itemCount);
+          key: key, itemCount: itemCount, selectedDate: selectedDate);
+
+  @override
+  State<MatchList> createState() => _MatchListState();
+}
+
+class _MatchListState extends State<MatchList> {
+  late Future<List<MatchInfo>> _matchesFuture;
+  DateTime? _lastSelectedDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastSelectedDate = widget.selectedDate;
+    _loadMatches();
+  }
+
+  @override
+  void didUpdateWidget(MatchList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Only reload if the selectedDate actually changed
+    if (_dateChanged(oldWidget.selectedDate, widget.selectedDate)) {
+      debugPrint('MatchList: Date changed from ${oldWidget.selectedDate} to ${widget.selectedDate}, reloading...');
+      _lastSelectedDate = widget.selectedDate;
+      _loadMatches();
+    }
+  }
+
+  bool _dateChanged(DateTime? oldDate, DateTime? newDate) {
+    if (oldDate == null && newDate == null) return false;
+    if (oldDate == null || newDate == null) return true;
+    return oldDate.year != newDate.year ||
+           oldDate.month != newDate.month ||
+           oldDate.day != newDate.day;
+  }
+
+  void _loadMatches() {
+    debugPrint('MatchList: Loading matches for date: ${widget.selectedDate}');
+    _matchesFuture = loadMatchesForDate(widget.selectedDate);
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Use FutureBuilder to handle the asynchronous data loading
-    return FutureBuilder<List<MatchInfo>>( // Specify the type of data the Future returns
-      future: loadMatchesFromAsset(), // Your Future function
+    return FutureBuilder<List<MatchInfo>>(
+      future: _matchesFuture,
       builder: (context, snapshot) {
-        // Check the state of the Future
         if (snapshot.connectionState != ConnectionState.done) {
-          // While data is loading, show a CircularProgressIndicator
           return const Center(child: CircularProgressIndicator());
         } else if (snapshot.hasError) {
-          // If an error occurred, display it
           return Center(child: Text('Error: ${snapshot.error}'));
         } else if (snapshot.hasData) {
-          // If data is successfully loaded, use it
-          final List<MatchInfo> matches = snapshot.data!; // The actual list of MatchInfo objects
+          final List<MatchInfo> matches = snapshot.data!;
 
-          if (axis == Axis.horizontal) {
-            // Pass the loaded 'matches' list to the horizontal widget
+          if (matches.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.sports_soccer, size: 48, color: Colors.grey[600]),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No fixtures available',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Colors.grey[500],
+                      ),
+                    ),
+                    if (widget.selectedDate != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Try selecting a different date',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          if (widget.axis == Axis.horizontal) {
             return HorizontalMatchListWithData(
-              matches: matches, // Named parameter to avoid confusion
-              matchTime: matchTime,
-              rightText: rightText,
-              onTap: onTap,
-              itemCount: itemCount,
+              matches: matches,
+              matchTime: widget.matchTime,
+              rightText: widget.rightText,
+              onTap: widget.onTap,
+              itemCount: widget.itemCount,
             );
           } else {
-            // Use the loaded 'matches' list for ListView.builder
             return ListView.builder(
               physics: const BouncingScrollPhysics(),
-              itemCount: itemCount ?? matches.length, // Use matches.length
+              itemCount: widget.itemCount ?? matches.length,
               shrinkWrap: true,
-              scrollDirection: axis,
+              scrollDirection: widget.axis,
               itemBuilder: (context, index) {
-                var matchInfo = matches[index]; // Now 'matches' is a List<MatchInfo>
+                var matchInfo = matches[index];
                 return MatchCard(
                   matchInfo,
-                  matchTime,
-                  rightText,
-                  onTap != null ? () => onTap!(matchInfo) : null,
+                  widget.matchTime,
+                  widget.rightText,
+                  widget.onTap != null ? () => widget.onTap!(matchInfo) : null,
                 );
               },
             );
           }
         } else {
-          // No data, no error, not done (shouldn't happen with .hasData check)
           return const Center(child: Text('No data available.'));
         }
       },
@@ -93,15 +160,24 @@ class MatchList extends StatelessWidget {
   }
 }
 
+/// Singleton repository for fixtures
+final _fixturesRepository = FixturesRepository();
+
+/// Load matches using the FixturesRepository
+/// If date is provided, loads fixtures for that specific date
+/// Otherwise, loads today's fixtures (with fallback to upcoming)
+Future<List<MatchInfo>> loadMatchesForDate(DateTime? date) async {
+  if (date != null) {
+    debugPrint('Loading fixtures for date: $date');
+    return _fixturesRepository.getFixturesByDate(date);
+  }
+  debugPrint('Loading fixtures from repository...');
+  return _fixturesRepository.getTodayFixtures();
+}
+
+/// Legacy function for backward compatibility
 Future<List<MatchInfo>> loadMatchesFromAsset() async {
-  debugPrint('before getting json file');
-  final s = await rootBundle.loadString('assets/MockResponses/dayFixtures.json');
-  debugPrint(s);
-  final jsonData = json.decode(s);
-  final list = jsonData is Map && jsonData['data'] != null
-      ? jsonData['data'] as List
-      : jsonData as List;
-  return MatchInfo.fromJsonList(list);
+  return loadMatchesForDate(null);
 }
 
 class HorizontalMatchList extends StatefulWidget {

@@ -15,6 +15,8 @@ import 'package:fantacy11/features/match/models/match_info.dart';
 import 'package:fantacy11/features/my_matches/match_completed.dart';
 import 'package:fantacy11/features/my_matches/match_live.dart';
 import 'package:fantacy11/features/my_matches/winnings.dart';
+import 'package:fantacy11/features/player/models/player_info.dart' show Player;
+import 'package:fantacy11/features/player/ui/player_details_page.dart';
 import 'package:fantacy11/features/wallet/wallet.dart';
 import 'package:flutter/material.dart';
 
@@ -38,6 +40,7 @@ class PageRoutes {
   static const String matchCompleted = "matchCompleted";
   static const String support = "support";
   static const String wallet = "wallet";
+  static const String playerDetails = "playerDetails";
 }
 
 class AppNavigator extends StatelessWidget {
@@ -115,6 +118,12 @@ class AppNavigator extends StatelessWidget {
               break;
             case PageRoutes.wallet:
               builder = (c, a1, a2) => const Wallet();
+              break;
+            case PageRoutes.playerDetails:
+              builder = (c, a1, a2) {
+                final player = settings.arguments as Player?;
+                return PlayerDetailsPage(player: player);
+              };
               break;
           }
           return PageRouteBuilder(pageBuilder: builder, settings: settings);

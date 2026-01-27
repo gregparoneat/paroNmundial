@@ -9,6 +9,7 @@ import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/routes/routes.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:intl/intl.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -26,6 +27,79 @@ class HomeState extends State<Home> {
 
   BannerAd? _anchoredBanner;
   bool _loadingAnchoredBanner = false;
+  
+  // Date filter state
+  DateTime? _selectedDate;
+  final List<DateTime> _quickDates = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _initQuickDates();
+  }
+
+  void _initQuickDates() {
+    final now = DateTime.now();
+    // Generate next 7 days for quick selection
+    for (int i = 0; i < 7; i++) {
+      _quickDates.add(DateTime(now.year, now.month, now.day + i));
+    }
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final theme = Theme.of(context);
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(
+          data: theme.copyWith(
+            colorScheme: theme.colorScheme.copyWith(
+              primary: theme.primaryColor,
+              onPrimary: Colors.white,
+              surface: theme.colorScheme.surface,
+              onSurface: Colors.white,
+            ),
+            dialogBackgroundColor: theme.scaffoldBackgroundColor,
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
+  }
+
+  String _formatDateChip(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+    
+    if (date.isAtSameMomentAs(today)) {
+      return 'Today';
+    } else if (date.isAtSameMomentAs(tomorrow)) {
+      return 'Tomorrow';
+    } else {
+      return DateFormat('EEE, MMM d').format(date);
+    }
+  }
+
+  bool _isDateSelected(DateTime date) {
+    if (_selectedDate == null) {
+      // If no date selected, "Today" is the default
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      return date.isAtSameMomentAs(today);
+    }
+    return _selectedDate!.year == date.year &&
+           _selectedDate!.month == date.month &&
+           _selectedDate!.day == date.day;
+  }
 
   Future<void> _createAnchoredBanner(BuildContext context) async {
     final AnchoredAdaptiveBannerAdSize? size =
@@ -153,6 +227,7 @@ class HomeState extends State<Home> {
                       PageRoutes.matchLive,
                       arguments: matchInfo,
                     ),
+                    key: const ValueKey('my_matches_horizontal'),
                   ),
                   if (_anchoredBanner != null)
                     Container(
@@ -163,11 +238,58 @@ class HomeState extends State<Home> {
                     ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                    child: Text(
-                      locale.upcomingMatches,
-                      style: theme.textTheme.headlineSmall!.copyWith(
-                        fontSize: 16,
-                      ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          locale.upcomingMatches,
+                          style: theme.textTheme.headlineSmall!.copyWith(
+                            fontSize: 16,
+                          ),
+                        ),
+                        // Calendar button
+                        IconButton(
+                          icon: Icon(Icons.calendar_month, color: theme.primaryColor),
+                          onPressed: () => _selectDate(context),
+                          tooltip: 'Select date',
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Date filter chips
+                  Container(
+                    height: 44,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _quickDates.length,
+                      itemBuilder: (context, index) {
+                        final date = _quickDates[index];
+                        final isSelected = _isDateSelected(date);
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: FilterChip(
+                            label: Text(_formatDateChip(date)),
+                            selected: isSelected,
+                            onSelected: (selected) {
+                              setState(() {
+                                _selectedDate = selected ? date : null;
+                              });
+                            },
+                            backgroundColor: theme.colorScheme.surface,
+                            selectedColor: theme.primaryColor.withValues(alpha: 0.3),
+                            checkmarkColor: theme.primaryColor,
+                            labelStyle: TextStyle(
+                              color: isSelected ? theme.primaryColor : Colors.white70,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            ),
+                            side: BorderSide(
+                              color: isSelected ? theme.primaryColor : Colors.transparent,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                   FadedSlideAnimation(
@@ -182,6 +304,8 @@ class HomeState extends State<Home> {
                         PageRoutes.contests,
                         arguments: matchInfo,
                       ),
+                      key: ValueKey('matches_${_selectedDate?.toIso8601String() ?? 'default'}'),
+                      selectedDate: _selectedDate,
                     ),
                   ),
                 ],

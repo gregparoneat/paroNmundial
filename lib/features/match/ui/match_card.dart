@@ -95,7 +95,7 @@ class MatchCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  matchTime,
+                  matchInfo.getTimeRemaining(),
                   style: theme.textTheme.bodySmall!
                       .copyWith(color: theme.primaryColor, fontSize: 10),
                 ),

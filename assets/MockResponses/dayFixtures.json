@@ -61,22 +61,6 @@
           }
         }
       ],
-      "tvstations": [
-        {
-          "id": 116231126,
-          "fixture_id": 19628384,
-          "tvstation_id": 62,
-          "country_id": 44
-        }
-      ],
-      "state": {
-        "id": 1,
-        "state": "NS",
-        "name": "Not Started",
-        "short_name": "NS",
-        "developer_name": "NS"
-      },
-      "events": [],
       "venue": {
         "id": 2257,
         "country_id": 458,
@@ -91,7 +75,63 @@
         "city_name": "Puebla",
         "surface": "grass",
         "national_team": false
-      }
+      },
+      "coaches": [
+        {
+          "id": 896755,
+          "player_id": 896755,
+          "sport_id": 1,
+          "country_id": 44,
+          "nationality_id": 44,
+          "city_id": null,
+          "common_name": "A. Mohamed Matijevich",
+          "firstname": "Antonio Ricardo",
+          "lastname": "Mohamed Matijevich",
+          "name": "Antonio Ricardo Mohamed Matijevich",
+          "display_name": "Antonio Mohamed Matijevich",
+          "image_path": "https://cdn.sportmonks.com/images/soccer/placeholder.png",
+          "height": null,
+          "weight": null,
+          "date_of_birth": "1970-04-02",
+          "gender": "male",
+          "meta": {
+            "fixture_id": 19628384,
+            "coach_id": 896755,
+            "participant_id": 967
+          }
+        },
+        {
+          "id": 37646385,
+          "player_id": null,
+          "sport_id": 1,
+          "country_id": 32,
+          "nationality_id": 32,
+          "city_id": null,
+          "common_name": "A. López",
+          "firstname": "Alberto",
+          "lastname": "López",
+          "name": "Alberto Manuel Espigares López",
+          "display_name": "Albert Espigares",
+          "image_path": "https://cdn.sportmonks.com/images/soccer/placeholder.png",
+          "height": 190,
+          "weight": null,
+          "date_of_birth": "1978-05-08",
+          "gender": null,
+          "meta": {
+            "fixture_id": 19628384,
+            "coach_id": 37646385,
+            "participant_id": 3849
+          }
+        }
+      ],
+      "tvstations": [
+        {
+          "id": 116231126,
+          "fixture_id": 19628384,
+          "tvstation_id": 62,
+          "country_id": 44
+        }
+      ]
     },
     {
       "id": 19628382,
@@ -154,22 +194,6 @@
           }
         }
       ],
-      "tvstations": [
-        {
-          "id": 116231124,
-          "fixture_id": 19628382,
-          "tvstation_id": 62,
-          "country_id": 44
-        }
-      ],
-      "state": {
-        "id": 1,
-        "state": "NS",
-        "name": "Not Started",
-        "short_name": "NS",
-        "developer_name": "NS"
-      },
-      "events": [],
       "venue": {
         "id": 4095,
         "country_id": 458,
@@ -184,7 +208,63 @@
         "city_name": "Ciudad Juárez",
         "surface": "grass",
         "national_team": false
-      }
+      },
+      "coaches": [
+        {
+          "id": 896469,
+          "player_id": 896469,
+          "sport_id": 1,
+          "country_id": 20,
+          "nationality_id": 20,
+          "city_id": null,
+          "common_name": "P. Faria Caixinha",
+          "firstname": "Pedro Miguel",
+          "lastname": "Faria Caixinha",
+          "name": "Pedro Miguel Faria Caixinha",
+          "display_name": "Pedro Faria Caixinha",
+          "image_path": "https://cdn.sportmonks.com/images/soccer/placeholder.png",
+          "height": null,
+          "weight": null,
+          "date_of_birth": "1970-11-15",
+          "gender": "male",
+          "meta": {
+            "fixture_id": 19628382,
+            "coach_id": 896469,
+            "participant_id": 6335
+          }
+        },
+        {
+          "id": 470363,
+          "player_id": 470363,
+          "sport_id": 1,
+          "country_id": 44,
+          "nationality_id": 44,
+          "city_id": null,
+          "common_name": "N. Larcamón",
+          "firstname": "Nicolás Ricardo",
+          "lastname": "Larcamón",
+          "name": "Nicolás Ricardo Larcamón",
+          "display_name": "Nicolás Larcamón",
+          "image_path": "https://cdn.sportmonks.com/images/soccer/placeholder.png",
+          "height": null,
+          "weight": null,
+          "date_of_birth": "1984-08-11",
+          "gender": "male",
+          "meta": {
+            "fixture_id": 19628382,
+            "coach_id": 470363,
+            "participant_id": 2626
+          }
+        }
+      ],
+      "tvstations": [
+        {
+          "id": 116231124,
+          "fixture_id": 19628382,
+          "tvstation_id": 62,
+          "country_id": 44
+        }
+      ]
     },
     {
       "id": 19628383,
@@ -247,22 +327,6 @@
           }
         }
       ],
-      "tvstations": [
-        {
-          "id": 116231125,
-          "fixture_id": 19628383,
-          "tvstation_id": 62,
-          "country_id": 44
-        }
-      ],
-      "state": {
-        "id": 1,
-        "state": "NS",
-        "name": "Not Started",
-        "short_name": "NS",
-        "developer_name": "NS"
-      },
-      "events": [],
       "venue": {
         "id": 1755,
         "country_id": 458,
@@ -277,7 +341,63 @@
         "city_name": "Mexico City",
         "surface": "grass",
         "national_team": false
-      }
+      },
+      "coaches": [
+        {
+          "id": 172446,
+          "player_id": 172446,
+          "sport_id": 1,
+          "country_id": 458,
+          "nationality_id": 458,
+          "city_id": null,
+          "common_name": "E. Juárez Váldez",
+          "firstname": "Efraín",
+          "lastname": "Juárez Váldez",
+          "name": "Efraín Juárez Valdez",
+          "display_name": "Efrain Juarez",
+          "image_path": "https://cdn.sportmonks.com/images/soccer/placeholder.png",
+          "height": null,
+          "weight": null,
+          "date_of_birth": "1988-02-22",
+          "gender": "male",
+          "meta": {
+            "fixture_id": 19628383,
+            "coach_id": 172446,
+            "participant_id": 2989
+          }
+        },
+        {
+          "id": 464975,
+          "player_id": 464975,
+          "sport_id": 1,
+          "country_id": 32,
+          "nationality_id": 32,
+          "city_id": null,
+          "common_name": "F. Rodríguez Vílchez",
+          "firstname": "Francisco Javier",
+          "lastname": "Rodríguez Vílchez",
+          "name": "Francisco Javier Rodríguez Vílchez",
+          "display_name": "Francisco",
+          "image_path": "https://cdn.sportmonks.com/images/soccer/coaches/15/464975.png",
+          "height": 174,
+          "weight": 70,
+          "date_of_birth": "1978-06-17",
+          "gender": "male",
+          "meta": {
+            "fixture_id": 19628383,
+            "coach_id": 464975,
+            "participant_id": 2844
+          }
+        }
+      ],
+      "tvstations": [
+        {
+          "id": 116231125,
+          "fixture_id": 19628383,
+          "tvstation_id": 62,
+          "country_id": 44
+        }
+      ]
     },
     {
       "id": 19628381,
@@ -340,22 +460,6 @@
           }
         }
       ],
-      "tvstations": [
-        {
-          "id": 116231123,
-          "fixture_id": 19628381,
-          "tvstation_id": 62,
-          "country_id": 44
-        }
-      ],
-      "state": {
-        "id": 1,
-        "state": "NS",
-        "name": "Not Started",
-        "short_name": "NS",
-        "developer_name": "NS"
-      },
-      "events": [],
       "venue": {
         "id": 179,
         "country_id": 458,
@@ -370,7 +474,63 @@
         "city_name": "Guadalajara",
         "surface": "grass",
         "national_team": false
-      }
+      },
+      "coaches": [
+        {
+          "id": 460370,
+          "player_id": 460370,
+          "sport_id": 1,
+          "country_id": 44,
+          "nationality_id": 44,
+          "city_id": null,
+          "common_name": "D. Cocca Pera",
+          "firstname": "Diego Martín",
+          "lastname": "Cocca Pera",
+          "name": "Diego Martín Cocca Pera",
+          "display_name": "Diego Cocca Pera",
+          "image_path": "https://cdn.sportmonks.com/images/soccer/placeholder.png",
+          "height": null,
+          "weight": null,
+          "date_of_birth": "1972-02-11",
+          "gender": "male",
+          "meta": {
+            "fixture_id": 19628381,
+            "coach_id": 460370,
+            "participant_id": 680
+          }
+        },
+        {
+          "id": 37623357,
+          "player_id": 37623357,
+          "sport_id": 1,
+          "country_id": 458,
+          "nationality_id": 458,
+          "city_id": null,
+          "common_name": "C. Ramírez Diaz",
+          "firstname": "Christian",
+          "lastname": "Ramírez Diaz",
+          "name": "Christian Ramírez Diaz",
+          "display_name": "Christian Ramírez Diaz",
+          "image_path": "https://cdn.sportmonks.com/images/soccer/placeholder.png",
+          "height": 178,
+          "weight": null,
+          "date_of_birth": "1978-03-08",
+          "gender": "male",
+          "meta": {
+            "fixture_id": 19628381,
+            "coach_id": 37623357,
+            "participant_id": 247689
+          }
+        }
+      ],
+      "tvstations": [
+        {
+          "id": 116231123,
+          "fixture_id": 19628381,
+          "tvstation_id": 62,
+          "country_id": 44
+        }
+      ]
     }
   ],
   "pagination": {
@@ -385,7 +545,7 @@
       "meta": {
         "trial_ends_at": null,
         "ends_at": "2026-02-26 20:31:37",
-        "current_timestamp": 1769460111
+        "current_timestamp": 1769468785
       },
       "plans": [
         {
@@ -399,7 +559,7 @@
     }
   ],
   "rate_limit": {
-    "resets_in_seconds": 3116,
+    "resets_in_seconds": 2619,
     "remaining": 2993,
     "requested_entity": "Fixture"
   },
