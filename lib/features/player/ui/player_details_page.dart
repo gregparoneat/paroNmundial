@@ -43,8 +43,13 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
     _loadCurrentSeason();
     
     if (widget.player != null) {
+      // Use the passed player temporarily, then refresh with full data
       _player = widget.player;
       _isLoading = false;
+      
+      // Always fetch fresh player data to ensure we have complete statistics
+      _refreshPlayerData(widget.player!.id);
+      
       // Fetch team details (current team and transfer teams)
       _loadTeamDetails();
       // Fetch next match and recent form in parallel
@@ -52,6 +57,31 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
       _loadRecentForm();
     } else {
       _loadDemoPlayer();
+    }
+  }
+  
+  /// Refresh player data from API to ensure complete statistics
+  Future<void> _refreshPlayerData(int playerId) async {
+    try {
+      debugPrint('Refreshing player data for ID: $playerId');
+      final freshPlayer = await _repository.getPlayerById(playerId);
+      
+      if (mounted && freshPlayer != null) {
+        setState(() {
+          _player = freshPlayer;
+        });
+        debugPrint('Player data refreshed: ${freshPlayer.name}');
+        debugPrint('Teams count: ${freshPlayer.teams.length}');
+        debugPrint('Statistics count: ${freshPlayer.statistics.length}');
+        
+        // Re-trigger dependent data loads with fresh data
+        _loadTeamDetails();
+        _loadNextMatch();
+        _loadRecentForm();
+      }
+    } catch (e) {
+      debugPrint('Error refreshing player data: $e');
+      // Keep using cached data if refresh fails
     }
   }
 

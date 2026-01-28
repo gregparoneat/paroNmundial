@@ -1,1045 +1,737 @@
-# Fantasy 11 - Low-Level Design (LLD) Document
+# Fantasy 11 - Architecture & Low-Level Design (LLD)
 
 ## Table of Contents
 
-1. [System Overview](#1-system-overview)
-2. [Architecture Patterns](#2-architecture-patterns)
-3. [Component Design](#3-component-design)
-4. [Data Models](#4-data-models)
-5. [API Layer Design](#5-api-layer-design)
-6. [Repository Layer Design](#6-repository-layer-design)
-7. [Caching Strategy](#7-caching-strategy)
-8. [Fantasy Points Prediction Algorithm](#8-fantasy-points-prediction-algorithm)
-9. [State Management](#9-state-management)
-10. [Error Handling](#10-error-handling)
-11. [Sequence Diagrams](#11-sequence-diagrams)
-12. [Database Schema](#12-database-schema)
+1. [System Overview](#system-overview)
+2. [Architecture Diagrams](#architecture-diagrams)
+3. [Component Details](#component-details)
+4. [Data Flow Diagrams](#data-flow-diagrams)
+5. [Database Schema](#database-schema)
+6. [API Integration](#api-integration)
+7. [Caching Strategy](#caching-strategy)
+8. [Fantasy League System](#fantasy-league-system)
+9. [Security Considerations](#security-considerations)
 
 ---
 
-## 1. System Overview
+## System Overview
 
-### 1.1 Purpose
+Fantasy 11 is a fantasy sports application built with Flutter, following a **Clean Architecture** pattern with **Repository Pattern** for data management. The app integrates with SportMonks API for real-time football data and uses Hive for local persistence.
 
-Fantasy 11 is a fantasy sports mobile application that enables users to:
-- Search and analyze football players
-- View real-time match fixtures and statistics
-- Get AI-powered fantasy points predictions
-- Build fantasy teams and participate in contests
+### Technology Stack
 
-### 1.2 High-Level Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                              CLIENT LAYER                                 │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │   Android   │  │     iOS     │  │     Web     │  │   Desktop   │     │
-│  │    App      │  │     App     │  │     App     │  │    App      │     │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘     │
-└──────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                           FLUTTER APPLICATION                             │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │                         PRESENTATION LAYER                          │  │
-│  │   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐          │  │
-│  │   │  Pages   │  │ Widgets  │  │  Cubits  │  │  Routes  │          │  │
-│  │   └──────────┘  └──────────┘  └──────────┘  └──────────┘          │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-│                                    │                                      │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │                          BUSINESS LOGIC LAYER                       │  │
-│  │   ┌────────────────────┐  ┌────────────────────┐                   │  │
-│  │   │ Fantasy Predictor  │  │   Data Processors  │                   │  │
-│  │   └────────────────────┘  └────────────────────┘                   │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-│                                    │                                      │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │                          REPOSITORY LAYER                           │  │
-│  │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐            │  │
-│  │   │   Players    │  │   Fixtures   │  │   Seasons    │            │  │
-│  │   │  Repository  │  │  Repository  │  │  Repository  │            │  │
-│  │   └──────────────┘  └──────────────┘  └──────────────┘            │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-│                                    │                                      │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │                            DATA LAYER                               │  │
-│  │   ┌──────────────────┐              ┌──────────────────┐           │  │
-│  │   │  SportMonks      │              │   Cache Service  │           │  │
-│  │   │  API Client      │              │   (Hive)         │           │  │
-│  │   └──────────────────┘              └──────────────────┘           │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                          EXTERNAL SERVICES                                │
-│   ┌──────────────────────────┐    ┌──────────────────────────┐          │
-│   │     SportMonks API       │    │      Google AdMob        │          │
-│   │   (Football Data)        │    │   (Advertisements)       │          │
-│   └──────────────────────────┘    └──────────────────────────┘          │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+| Layer | Technology |
+|-------|------------|
+| Frontend | Flutter 3.32.5+ / Dart 3.8.1+ |
+| State Management | flutter_bloc (Cubits) |
+| Local Storage | Hive (NoSQL) |
+| API Client | http package |
+| Image Caching | cached_network_image |
+| Localization | flutter_intl |
 
 ---
 
-## 2. Architecture Patterns
+## Architecture Diagrams
 
-### 2.1 Repository Pattern
+### High-Level Architecture
 
-The application implements the Repository Pattern to abstract data sources from the business logic.
-
-```dart
-// Abstract interface (implicit in Dart)
-abstract class IPlayersRepository {
-  Future<List<Player>> searchPlayers(String query);
-  Future<Player?> getPlayerById(int id);
-}
-
-// Concrete implementation
-class PlayersRepository implements IPlayersRepository {
-  final SportMonksClient _client;
-  final CacheService _cache;
-  
-  @override
-  Future<List<Player>> searchPlayers(String query) async {
-    // 1. Check cache first
-    final cached = _cache.getPlayerSearchResults(query);
-    if (cached != null) return cached.map(Player.fromJson).toList();
-    
-    // 2. Fetch from API
-    final response = await _client.searchPlayers(query);
-    
-    // 3. Cache results
-    await _cache.cachePlayerSearchResults(query, response.data);
-    
-    return response.data.map(Player.fromJson).toList();
-  }
-}
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              FANTASY 11 APP                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                         PRESENTATION LAYER                           │   │
+│  │  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────────────┐   │   │
+│  │  │  Player   │ │  League   │ │  Team     │ │  Fantasy Points   │   │   │
+│  │  │  Search   │ │  Details  │ │  Builder  │ │  Prediction       │   │   │
+│  │  └───────────┘ └───────────┘ └───────────┘ └───────────────────┘   │   │
+│  │  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────────────┐   │   │
+│  │  │  Player   │ │  Fixtures │ │  Wallet   │ │  Authentication   │   │   │
+│  │  │  Profile  │ │  List     │ │  Screen   │ │  Screens          │   │   │
+│  │  └───────────┘ └───────────┘ └───────────┘ └───────────────────┘   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        BUSINESS LOGIC LAYER                          │   │
+│  │  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────────┐   │   │
+│  │  │ FantasyPoints   │ │ LeagueCubit     │ │ AuthenticationCubit │   │   │
+│  │  │ Predictor       │ │                 │ │                     │   │   │
+│  │  └─────────────────┘ └─────────────────┘ └─────────────────────┘   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                         REPOSITORY LAYER                             │   │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌────────────┐ │   │
+│  │  │ Players      │ │ Fixtures     │ │ Seasons      │ │ League     │ │   │
+│  │  │ Repository   │ │ Repository   │ │ Repository   │ │ Repository │ │   │
+│  │  └──────────────┘ └──────────────┘ └──────────────┘ └────────────┘ │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                          │                    │                             │
+│              ┌───────────┴───────────┐       │                             │
+│              ▼                       ▼       ▼                             │
+│  ┌─────────────────────┐ ┌─────────────────────────┐                       │
+│  │   SportMonks API    │ │    Hive Cache Service   │                       │
+│  │   Client            │ │    (Local Storage)      │                       │
+│  └─────────────────────┘ └─────────────────────────┘                       │
+│              │                                                              │
+└──────────────┼──────────────────────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           EXTERNAL SERVICES                                  │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                      SportMonks Football API                         │   │
+│  │  • Players Data      • Team Squads        • Live Scores             │   │
+│  │  • Fixtures          • Statistics         • Standings               │   │
+│  │  • Seasons           • Leagues            • Venues                  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 BLoC Pattern (Business Logic Component)
+### Module Dependency Graph
 
-State management uses the BLoC pattern via `flutter_bloc`:
-
-```dart
-// State
-abstract class LanguageState {}
-class LanguageLoaded extends LanguageState {
-  final Locale locale;
-}
-
-// Cubit (simplified BLoC)
-class LanguageCubit extends Cubit<Locale> {
-  LanguageCubit() : super(const Locale('en'));
-  
-  Future<void> setLanguage(String code) async {
-    emit(Locale(code));
-  }
-}
 ```
-
-### 2.3 Dependency Injection
-
-Dependencies are injected through constructors with optional parameters for testing:
-
-```dart
-class FixturesRepository {
-  final SportMonksClient _client;
-  
-  FixturesRepository({SportMonksClient? client}) 
-      : _client = client ?? SportMonksClient();
-}
+                    ┌─────────────┐
+                    │    main     │
+                    └──────┬──────┘
+                           │
+           ┌───────────────┼───────────────┐
+           ▼               ▼               ▼
+    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+    │   routes    │ │  services   │ │  app_config │
+    └──────┬──────┘ └──────┬──────┘ └─────────────┘
+           │               │
+           ▼               ▼
+    ┌─────────────────────────────────────────────┐
+    │                  features                    │
+    │  ┌─────────┐ ┌─────────┐ ┌─────────┐       │
+    │  │ player  │ │ league  │ │ fantasy │ ...   │
+    │  └────┬────┘ └────┬────┘ └────┬────┘       │
+    └───────┼───────────┼───────────┼────────────┘
+            │           │           │
+            └───────────┼───────────┘
+                        ▼
+              ┌─────────────────┐
+              │       api       │
+              │  ┌───────────┐  │
+              │  │repositories│  │
+              │  └─────┬─────┘  │
+              │        ▼        │
+              │ ┌─────────────┐ │
+              │ │sportmonks   │ │
+              │ │client       │ │
+              │ └─────────────┘ │
+              └─────────────────┘
 ```
 
 ---
 
-## 3. Component Design
+## Component Details
 
-### 3.1 Feature Module Structure
+### 1. API Layer (`lib/api/`)
 
-Each feature follows a consistent structure:
+#### SportMonksClient (`sportmonks_client.dart`)
 
-```
-features/
-└── player/
-    ├── models/
-    │   └── player_info.dart      # Data models
-    └── ui/
-        └── player_details_page.dart  # UI widgets
-```
+Handles all HTTP communication with SportMonks API.
 
-### 3.2 Key Components
-
-#### 3.2.1 Player Details Page
-
-**Responsibilities:**
-- Display player information and statistics
-- Show fantasy points prediction
-- Display next match information
-- Show tournament-specific and season statistics
-
-**State Variables:**
-```dart
-class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
-  Player? _player;
-  bool _isLoading = true;
-  bool _isLoadingTeams = false;
-  bool _isLoadingNextMatch = false;
-  bool _isLoadingRecentForm = false;
-  bool _isLoadingTournamentStats = false;
-  MatchInfo? _nextMatch;
-  OpponentInfo? _opponentInfo;
-  RecentMatchStats? _recentMatchStats;
-  RecentMatchStats? _tournamentStats;
-  SeasonInfo? _currentSeason;
-  String? _error;
-}
-```
-
-**Lifecycle:**
-```
-initState()
-    │
-    ├─► _loadCurrentSeason()
-    │       │
-    │       └─► [on success] _loadTournamentStats()
-    │
-    ├─► _loadPlayerData() or _loadDemoPlayer()
-    │       │
-    │       ├─► _loadTeamDetails()
-    │       ├─► _loadNextMatch()
-    │       └─► _loadRecentForm()
-    │
-    └─► [renders UI with loaded data]
-```
-
-#### 3.2.2 Fantasy Points Predictor
-
-**Purpose:** Calculate predicted fantasy points for a player
-
-**Input:**
-- `Player` object with statistics
-- `RecentMatchStats` (optional) - last N matches data
-- `OpponentInfo` (optional) - next opponent analysis
-- `currentSeasonId` (optional) - for season-specific stats
-
-**Output:**
-- `FantasyPrediction` with total points, tier, factors, confidence
-
----
-
-## 4. Data Models
-
-### 4.1 Player Model
-
-```dart
-class Player {
-  final int id;
-  final String? displayName;
-  final String? firstName;
-  final String? lastName;
-  final String? commonName;
-  final String? imagePath;
-  final DateTime? dateOfBirth;
-  final int? jerseyNumber;
-  final int? height;
-  final int? weight;
-  final Position? position;
-  final Position? detailedPosition;
-  final Nationality? nationality;
-  final List<TeamAssociation> teams;
-  final List<PlayerStatistics> statistics;
-  final List<Trophy>? trophies;
-  
-  // Computed properties
-  TeamAssociation? get currentTeam;
-  PlayerStatistics? get latestStats;
-  bool get isGoalkeeper;
-  int? get age;
-}
-```
-
-### 4.2 Player Statistics Model
-
-```dart
-class PlayerStatistics {
-  final int id;
-  final int? seasonId;
-  final int? playerId;
-  final int? teamId;
-  final int? appearances;
-  final int? lineups;
-  final int? minutesPlayed;
-  final int? goals;
-  final int? assists;
-  final int? yellowCards;
-  final int? yellowRedCards;
-  final int? redCards;
-  final int? cleanSheets;
-  final int? saves;
-  final int? penaltiesScored;
-  final int? penaltiesMissed;
-  final int? penaltiesSaved;
-  final double? rating;
-  final String? seasonName;
-  
-  // Computed properties
-  int? get goalContributions;
-  double? get minutesPerGoal;
-  String get formattedMinutes;
-}
-```
-
-### 4.3 Season & Stage Models
-
-```dart
-/// Represents a stage/tournament within a season (e.g., Apertura, Clausura)
-class StageInfo {
-  final int id;
-  final String name;
-  final int seasonId;
-  final bool isCurrent;
-  final bool isFinished;
-  final DateTime? startDate;
-  final DateTime? endDate;
-}
-
-/// Represents a football season (full year)
-class SeasonInfo {
-  final int id;
-  final String name;
-  final int leagueId;
-  final bool isCurrent;
-  final bool isFinished;
-  final DateTime? startDate;
-  final DateTime? endDate;
-  final StageInfo? currentStage;
-  final List<StageInfo> stages;
-}
-```
-
-### 4.4 Match Info Model
-
-```dart
-class MatchInfo {
-  final int id;
-  final String? name;
-  final DateTime? startingAt;
-  final int? homeTeamId;
-  final int? awayTeamId;
-  final String? homeTeamName;
-  final String? awayTeamName;
-  final String? homeTeamLogo;
-  final String? awayTeamLogo;
-  final int? homeScore;
-  final int? awayScore;
-  final String? status;
-  final String? venueName;
-  final String? leagueName;
-  
-  // Methods
-  bool get isLive;
-  bool get isFinished;
-  bool get isUpcoming;
-  String getTimeRemaining();
-}
-```
-
-### 4.5 Recent Match Stats Model
-
-```dart
-class RecentMatchStats {
-  final int matchesPlayed;
-  final int goals;
-  final int assists;
-  final int minutesPlayed;
-  final int cleanSheets;
-  final int yellowCards;
-  final int redCards;
-  final int saves;
-  final double? averageRating;
-  
-  // Computed properties
-  double get goalsPerMatch;
-  double get assistsPerMatch;
-  double get contributionsPerMatch;
-  double get minutesPerMatch;
-  double get cleanSheetRate;
-  double get cardsPerMatch;
-}
-```
-
-### 4.6 Class Diagram
-
-```
-┌─────────────────────┐       ┌─────────────────────┐
-│       Player        │       │    PlayerStatistics │
-├─────────────────────┤       ├─────────────────────┤
-│ - id: int           │       │ - seasonId: int?    │
-│ - displayName       │ 1   * │ - appearances: int? │
-│ - position          │◄──────│ - goals: int?       │
-│ - nationality       │       │ - assists: int?     │
-│ - teams: List       │       │ - rating: double?   │
-│ - statistics: List  │       └─────────────────────┘
-└─────────────────────┘
-         │
-         │ 1
-         ▼ *
-┌─────────────────────┐       ┌─────────────────────┐
-│   TeamAssociation   │       │      SeasonInfo     │
-├─────────────────────┤       ├─────────────────────┤
-│ - teamId: int       │       │ - id: int           │
-│ - teamName: String? │       │ - name: String      │
-│ - position: String? │       │ - currentStage      │
-│ - jerseyNumber: int?│       │ - stages: List      │
-└─────────────────────┘       └─────────────────────┘
-                                       │
-                                       │ 1
-                                       ▼ *
-                              ┌─────────────────────┐
-                              │      StageInfo      │
-                              ├─────────────────────┤
-                              │ - id: int           │
-                              │ - name: String      │
-                              │ - startDate         │
-                              │ - endDate           │
-                              └─────────────────────┘
-```
-
----
-
-## 5. API Layer Design
-
-### 5.1 SportMonks Client
-
-**Purpose:** HTTP client for SportMonks Football API v3
-
-**Key Methods:**
 ```dart
 class SportMonksClient {
-  // Player endpoints
-  Future<SportMonksResponse<List<Map>>> searchPlayers(String name, {...});
-  Future<SportMonksResponse<Map>> getPlayerById(int playerId, {...});
+  // Base configuration
+  static const String baseUrl = 'https://api.sportmonks.com/v3/football';
   
-  // Fixture endpoints
-  Future<SportMonksResponse<List<Map>>> getFixturesByDate(DateTime date, {...});
-  Future<SportMonksResponse<List<Map>>> getFixturesByTeam(int teamId, {...});
-  Future<SportMonksResponse<List<Map>>> getLiveFixtures({...});
-  
-  // Team endpoints
-  Future<SportMonksResponse<Map>> getTeamById(int teamId, {...});
-  
-  // Season endpoints
-  Future<SportMonksResponse<List<Map>>> getSeasonsByLeague(int leagueId, {...});
+  // Core methods
+  Future<ApiResponse> searchPlayers(String query, {List<String> includes});
+  Future<ApiResponse> getPlayerById(int id, {List<String> includes});
+  Future<ApiResponse> getTeamById(int id, {List<String> includes});
+  Future<ApiResponse> getFixturesByDateRange(String start, String end, int teamId);
+  Future<ApiResponse> getSeasonById(int id, {List<String> includes});
 }
 ```
 
-### 5.2 Response Wrapper
+#### Repositories
 
-```dart
-class SportMonksResponse<T> {
-  final T data;
-  final Map<String, dynamic>? pagination;
-  final Map<String, dynamic>? rateLimit;
-  final String? timezone;
-  
-  bool get hasMore;
-  int? get currentPage;
-  int? get nextPage;
-  int? get totalCount;
-}
+| Repository | Responsibility |
+|------------|----------------|
+| `PlayersRepository` | Player search, details, Liga MX roster management |
+| `FixturesRepository` | Match fixtures, recent form, tournament stats |
+| `SeasonsRepository` | Season data, current stage identification |
+| `LeagueRepository` | Fantasy league CRUD operations |
+
+### 2. Feature Modules (`lib/features/`)
+
+#### Player Module
+
+```
+features/player/
+├── models/
+│   └── player_info.dart      # Player, PlayerStatistics, PlayerTeamInfo
+├── ui/
+│   └── player_details_page.dart
+└── widgets/
+    └── player_card.dart
 ```
 
-### 5.3 Error Handling
+#### League Module (Fantasy Leagues)
+
+```
+features/league/
+├── models/
+│   └── league_models.dart    # League, FantasyTeam, FantasyTeamPlayer
+├── ui/
+│   ├── create_league_page.dart
+│   ├── league_details_page.dart
+│   ├── team_builder_page.dart
+│   └── widgets/
+│       ├── soccer_field_widget.dart
+│       └── bench_widget.dart
+└── cubit/
+    └── league_cubit.dart
+```
+
+### 3. Services Layer (`lib/services/`)
+
+#### CacheService (`cache_service.dart`)
+
+Manages Hive-based local storage with automatic expiry.
 
 ```dart
-class SportMonksException implements Exception {
-  final String message;
-  final int? statusCode;
-  final dynamic response;
+class CacheService {
+  // Hive boxes
+  Box<String> _playersBox;
+  Box<String> _fixturesBox;
+  Box<String> _teamsBox;
+  Box<String> _generalBox;
   
-  // Status code meanings:
-  // 401 - Invalid API token
-  // 403 - Access forbidden (subscription issue)
-  // 404 - Resource not found
-  // 429 - Rate limit exceeded
-  // 5xx - Server errors
+  // Liga MX roster caching (6-hour expiry)
+  List<Map<String, dynamic>>? getLigaMxRoster();
+  Future<void> saveLigaMxRoster(List<Map<String, dynamic>> players);
+  Future<void> addToLigaMxRoster(List<Map<String, dynamic>> newPlayers);
+  
+  // Team caching
+  List<Map<String, dynamic>>? getLigaMxTeams();
+  Future<void> saveLigaMxTeams(List<Map<String, dynamic>> teams);
 }
 ```
 
 ---
 
-## 6. Repository Layer Design
+## Data Flow Diagrams
 
-### 6.1 Players Repository
+### Player Search Flow
 
-```dart
-class PlayersRepository {
-  final SportMonksClient _client;
-  
-  /// Search players by name
-  /// Returns up to 25 matching players
-  Future<List<Player>> searchPlayers(String query, {int? page});
-  
-  /// Get detailed player information
-  /// Includes statistics, teams, trophies
-  Future<Player?> getPlayerById(int playerId);
-  
-  /// Get recent players from cache
-  List<Player> getRecentPlayers();
-  
-  /// Get a demo player for development
-  Future<Player?> getDemoPlayer();
-}
+```
+┌──────────┐     ┌───────────────┐     ┌──────────────────┐
+│   User   │────▶│ PlayersSearch │────▶│ PlayersRepository│
+│  Input   │     │    Page       │     │                  │
+└──────────┘     └───────────────┘     └────────┬─────────┘
+                                                │
+                        ┌───────────────────────┼───────────────────────┐
+                        ▼                       ▼                       ▼
+              ┌─────────────────┐     ┌─────────────────┐     ┌────────────────┐
+              │ Check Hive     │     │ Search API      │     │ Parse & Cache  │
+              │ Cache First    │     │ (debounced)     │     │ Results        │
+              └────────┬────────┘     └────────┬────────┘     └────────────────┘
+                       │                       │
+                       ▼                       ▼
+              ┌─────────────────────────────────────────┐
+              │          Return Player Results          │
+              │    (merged local cache + API results)   │
+              └─────────────────────────────────────────┘
 ```
 
-### 6.2 Fixtures Repository
+### Team Builder Flow
 
-```dart
-class FixturesRepository {
-  final SportMonksClient _client;
-  
-  /// Get fixtures for today
-  Future<List<MatchInfo>> getTodayFixtures();
-  
-  /// Get fixtures for a specific date
-  Future<List<MatchInfo>> getFixturesByDate(DateTime date);
-  
-  /// Get upcoming fixtures for next N days
-  Future<List<MatchInfo>> getUpcomingFixtures({int days = 7});
-  
-  /// Get live fixtures
-  Future<List<MatchInfo>> getLiveFixtures();
-  
-  /// Get next match for a team
-  Future<MatchInfo?> getNextMatchForTeam(int teamId);
-  
-  /// Get player's recent match statistics
-  Future<RecentMatchStats?> getPlayerRecentStats(int playerId, int teamId, {int matchCount = 5});
-  
-  /// Get player's tournament-specific statistics
-  Future<RecentMatchStats?> getPlayerTournamentStats(int playerId, int teamId, {
-    required DateTime startDate,
-    DateTime? endDate,
-  });
-}
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         TEAM BUILDER PAGE                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  1. INITIAL LOAD                                                        │
+│  ┌────────────┐     ┌─────────────────┐     ┌──────────────────┐       │
+│  │ Check Hive │────▶│ Return Cached   │────▶│ Display Players  │       │
+│  │ Cache      │     │ Players         │     │ on Field + List  │       │
+│  └────────────┘     └─────────────────┘     └──────────────────┘       │
+│        │                                                                │
+│        │ (if cache empty)                                               │
+│        ▼                                                                │
+│  ┌────────────────────────────────────────────────────────────────┐    │
+│  │ Load from API (lazy loading, team by team, page by page)       │    │
+│  └────────────────────────────────────────────────────────────────┘    │
+│                                                                         │
+│  2. PLAYER SELECTION                                                    │
+│  ┌────────────┐     ┌─────────────────┐     ┌──────────────────┐       │
+│  │ Tap Empty  │────▶│ Show Player     │────▶│ Filter by        │       │
+│  │ Slot       │     │ Selection Sheet │     │ Position/Team    │       │
+│  └────────────┘     └─────────────────┘     └──────────────────┘       │
+│                             │                                           │
+│                             ▼                                           │
+│                     ┌─────────────────┐                                 │
+│                     │ API Search      │ (if query >= 2 chars)          │
+│                     │ (debounced)     │                                 │
+│                     └─────────────────┘                                 │
+│                                                                         │
+│  3. SQUAD VALIDATION                                                    │
+│  ┌────────────────────────────────────────────────────────────────┐    │
+│  │ • Max 15 players (11 starters + 4 subs)                        │    │
+│  │ • Max 2 GK, 5 DEF, 5 MID, 3 FWD                                │    │
+│  │ • Max 4 players from same team                                 │    │
+│  │ • Budget constraint (100 credits default)                      │    │
+│  └────────────────────────────────────────────────────────────────┘    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 6.3 Seasons Repository
+### Fantasy Points Prediction Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    FANTASY POINTS PREDICTOR                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  INPUT DATA                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
+│  │ Player Stats │  │ Recent Form  │  │ Next Match   │                  │
+│  │ (Season)     │  │ (Last 5)     │  │ (Opponent)   │                  │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                  │
+│         │                 │                 │                           │
+│         └─────────────────┼─────────────────┘                           │
+│                           ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                    CALCULATION ENGINE                            │   │
+│  │                                                                  │   │
+│  │  Base Score (50) ─────────────────────────────────────┐         │   │
+│  │                                                        │         │   │
+│  │  + Position Bonus (0-10) ─────────────────────────────┤         │   │
+│  │    • GK: +5 if clean sheets                           │         │   │
+│  │    • DEF: +5 if clean sheets                          │         │   │
+│  │    • MID: +3 base                                     │         │   │
+│  │    • FWD: +7 if goals > 0.3/match                     │         │   │
+│  │                                                        │         │   │
+│  │  + Form Score (-10 to +15) ───────────────────────────┤         │   │
+│  │    • Goals: +5 each                                   │         │   │
+│  │    • Assists: +3 each                                 │         │   │
+│  │    • Clean sheets: +4 each                            │         │   │
+│  │    • Yellow cards: -1 each                            │         │   │
+│  │    • Red cards: -3 each                               │         │   │
+│  │                                                        │         │   │
+│  │  + Opponent Analysis (-10 to +10) ────────────────────┤         │   │
+│  │    • Goals conceded analysis                          │         │   │
+│  │    • Form of opponent                                 │         │   │
+│  │                                                        │         │   │
+│  │  + Home Advantage (+3 if home) ───────────────────────┤         │   │
+│  │                                                        │         │   │
+│  │  + Captain Bonus (2x) / Vice-Captain (1.5x) ──────────┘         │   │
+│  │                                                                  │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                           │                                             │
+│                           ▼                                             │
+│  OUTPUT: Predicted Points + Confidence Level + Recommendation Tier     │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Database Schema
+
+### Hive Box Structure
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          HIVE LOCAL STORAGE                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  BOX: players_cache                                                     │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ Key                          │ Value Type                       │   │
+│  ├─────────────────────────────────────────────────────────────────┤   │
+│  │ recent_players               │ JSON Array of Player objects     │   │
+│  │ player_search_results_{q}    │ JSON Array of search results     │   │
+│  │ liga_mx_roster               │ JSON Array of RosterPlayer       │   │
+│  │ liga_mx_roster_timestamp     │ ISO8601 DateTime string          │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  BOX: teams_cache                                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ Key                          │ Value Type                       │   │
+│  ├─────────────────────────────────────────────────────────────────┤   │
+│  │ teams_{teamId}               │ JSON Object of team details      │   │
+│  │ liga_mx_teams                │ JSON Array of LigaMxTeam         │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  BOX: fixtures_cache                                                    │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ Key                          │ Value Type                       │   │
+│  ├─────────────────────────────────────────────────────────────────┤   │
+│  │ fixtures_{date}              │ JSON Array of fixtures           │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  BOX: general_cache                                                     │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ Key                          │ Value Type                       │   │
+│  ├─────────────────────────────────────────────────────────────────┤   │
+│  │ current_season               │ JSON Object of season info       │   │
+│  │ user_leagues                 │ JSON Array of user's leagues     │   │
+│  │ user_teams                   │ JSON Array of user's teams       │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Models
 
 ```dart
-class SeasonsRepository {
-  final SportMonksClient _client;
-  static const int ligaMxLeagueId = 262;
-  
-  /// Get current Liga MX season with stage info
-  Future<SeasonInfo?> getCurrentLigaMxSeason({bool forceRefresh = false});
-  
-  /// Get current stage/tournament (e.g., Clausura)
-  Future<StageInfo?> getCurrentStage();
-  
-  /// Get season by ID
-  Future<SeasonInfo?> getSeasonById(int seasonId);
-  
-  /// Clear cached season data
-  void clearCache();
+// Player Statistics
+class PlayerStatistics {
+  int id;
+  int? seasonId;
+  int? playerId;
+  int? teamId;
+  int? appearances;     // type_id: 321
+  int? lineups;         // type_id: 322
+  int? minutesPlayed;   // type_id: 119
+  int? goals;           // type_id: 52
+  int? assists;         // type_id: 79
+  int? yellowCards;     // type_id: 84
+  int? redCards;        // type_id: 83
+  int? cleanSheets;     // type_id: 194
+  double? rating;
+}
+
+// Fantasy Team Player
+class FantasyTeamPlayer {
+  int playerId;
+  String playerName;
+  String? playerImageUrl;
+  PlayerPosition position;
+  String? teamName;
+  double credits;
+  bool isCaptain;
+  bool isViceCaptain;
+}
+
+// Roster Player (for team building)
+class RosterPlayer {
+  int id;
+  String name;
+  String displayName;
+  String position;
+  String positionCode;  // GK, DEF, MID, FWD
+  int teamId;
+  String teamName;
+  double credits;
+  double projectedPoints;
 }
 ```
 
 ---
 
-## 7. Caching Strategy
+## API Integration
 
-### 7.1 Cache Architecture
+### SportMonks Endpoints
 
-```
-┌─────────────────────────────────────────────────┐
-│                  CacheService                   │
-├─────────────────────────────────────────────────┤
-│                                                 │
-│  ┌─────────────┐  ┌─────────────┐              │
-│  │ players_box │  │ fixtures_box│              │
-│  │ (Hive Box)  │  │ (Hive Box)  │              │
-│  └─────────────┘  └─────────────┘              │
-│                                                 │
-│  ┌─────────────┐  ┌─────────────┐              │
-│  │  teams_box  │  │ general_box │              │
-│  │ (Hive Box)  │  │ (Hive Box)  │              │
-│  └─────────────┘  └─────────────┘              │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/players/search/{name}` | GET | Search players by name |
+| `/players/{id}` | GET | Get player details |
+| `/teams/{id}` | GET | Get team details with optional players |
+| `/fixtures/between/{start}/{end}/{teamId}` | GET | Get fixtures for date range |
+| `/seasons/{id}` | GET | Get season with stages |
 
-### 7.2 Cache Keys
+### Request Includes Strategy
 
 ```dart
-class CacheKeys {
-  static const String recentPlayers = 'recent_players';
-  static const String playerSearchResults = 'player_search_results';
-  static const String fixtures = 'fixtures';
-  static const String teams = 'teams';
-  static const String leagues = 'leagues';
-}
-```
+// Optimal includes for player details
+static const List<String> playerIncludes = [
+  'nationality',
+  'position',
+  'detailedposition',
+  'teams.team',
+  'statistics.details',
+  'statistics.season',
+  'trophies',
+  'transfers',
+];
 
-### 7.3 Cache Operations
+// Optimal includes for team with players
+static const List<String> teamWithPlayersIncludes = [
+  'players',
+];
 
-| Operation | Description | TTL |
-|-----------|-------------|-----|
-| Recent Players | Last 10 viewed players | Indefinite |
-| Search Results | Player search by query | Session |
-| Fixtures | Fixtures by date | 15 minutes |
-| Teams | Team details by ID | 1 hour |
-| Seasons | Season/stage info | 6 hours |
-
-### 7.4 Cache Flow
-
-```
-Request for Data
-       │
-       ▼
-┌──────────────────┐
-│  Check Cache     │
-└──────────────────┘
-       │
-       ├─── Cache Hit ───► Return Cached Data
-       │
-       ▼ Cache Miss
-┌──────────────────┐
-│  Fetch from API  │
-└──────────────────┘
-       │
-       ▼
-┌──────────────────┐
-│  Store in Cache  │
-└──────────────────┘
-       │
-       ▼
-   Return Data
+// Optimal includes for player search
+static const List<String> searchIncludes = [
+  'position',
+  'detailedPosition',
+  'nationality',
+  'teams',
+  'statistics.details',
+];
 ```
 
 ---
 
-## 8. Fantasy Points Prediction Algorithm
+## Caching Strategy
 
-### 8.1 Algorithm Overview
-
-The fantasy points prediction uses a weighted multi-factor analysis:
+### Cache Layers
 
 ```
-Total Score = Base Score 
-            + Position Bonus 
-            + Form Score 
-            + Opponent Adjustment 
-            + Home Advantage 
-            + Statistics Bonus
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         CACHING HIERARCHY                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  LAYER 1: In-Memory Cache (Fastest)                                     │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ • Static variables in Repository classes                        │   │
+│  │ • Lives for app session only                                    │   │
+│  │ • No serialization overhead                                     │   │
+│  │ • Used for: frequently accessed data during session             │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                           │                                             │
+│                           ▼                                             │
+│  LAYER 2: Hive Persistent Cache (Fast)                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ • JSON serialized to Hive boxes                                 │   │
+│  │ • Persists across app restarts                                  │   │
+│  │ • 6-hour expiry for roster data                                 │   │
+│  │ • Used for: player rosters, teams, search results               │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                           │                                             │
+│                           ▼                                             │
+│  LAYER 3: SportMonks API (Network)                                      │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ • Fresh data from server                                        │   │
+│  │ • Rate limited by subscription plan                             │   │
+│  │ • Used for: real-time data, cache misses                        │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 8.2 Scoring Breakdown
+### Cache Expiry Rules
 
-#### Base Score (50 points)
-Every player starts with 50 points as a baseline.
-
-#### Position Bonus (0-10 points)
-```dart
-switch (position) {
-  case 'Forward':  return 10.0;  // High scoring potential
-  case 'Midfielder': return 8.0;  // Balanced contribution
-  case 'Defender': return 5.0;   // Clean sheet potential
-  case 'Goalkeeper': return 3.0; // Limited scoring
-  default: return 0.0;
-}
-```
-
-#### Form Score (-10 to +15 points)
-Based on recent match performance:
-
-```dart
-double formScore = 0;
-
-// Goals contribution (+2 per goal avg)
-formScore += recentForm.goalsPerMatch * 2;
-
-// Assists contribution (+1.5 per assist avg)
-formScore += recentForm.assistsPerMatch * 1.5;
-
-// Clean sheets for defenders/GK (+3 per clean sheet rate)
-if (isDefensive) {
-  formScore += recentForm.cleanSheetRate * 3;
-}
-
-// Cards penalty (-1 per card avg)
-formScore -= recentForm.cardsPerMatch;
-
-// Playing time bonus (max +2 for 90 min avg)
-formScore += (recentForm.minutesPerMatch / 45).clamp(0, 2);
-
-return formScore.clamp(-10, 15);
-```
-
-#### Opponent Analysis (-10 to +10 points)
-```dart
-double opponentScore = 0;
-
-// Defensive weakness (more goals conceded = easier opponent)
-if (opponentGoalsConcededPerGame > 1.5) {
-  opponentScore += 5;  // Weak defense
-} else if (opponentGoalsConcededPerGame < 0.8) {
-  opponentScore -= 5;  // Strong defense
-}
-
-// League position factor
-if (opponentPosition > 15) {
-  opponentScore += 3;  // Bottom team
-} else if (opponentPosition < 5) {
-  opponentScore -= 3;  // Top team
-}
-
-return opponentScore.clamp(-10, 10);
-```
-
-#### Home Advantage (+3 points)
-```dart
-if (opponent.isHomeGame) return 3.0;
-return 0.0;
-```
-
-#### Statistics Bonus (0-12 points)
-Based on season statistics:
-```dart
-double statsBonus = 0;
-
-// Goals (max 4 pts for 10+ goals)
-statsBonus += (stats.goals ?? 0) * 0.4;
-
-// Assists (max 3 pts for 10+ assists)
-statsBonus += (stats.assists ?? 0) * 0.3;
-
-// Clean sheets (max 3 pts for 10+ clean sheets)
-statsBonus += (stats.cleanSheets ?? 0) * 0.3;
-
-// Saves for goalkeepers
-statsBonus += (stats.saves ?? 0) * 0.1;
-
-return statsBonus.clamp(0, 12);
-```
-
-### 8.3 Prediction Tiers
-
-```dart
-String getTier(int totalPoints) {
-  if (totalPoints >= 80) return 'Elite Pick';
-  if (totalPoints >= 65) return 'Strong Pick';
-  if (totalPoints >= 50) return 'Good Pick';
-  if (totalPoints >= 35) return 'Risky Pick';
-  return 'Avoid';
-}
-
-Color getTierColor(String tier) {
-  switch (tier) {
-    case 'Elite Pick': return Colors.amber;
-    case 'Strong Pick': return Colors.green;
-    case 'Good Pick': return Colors.blue;
-    case 'Risky Pick': return Colors.orange;
-    case 'Avoid': return Colors.red;
-  }
-}
-```
-
-### 8.4 Confidence Calculation
-
-```dart
-double calculateConfidence(RecentMatchStats? form, PlayerStatistics? stats) {
-  double confidence = 0.5;  // Base 50%
-  
-  // More recent matches = higher confidence
-  if (form != null && form.matchesPlayed >= 5) {
-    confidence += 0.2;
-  }
-  
-  // Season stats available
-  if (stats != null && (stats.appearances ?? 0) > 10) {
-    confidence += 0.15;
-  }
-  
-  // Opponent data available
-  if (opponentInfo != null) {
-    confidence += 0.15;
-  }
-  
-  return (confidence * 100).clamp(30, 95);
-}
-```
+| Data Type | Expiry | Reason |
+|-----------|--------|--------|
+| Liga MX Roster | 6 hours | Player transfers are infrequent |
+| Liga MX Teams | 24 hours | Team data rarely changes |
+| Player Search | 1 hour | Balance freshness vs API calls |
+| Recent Players | Never | User preference |
+| Fixtures | 30 minutes | Scores can change |
 
 ---
 
-## 9. State Management
+## Fantasy League System
 
-### 9.1 Language Cubit
+### League Types
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         LEAGUE TYPES                                     │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  PUBLIC LEAGUE                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ • Open for anyone to join                                       │   │
+│  │ • Visible in league browser                                     │   │
+│  │ • Auto-starts when max members reached                          │   │
+│  │ • Standard scoring rules                                        │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  PRIVATE LEAGUE                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ • Invite-only via unique code                                   │   │
+│  │ • Hidden from public listings                                   │   │
+│  │ • Manual start by admin                                         │   │
+│  │ • Custom scoring rules (optional)                               │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Team Building Constraints
 
 ```dart
-class LanguageCubit extends Cubit<Locale> {
-  LanguageCubit() : super(const Locale('en'));
-  
-  static const supportedLocales = ['en', 'es', 'fr', 'pt', 'it', 'ar', 'tr', 'id', 'sw'];
-  
-  Future<void> getCurrentLanguage() async {
-    final prefs = await SharedPreferences.getInstance();
-    final code = prefs.getString('language_code') ?? 'en';
-    emit(Locale(code));
-  }
-  
-  Future<void> setLanguage(String code) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('language_code', code);
-    emit(Locale(code));
-  }
+// Squad composition rules
+const int kTotalSquadSize = 15;      // 11 starters + 4 subs
+const int kStartingXI = 11;
+const int kMaxGK = 2;
+const int kMaxDEF = 5;
+const int kMaxMID = 5;
+const int kMaxFWD = 3;
+const int kMaxPlayersPerTeam = 4;    // Max from same club
+const double kDefaultBudget = 100.0; // Credits
+
+// Formations supported
+enum Formation {
+  f442,  // 4-4-2
+  f433,  // 4-3-3
+  f352,  // 3-5-2
+  f451,  // 4-5-1
+  f343,  // 3-4-3
+  f532,  // 5-3-2
 }
 ```
 
-### 9.2 Widget-Level State
+### Scoring System
 
-For complex pages, state is managed at the widget level using `StatefulWidget`:
-
-```dart
-class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
-  // Multiple loading states for parallel data fetching
-  bool _isLoading = true;
-  bool _isLoadingTeams = false;
-  bool _isLoadingNextMatch = false;
-  bool _isLoadingRecentForm = false;
-  bool _isLoadingTournamentStats = false;
-  
-  // Data states
-  Player? _player;
-  MatchInfo? _nextMatch;
-  RecentMatchStats? _recentMatchStats;
-  RecentMatchStats? _tournamentStats;
-  SeasonInfo? _currentSeason;
-  
-  // Error state
-  String? _error;
-}
-```
+| Action | Points |
+|--------|--------|
+| Playing 60+ minutes | +2 |
+| Goal (Forward) | +4 |
+| Goal (Midfielder) | +5 |
+| Goal (Defender) | +6 |
+| Goal (Goalkeeper) | +8 |
+| Assist | +3 |
+| Clean Sheet (GK/DEF) | +4 |
+| Clean Sheet (MID) | +1 |
+| Penalty Save | +5 |
+| Penalty Miss | -2 |
+| Yellow Card | -1 |
+| Red Card | -3 |
+| Own Goal | -2 |
+| Captain | 2x points |
+| Vice-Captain | 1.5x points |
 
 ---
 
-## 10. Error Handling
+## Security Considerations
 
-### 10.1 API Error Handling
+### API Key Protection
 
 ```dart
-try {
-  final response = await _client.searchPlayers(query);
-  return response.data.map(Player.fromJson).toList();
-} on SportMonksException catch (e) {
-  if (e.statusCode == 429) {
-    // Rate limited - use cached data
-    return _getCachedPlayers(query) ?? [];
-  }
-  if (e.statusCode == 401) {
-    // Invalid API key - throw to UI
-    throw Exception('Invalid API configuration');
-  }
-  // Log and return empty
-  debugPrint('API Error: $e');
-  return [];
-} catch (e) {
-  // Unknown error - log and return empty
-  debugPrint('Unexpected error: $e');
-  return [];
+// DO NOT commit API keys to version control
+// Use environment variables or secure storage
+
+// Development: Use .env file (gitignored)
+// Production: Use platform-specific secure storage
+//   - Android: EncryptedSharedPreferences
+//   - iOS: Keychain
+```
+
+### Data Validation
+
+```dart
+// All API responses are validated before use
+// Type-safe parsing with null safety
+int? _parseIntValue(dynamic value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is double) return value.toInt();
+  if (value is String) return int.tryParse(value);
+  return null;
 }
 ```
 
-### 10.2 Graceful Degradation
+### Network Security
 
-When API is unavailable, the app:
-1. Returns cached data if available
-2. Falls back to mock data for development
-3. Shows appropriate error messages to users
-4. Continues functioning with reduced features
+- All API calls use HTTPS
+- Certificate pinning recommended for production
+- Request timeouts prevent hanging connections
+- Error responses don't expose sensitive information
+
+---
+
+## Performance Optimizations
+
+### Lazy Loading
 
 ```dart
-Future<List<MatchInfo>> getFixturesByDate(DateTime date) async {
-  if (!SportMonksConfig.isConfigured) {
-    // API not configured - use mock data
-    return _loadMockFixtures();
+// Players are loaded page by page, team by team
+// Only load more when user scrolls near bottom
+_scrollController.addListener(() {
+  if (_scrollController.position.pixels >= 
+      _scrollController.position.maxScrollExtent - 200) {
+    _loadMorePlayers();
   }
-  
-  try {
-    final response = await _client.getFixturesByDate(date);
-    return response.data.map(MatchInfo.fromJson).toList();
-  } catch (e) {
-    // API failed - fall back to mock
-    return _loadMockFixtures();
+});
+```
+
+### Image Caching
+
+```dart
+// Using cached_network_image for automatic caching
+CachedNetworkImage(
+  imageUrl: player.imagePath ?? '',
+  placeholder: (context, url) => CircularProgressIndicator(),
+  errorWidget: (context, url, error) => Icon(Icons.person),
+  memCacheHeight: 100,  // Resize in memory
+  memCacheWidth: 100,
+)
+```
+
+### Debounced Search
+
+```dart
+// API search is debounced to prevent excessive calls
+Timer? _debounceTimer;
+
+void _onSearchChanged(String query) {
+  _debounceTimer?.cancel();
+  if (query.length >= 2) {
+    _debounceTimer = Timer(Duration(milliseconds: 500), () {
+      _searchPlayersFromApi(query);
+    });
   }
 }
 ```
 
 ---
 
-## 11. Sequence Diagrams
+## Testing Strategy
 
-### 11.1 Player Search Flow
+### Unit Tests
 
-```
-┌──────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌───────────┐
-│  UI  │    │  SearchPage │    │  Repository │    │   Client    │    │ SportMonks│
-└──┬───┘    └──────┬──────┘    └──────┬──────┘    └──────┬──────┘    └─────┬─────┘
-   │               │                   │                  │                 │
-   │ Type query    │                   │                  │                 │
-   │──────────────►│                   │                  │                 │
-   │               │                   │                  │                 │
-   │               │ searchPlayers()   │                  │                 │
-   │               │──────────────────►│                  │                 │
-   │               │                   │                  │                 │
-   │               │                   │ Check cache      │                 │
-   │               │                   │────────┐         │                 │
-   │               │                   │        │         │                 │
-   │               │                   │◄───────┘         │                 │
-   │               │                   │                  │                 │
-   │               │                   │ Cache miss       │                 │
-   │               │                   │ searchPlayers()  │                 │
-   │               │                   │─────────────────►│                 │
-   │               │                   │                  │                 │
-   │               │                   │                  │ GET /players/   │
-   │               │                   │                  │ search/{query}  │
-   │               │                   │                  │────────────────►│
-   │               │                   │                  │                 │
-   │               │                   │                  │   JSON Response │
-   │               │                   │                  │◄────────────────│
-   │               │                   │                  │                 │
-   │               │                   │   List<Map>      │                 │
-   │               │                   │◄─────────────────│                 │
-   │               │                   │                  │                 │
-   │               │                   │ Cache results    │                 │
-   │               │                   │────────┐         │                 │
-   │               │                   │        │         │                 │
-   │               │                   │◄───────┘         │                 │
-   │               │                   │                  │                 │
-   │               │  List<Player>     │                  │                 │
-   │               │◄──────────────────│                  │                 │
-   │               │                   │                  │                 │
-   │ Display list  │                   │                  │                 │
-   │◄──────────────│                   │                  │                 │
-   │               │                   │                  │                 │
+```dart
+// Repository tests
+test('should return cached players when available', () async {
+  // Arrange
+  when(cacheService.getLigaMxRoster()).thenReturn(mockPlayers);
+  
+  // Act
+  final result = repository.getCachedPlayers();
+  
+  // Assert
+  expect(result.length, equals(mockPlayers.length));
+});
 ```
 
-### 11.2 Player Details Loading Flow
+### Widget Tests
 
+```dart
+// UI component tests
+testWidgets('TeamBuilderPage shows soccer field', (tester) async {
+  await tester.pumpWidget(MaterialApp(home: TeamBuilderPage()));
+  
+  expect(find.byType(SoccerFieldWidget), findsOneWidget);
+});
 ```
-┌──────┐    ┌───────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  UI  │    │PlayerDetails  │    │  Fixtures   │    │  Seasons    │    │  Players    │
-│      │    │    Page       │    │  Repository │    │  Repository │    │  Repository │
-└──┬───┘    └───────┬───────┘    └──────┬──────┘    └──────┬──────┘    └──────┬──────┘
-   │                │                   │                  │                  │
-   │ Open player    │                   │                  │                  │
-   │───────────────►│                   │                  │                  │
-   │                │                   │                  │                  │
-   │                │ initState()       │                  │                  │
-   │                │───────┐           │                  │                  │
-   │                │       │           │                  │                  │
-   │                │       │ _loadCurrentSeason()         │                  │
-   │                │       │──────────────────────────────►                  │
-   │                │       │           │                  │                  │
-   │                │       │           │      SeasonInfo  │                  │
-   │                │       │◄──────────────────────────────                  │
-   │                │       │           │                  │                  │
-   │                │       │ _loadTournamentStats()       │                  │
-   │                │       │───────────►                  │                  │
-   │                │       │           │                  │                  │
-   │                │       │           │ RecentMatchStats │                  │
-   │                │       │◄───────────                  │                  │
-   │                │       │           │                  │                  │
-   │                │       │ _loadNextMatch()             │                  │
-   │                │       │───────────►                  │                  │
-   │                │       │           │                  │                  │
-   │                │       │           │ MatchInfo        │                  │
-   │                │       │◄───────────                  │                  │
-   │                │       │           │                  │                  │
-   │                │       │ _loadRecentForm()            │                  │
-   │                │       │───────────►                  │                  │
-   │                │       │           │                  │                  │
-   │                │       │           │ RecentMatchStats │                  │
-   │                │       │◄───────────                  │                  │
-   │                │◄──────┘           │                  │                  │
-   │                │                   │                  │                  │
-   │ Render UI      │                   │                  │                  │
-   │◄───────────────│                   │                  │                  │
-   │                │                   │                  │                  │
+
+### Integration Tests
+
+```dart
+// End-to-end flow tests
+testWidgets('User can build a complete team', (tester) async {
+  // Navigate to team builder
+  // Select 15 players
+  // Verify budget constraints
+  // Save team
+  // Verify team saved correctly
+});
 ```
 
 ---
 
-## 12. Database Schema
+## Future Enhancements
 
-### 12.1 Hive Boxes (NoSQL)
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      players_cache                          │
-├─────────────────────────────────────────────────────────────┤
-│ Key                              │ Value (JSON String)      │
-├──────────────────────────────────┼──────────────────────────┤
-│ recent_players                   │ [Player, Player, ...]    │
-│ player_search_results_{query}    │ [Player, Player, ...]    │
-└──────────────────────────────────┴──────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                      fixtures_cache                         │
-├─────────────────────────────────────────────────────────────┤
-│ Key                              │ Value (JSON String)      │
-├──────────────────────────────────┼──────────────────────────┤
-│ fixtures_{date}                  │ [MatchInfo, ...]         │
-└──────────────────────────────────┴──────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                       teams_cache                           │
-├─────────────────────────────────────────────────────────────┤
-│ Key                              │ Value (JSON String)      │
-├──────────────────────────────────┼──────────────────────────┤
-│ teams_{teamId}                   │ Team JSON                │
-└──────────────────────────────────┴──────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                      general_cache                          │
-├─────────────────────────────────────────────────────────────┤
-│ Key                              │ Value (String)           │
-├──────────────────────────────────┼──────────────────────────┤
-│ current_season                   │ SeasonInfo JSON          │
-│ language_code                    │ 'en', 'es', etc.         │
-└──────────────────────────────────┴──────────────────────────┘
-```
+1. **Real-time Updates**: WebSocket integration for live match updates
+2. **Push Notifications**: Match reminders, lineup announcements
+3. **Social Features**: Friend system, head-to-head leagues
+4. **Analytics Dashboard**: Detailed performance analysis
+5. **Machine Learning**: Improved prediction using historical patterns
+6. **Multi-League Support**: Expand beyond Liga MX
 
 ---
 
-## Appendix A: API Rate Limits
-
-| Plan | Requests/min | Requests/day |
-|------|--------------|--------------|
-| Free | 180 | 3,000 |
-| Standard | 600 | 50,000 |
-| Premium | 3,000 | Unlimited |
-
-## Appendix B: Supported Leagues
-
-| League ID | Name | Country |
-|-----------|------|---------|
-| 262 | Liga MX | Mexico |
-| 564 | Liga Expansión MX | Mexico |
-
-## Appendix C: File Size Limits
-
-| Asset Type | Max Size | Format |
-|------------|----------|--------|
-| Player Image | 200KB | PNG/JPEG |
-| Team Logo | 50KB | PNG |
-| Mock Data | 500KB | JSON |
-
----
-
-*Document Version: 1.0*  
 *Last Updated: January 2026*
-

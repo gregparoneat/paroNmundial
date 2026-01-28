@@ -9,12 +9,14 @@ A comprehensive Fantasy Sports mobile application built with Flutter, featuring 
 ## 📋 Table of Contents
 
 - [Features](#-features)
+- [Screenshots](#-screenshots)
 - [Architecture](#-architecture)
 - [Getting Started](#-getting-started)
 - [Configuration](#-configuration)
 - [Project Structure](#-project-structure)
 - [API Integration](#-api-integration)
 - [Fantasy Points Prediction](#-fantasy-points-prediction)
+- [Fantasy Leagues](#-fantasy-leagues)
 - [Localization](#-localization)
 - [Dependencies](#-dependencies)
 - [Documentation](#-documentation)
@@ -26,50 +28,55 @@ A comprehensive Fantasy Sports mobile application built with Flutter, featuring 
 - **Fantasy Points Prediction**: AI-powered prediction system analyzing player form, opponent strength, and historical data
 - **Tournament Statistics**: Accurate stats per tournament (handles Liga MX's Apertura/Clausura split)
 - **Live Match Tracking**: Real-time fixture updates and live scores
-- **Team Building**: Create and manage fantasy teams with captain/vice-captain selection
+- **Fantasy Leagues**: Create and join public/private fantasy leagues
+- **Team Building**: Interactive team builder with soccer field visualization
 - **Contests**: Join contests and compete with other players
 - **Wallet System**: In-app wallet for contest entries and winnings
 
+### Fantasy League Features
+- **Public Leagues**: Open leagues anyone can join
+- **Private Leagues**: Invite-only leagues with unique codes
+- **Team Builder**: Build 15-player squads (11 + 4 subs) with budget constraints
+- **Soccer Field View**: Visual formation display with real-time player placement
+- **Captain Selection**: Designate Captain (2x) and Vice-Captain (1.5x) for bonus points
+- **Multiple Formations**: Support for 4-4-2, 4-3-3, 3-5-2, 4-5-1, 3-4-3, 5-3-2
+- **Player Substitution**: Swap players between starting XI and bench
+
 ### Advanced Features
-- **Smart Caching**: Hive-based caching system for offline support and performance
+- **Smart Caching**: Hive-based caching system with automatic expiry
+- **Lazy Loading**: Efficient player loading with infinite scroll
 - **Multi-language Support**: 9 languages (English, Spanish, French, Portuguese, Italian, Arabic, Turkish, Indonesian, Swahili)
 - **Responsive Design**: Optimized for both mobile and tablet screens
 - **Dark Theme**: Modern dark UI theme
+- **Player Pricing Model**: Dynamic credit-based player valuation
 
 ## 🏗 Architecture
 
-The application follows a **Repository Pattern** with clear separation of concerns:
+The application follows a **Clean Architecture** pattern with **Repository Pattern** for data management:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        UI Layer                              │
-│  (Pages, Widgets, StatefulWidgets, StatelessWidgets)        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Business Logic Layer                      │
-│  (Cubits, Predictors, Data Processing)                      │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Repository Layer                          │
-│  (PlayersRepository, FixturesRepository, SeasonsRepository) │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-┌─────────────────────────┐ ┌─────────────────────────┐
-│     API Client          │ │     Cache Service       │
-│  (SportMonksClient)     │ │   (Hive Storage)        │
-└─────────────────────────┘ └─────────────────────────┘
-                    │
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    SportMonks API                           │
-│              (External Football Data)                       │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           PRESENTATION LAYER                             │
+│     Pages • Widgets • StatefulWidgets • Animations • Themes             │
+└─────────────────────────────────────┬───────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          BUSINESS LOGIC LAYER                            │
+│         Cubits • Predictors • Data Processors • Validators              │
+└─────────────────────────────────────┬───────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           REPOSITORY LAYER                               │
+│     PlayersRepository • FixturesRepository • SeasonsRepository          │
+└──────────────────┬──────────────────────────────────┬───────────────────┘
+                   │                                  │
+                   ▼                                  ▼
+┌──────────────────────────────┐    ┌──────────────────────────────────────┐
+│     SportMonks API Client    │    │        Hive Cache Service            │
+│       (External Data)        │    │        (Local Storage)               │
+└──────────────────────────────┘    └──────────────────────────────────────┘
 ```
 
 For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -125,29 +132,21 @@ flutter build ios --release
 ### SportMonks API Setup
 
 1. Create an account at [SportMonks](https://www.sportmonks.com/)
-2. Subscribe to the Football API plan
+2. Subscribe to the Football API plan (Liga MX coverage required)
 3. Get your API token from the dashboard
 4. Update `lib/api/sportmonks_config.dart`:
 
 ```dart
 class SportMonksConfig {
   static const String apiToken = 'YOUR_API_TOKEN_HERE';
-  // ...
+  static const int ligaMxLeagueId = 262;
+  static const int ligaMxCurrentSeasonId = 25539;
 }
 ```
 
-### Environment Variables (Recommended for Production)
+### Liga MX Teams Configuration
 
-For production builds, use environment variables instead of hardcoding:
-
-```bash
-# Create a .env file (add to .gitignore)
-SPORTMONKS_API_TOKEN=your_token_here
-```
-
-### Demo Mode
-
-The app includes mock data fallback for development/demo purposes. When the API is not configured or unavailable, the app automatically uses local JSON files from `assets/MockResponses/`.
+The app uses a curated list of Liga MX first-division teams in `assets/Teams/LigaMxTeamIds.csv`. This ensures only valid, active Liga MX teams and players are displayed.
 
 ## 📁 Project Structure
 
@@ -159,7 +158,8 @@ lib/
 │   └── repositories/             # Data repositories
 │       ├── fixtures_repository.dart
 │       ├── players_repository.dart
-│       └── seasons_repository.dart
+│       ├── seasons_repository.dart
+│       └── league_repository.dart
 │
 ├── app_config/                   # App Configuration
 │   ├── app_config.dart           # App constants
@@ -168,26 +168,49 @@ lib/
 │
 ├── features/                     # Feature Modules
 │   ├── account/                  # User account features
-│   ├── auth/                     # Authentication (login, register, verification)
+│   ├── auth/                     # Authentication
 │   ├── components/               # Reusable UI components
 │   ├── fantasy/                  # Fantasy points prediction
+│   │   └── fantasy_points_predictor.dart
 │   ├── fixtures/                 # Match fixtures
-│   ├── home/                     # Home screen, team creation
+│   ├── home/                     # Home screen
 │   ├── language/                 # Language/locale management
-│   ├── match/                    # Match details and cards
+│   ├── league/                   # Fantasy leagues
+│   │   ├── models/
+│   │   │   └── league_models.dart
+│   │   ├── ui/
+│   │   │   ├── create_league_page.dart
+│   │   │   ├── league_details_page.dart
+│   │   │   ├── team_builder_page.dart
+│   │   │   └── widgets/
+│   │   │       ├── soccer_field_widget.dart
+│   │   │       └── bench_widget.dart
+│   │   └── cubit/
+│   │       └── league_cubit.dart
+│   ├── match/                    # Match details
 │   ├── my_matches/               # User's matches tracking
 │   ├── player/                   # Player details and stats
+│   │   ├── models/
+│   │   │   └── player_info.dart
+│   │   └── ui/
+│   │       └── player_details_page.dart
 │   ├── players/                  # Player search
+│   │   └── players_search.dart
 │   └── wallet/                   # Wallet management
 │
 ├── generated/                    # Auto-generated localization
 ├── l10n/                         # Localization source files
-├── local_data_layer/             # Local data management
 ├── routes/                       # Navigation routes
 ├── services/                     # App services
 │   └── cache_service.dart        # Hive caching service
 │
 └── main.dart                     # Application entry point
+
+assets/
+├── MockResponses/                # Demo/fallback data
+├── Teams/
+│   └── LigaMxTeamIds.csv         # Liga MX team IDs
+└── images/                       # App images and icons
 ```
 
 ## 🔌 API Integration
@@ -198,32 +221,21 @@ lib/
 |----------|-------------|
 | `/players/search/{name}` | Search players by name |
 | `/players/{id}` | Get player details with statistics |
-| `/fixtures/date/{date}` | Get fixtures for a specific date |
 | `/fixtures/between/{start}/{end}/{teamId}` | Get team fixtures in date range |
-| `/teams/{id}` | Get team details |
-| `/seasons` | Get seasons for a league |
+| `/teams/{id}` | Get team details with players |
+| `/seasons/{id}` | Get season with stages/tournaments |
 
-### Data Includes
+### Caching Strategy
 
-The API requests use "includes" to fetch related data in a single request:
+| Data Type | Cache Duration | Storage |
+|-----------|---------------|---------|
+| Liga MX Roster | 6 hours | Hive |
+| Liga MX Teams | 24 hours | Hive |
+| Player Search | 1 hour | Hive |
+| Recent Players | Permanent | Hive |
+| Fixtures | 30 minutes | Hive |
 
-```dart
-// Player includes
-['nationality', 'position', 'detailedposition', 
- 'teams.team', 'statistics.details', 'statistics.season',
- 'trophies', 'transfers']
-
-// Fixture includes
-['participants', 'venue', 'state', 'league', 
- 'scores', 'events', 'lineups', 'coaches']
-```
-
-### Rate Limiting
-
-SportMonks has rate limits based on your subscription plan. The app implements:
-- Response caching to minimize API calls
-- Error handling for 429 (Too Many Requests) responses
-- Fallback to cached/mock data when limits are reached
+For detailed API documentation, see [docs/API.md](docs/API.md).
 
 ## 🎯 Fantasy Points Prediction
 
@@ -235,27 +247,46 @@ The prediction system (`FantasyPointsPredictor`) uses multiple factors:
 |-----------|--------|-------------|
 | Base Score | 50 pts | Starting point for all players |
 | Position Bonus | 0-10 pts | Based on player position |
-| Form Score | -10 to +15 pts | Based on last 5 matches performance |
-| Opponent Analysis | -10 to +10 pts | Opponent's defensive/offensive strength |
+| Form Score | -10 to +15 pts | Based on last 5 matches |
+| Opponent Analysis | -10 to +10 pts | Opponent's strength |
 | Home Advantage | +3 pts | When playing at home |
 | Season Stats | 0-12 pts | Goals, assists, clean sheets |
 
 ### Prediction Tiers
 
-| Tier | Score Range | Color |
-|------|-------------|-------|
-| Elite Pick | 80+ | Gold |
-| Strong Pick | 65-79 | Green |
-| Good Pick | 50-64 | Blue |
-| Risky Pick | 35-49 | Orange |
-| Avoid | <35 | Red |
+| Tier | Score Range | Recommendation |
+|------|-------------|----------------|
+| Elite Pick | 80+ | Must-have player |
+| Strong Pick | 65-79 | Highly recommended |
+| Good Pick | 50-64 | Solid choice |
+| Risky Pick | 35-49 | Uncertain returns |
+| Avoid | <35 | Not recommended |
 
-### Tournament-Specific Stats
+## ⚽ Fantasy Leagues
 
-For leagues like Liga MX with split seasons (Apertura/Clausura), the app:
-1. Identifies the current active stage/tournament
-2. Fetches fixtures within the tournament date range
-3. Calculates accurate tournament-specific statistics
+### League Types
+
+- **Public Leagues**: Anyone can join, visible in browse
+- **Private Leagues**: Invite-only with unique code
+
+### Team Building Rules
+
+| Rule | Value |
+|------|-------|
+| Squad Size | 15 players (11 + 4 subs) |
+| Default Budget | 100 credits |
+| Max Goalkeepers | 2 |
+| Max Defenders | 5 |
+| Max Midfielders | 5 |
+| Max Forwards | 3 |
+| Max per Club | 4 players |
+
+### Captain Bonuses
+
+| Role | Point Multiplier |
+|------|-----------------|
+| Captain | 2x |
+| Vice-Captain | 1.5x |
 
 ## 🌍 Localization
 
@@ -302,18 +333,11 @@ Supported languages:
 | carousel_slider | ^5.1.1 | Carousels |
 | blur | ^4.0.2 | Blur effects |
 
-### Development Dependencies
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| flutter_launcher_icons | ^0.14.4 | App icon generation |
-| flutter_lints | ^6.0.0 | Code linting |
-
 ## 📚 Documentation
 
-- [Architecture & LLD](docs/ARCHITECTURE.md) - Detailed system design
-- [API Reference](docs/API.md) - API endpoints and models
-- [Contributing Guide](docs/CONTRIBUTING.md) - How to contribute
+- [Architecture & LLD](docs/ARCHITECTURE.md) - Detailed system design with diagrams
+- [API Reference](docs/API.md) - SportMonks API endpoints and models
+- [Data Flow Diagrams](docs/ARCHITECTURE.md#data-flow-diagrams) - Visual flow documentation
 
 ## 🧪 Testing
 
@@ -327,6 +351,27 @@ flutter test --coverage
 # Run specific test file
 flutter test test/widget_test.dart
 ```
+
+## 🔧 Development Notes
+
+### Debug Mode
+
+During development, demo data fallbacks are disabled to expose API issues immediately. Enable verbose logging to debug API calls:
+
+```dart
+// In sportmonks_client.dart
+debugPrint('SportMonks API Request: $url');
+debugPrint('SportMonks API Response: ${response.statusCode}');
+```
+
+### Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| API 404 errors | Check include parameters - some don't exist |
+| Players missing | Verify team IDs in LigaMxTeamIds.csv |
+| Stats showing 0 | Clear Hive cache and refresh |
+| Minutes wrong | Ensure type_id 119 is used for minutes |
 
 ## 📝 License
 
