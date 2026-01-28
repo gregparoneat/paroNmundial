@@ -651,39 +651,48 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Header with edit button
+        // Header with edit button and projected points
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: theme.colorScheme.surface,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           ),
-          child: Row(
+          child: Column(
             children: [
-              Icon(Icons.groups, color: theme.primaryColor),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'My Team',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+              Row(
+                children: [
+                  Icon(Icons.groups, color: theme.primaryColor),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'My Team',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          '${players.length}/15 players • ${_myTeam!.budgetRemaining.toStringAsFixed(1)} credits left',
+                          style: TextStyle(color: bgTextColor, fontSize: 12),
+                        ),
+                      ],
                     ),
-                    Text(
-                      '${players.length}/15 players • ${_myTeam!.budgetRemaining.toStringAsFixed(1)} credits left',
-                      style: TextStyle(color: bgTextColor, fontSize: 12),
-                    ),
-                  ],
-                ),
+                  ),
+                  IconButton(
+                    onPressed: _navigateToTeamBuilder,
+                    icon: const Icon(Icons.edit),
+                    tooltip: 'Edit Team',
+                  ),
+                ],
               ),
-              IconButton(
-                onPressed: _navigateToTeamBuilder,
-                icon: const Icon(Icons.edit),
-                tooltip: 'Edit Team',
-              ),
+              
+              const SizedBox(height: 12),
+              
+              // Projected Points Card for Next Matchup
+              _buildProjectedPointsCard(theme),
             ],
           ),
         ),
@@ -780,6 +789,116 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
     final starters = _getStartingXI(allPlayers);
     final starterIds = starters.map((p) => p.playerId).toSet();
     return allPlayers.where((p) => !starterIds.contains(p.playerId)).toList();
+  }
+
+  /// Build the projected points card for next matchup
+  Widget _buildProjectedPointsCard(ThemeData theme) {
+    // Calculate total projected points from the team
+    // Using the credits as a proxy for projected points (in real implementation,
+    // you'd fetch actual projected points from player stats)
+    final players = _myTeam?.players ?? [];
+    
+    // Sum up projected points (using credits * 1.5 as an estimate since we don't have direct access)
+    // In a real implementation, you'd store projectedPoints in FantasyTeamPlayer
+    double totalProjectedPoints = 0;
+    for (final player in players) {
+      // Estimate based on credit value - higher value players typically score more
+      final estimatedPoints = player.credits * 1.2 + 2.0;
+      totalProjectedPoints += estimatedPoints;
+    }
+    
+    // Apply captain/vice-captain bonuses
+    final captain = players.where((p) => p.isCaptain).firstOrNull;
+    final viceCaptain = players.where((p) => p.isViceCaptain).firstOrNull;
+    
+    if (captain != null) {
+      totalProjectedPoints += captain.credits * 1.2 + 2.0; // Double captain's points
+    }
+    if (viceCaptain != null) {
+      totalProjectedPoints += (viceCaptain.credits * 1.2 + 2.0) * 0.5; // 1.5x vice-captain's points
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            theme.primaryColor.withValues(alpha: 0.2),
+            theme.primaryColor.withValues(alpha: 0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          // Points icon
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: theme.primaryColor.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.trending_up,
+              color: theme.primaryColor,
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: 16),
+          
+          // Points info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Projected Points',
+                  style: TextStyle(
+                    color: bgTextColor,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Next Matchup',
+                  style: TextStyle(
+                    color: theme.primaryColor,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Points value
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                totalProjectedPoints.toStringAsFixed(1),
+                style: TextStyle(
+                  color: theme.primaryColor,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                'pts',
+                style: TextStyle(
+                  color: theme.primaryColor.withValues(alpha: 0.7),
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   /// Show options for a player (view profile, swap, etc.)

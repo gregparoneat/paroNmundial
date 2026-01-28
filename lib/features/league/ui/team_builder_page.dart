@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fantacy11/api/repositories/league_repository.dart';
 import 'package:fantacy11/api/repositories/players_repository.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/league/models/league_models.dart';
+import 'package:fantacy11/features/league/ui/widgets/soccer_field_widget.dart';
 import 'package:fantacy11/routes/routes.dart';
 import 'package:flutter/material.dart';
 
@@ -57,12 +60,11 @@ const int kMaxDEF = 5;  // Up to 5 defenders
 const int kMaxMID = 5;  // Up to 5 midfielders  
 const int kMaxFWD = 3;  // Up to 3 forwards
 
-class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProviderStateMixin {
+class _TeamBuilderPageState extends State<TeamBuilderPage> {
   final LeagueRepository _leagueRepository = LeagueRepository();
   final PlayersRepository _playersRepository = PlayersRepository();
-  late TabController _tabController;
   
-  // All available players from Liga MX rosters
+  // All available players (loaded lazily)
   List<RosterPlayer> _allRosterPlayers = [];
   
   // Selected players for the fantasy team
@@ -72,25 +74,32 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
   double _budget = 100.0;
   double _budgetRemaining = 100.0;
   bool _isLoading = true;
+  bool _isLoadingMore = false;
   bool _isSearching = false;
   String _searchQuery = '';
   PlayerSortOption _sortOption = PlayerSortOption.pointsHigh;
-  String? _selectedTeamFilter;
+  LigaMxTeam? _selectedTeamFilter;
   
   // Search controller
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final ScrollController _scrollController = ScrollController();
   
-  // Position tabs
-  final List<String> _positionCodes = ['GK', 'DEF', 'MID', 'FWD'];
-
-  // Team names for filter
-  Set<String> _teamNames = {};
+  // Liga MX teams list
+  List<LigaMxTeam> _ligaMxTeams = [];
+  
+  // Pagination state
+  int _currentTeamIndex = 0;
+  int _currentPage = 1;
+  bool _hasMorePlayers = true;
+  
+  // Formation and field view state
+  Formation _selectedFormation = Formation.f433;
+  bool _showFieldView = false; // Start collapsed to avoid overflow
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
     _budget = widget.league.budget;
     _budgetRemaining = _budget;
     
@@ -100,61 +109,144 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
       _budgetRemaining = widget.existingTeam!.budgetRemaining;
     }
     
-    _loadPlayers();
+    // Setup scroll listener for infinite scroll
+    _scrollController.addListener(_onScroll);
+    
+    _loadInitialData();
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
+  
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      _loadMorePlayers();
+    }
+  }
 
-  Future<void> _loadPlayers() async {
+  Future<void> _loadInitialData() async {
     setState(() => _isLoading = true);
     
     try {
-      // Load Liga MX roster players
-      final rosterPlayers = await _playersRepository.getLigaMxRosterPlayers();
+      // Load teams first (uses Hive cache internally)
+      _ligaMxTeams = await _playersRepository.getLigaMxTeams();
       
-      // Extract unique team names for filtering
-      final teams = rosterPlayers.map((p) => p.teamName).toSet();
+      // Check if we have cached players in Hive
+      final cachedPlayers = _playersRepository.getCachedPlayers();
+      if (cachedPlayers.isNotEmpty) {
+        debugPrint('Using ${cachedPlayers.length} cached players from Hive');
+        if (mounted) {
+          setState(() {
+            _allRosterPlayers = cachedPlayers;
+            _hasMorePlayers = cachedPlayers.length < 300; // May need more if cache incomplete
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+      
+      // No cache - load first page of players from API
+      debugPrint('No cached players, loading from API');
+      await _loadPlayersPage();
       
       if (mounted) {
-        setState(() {
-          _allRosterPlayers = rosterPlayers;
-          _teamNames = teams;
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
     } catch (e) {
-      debugPrint('Error loading players: $e');
+      debugPrint('Error loading initial data: $e');
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error loading players: $e'),
+            content: Text('Error loading data: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
     }
   }
-
-  /// Get filtered and sorted players for current tab/search
-  List<RosterPlayer> _getFilteredPlayers(String positionCode) {
-    var players = _allRosterPlayers.where((p) {
-      // Filter by position
-      if (positionCode == 'FWD') {
-        // FWD includes attackers and forwards
-        if (!['FWD', 'ATT', 'ST', 'CF'].contains(p.positionCode.toUpperCase())) {
-          return false;
+  
+  Future<void> _loadPlayersPage() async {
+    if (_isLoadingMore || !_hasMorePlayers) return;
+    
+    setState(() => _isLoadingMore = true);
+    
+    try {
+      if (_selectedTeamFilter != null) {
+        // Load from specific team
+        final result = await _playersRepository.getTeamPlayers(
+          teamId: _selectedTeamFilter!.id,
+          teamName: _selectedTeamFilter!.name,
+          teamLogo: _selectedTeamFilter!.logo,
+          page: _currentPage,
+          pageSize: 20,
+        );
+        
+        if (mounted) {
+          setState(() {
+            _allRosterPlayers.addAll(result.players);
+            _hasMorePlayers = result.hasMore;
+            _currentPage++;
+            _isLoadingMore = false;
+          });
         }
-      } else if (p.positionCode.toUpperCase() != positionCode) {
-        return false;
+      } else {
+        // Load from all teams (team by team)
+        final result = await _playersRepository.getAllPlayersPage(
+          teamIndex: _currentTeamIndex,
+          page: _currentPage,
+          pageSize: 20,
+        );
+        
+        if (mounted) {
+          setState(() {
+            _allRosterPlayers.addAll(result.players);
+            
+            if (result.hasMoreInTeam) {
+              _currentPage++;
+            } else if (result.hasMoreTeams) {
+              _currentTeamIndex++;
+              _currentPage = 1;
+            } else {
+              _hasMorePlayers = false;
+            }
+            _isLoadingMore = false;
+          });
+        }
       }
-      
+    } catch (e) {
+      debugPrint('Error loading players page: $e');
+      if (mounted) {
+        setState(() => _isLoadingMore = false);
+      }
+    }
+  }
+  
+  void _loadMorePlayers() {
+    if (!_isLoadingMore && _hasMorePlayers) {
+      _loadPlayersPage();
+    }
+  }
+  
+  void _onTeamFilterChanged(LigaMxTeam? team) {
+    setState(() {
+      _selectedTeamFilter = team;
+      _allRosterPlayers.clear();
+      _currentTeamIndex = 0;
+      _currentPage = 1;
+      _hasMorePlayers = true;
+    });
+    _loadPlayersPage();
+  }
+
+  /// Get filtered and sorted players
+  List<RosterPlayer> _getFilteredPlayers() {
+    var players = _allRosterPlayers.where((p) {
       // Filter by search query
       if (_searchQuery.isNotEmpty) {
         final query = _searchQuery.toLowerCase();
@@ -163,11 +255,6 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
             !p.teamName.toLowerCase().contains(query)) {
           return false;
         }
-      }
-      
-      // Filter by team
-      if (_selectedTeamFilter != null && p.teamName != _selectedTeamFilter) {
-        return false;
       }
       
       return true;
@@ -493,21 +580,19 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
       builder: (context) => _SortFilterSheet(
         currentSort: _sortOption,
         selectedTeam: _selectedTeamFilter,
-        teamNames: _teamNames.toList()..sort(),
+        teams: _ligaMxTeams,
         onSortChanged: (sort) {
           setState(() => _sortOption = sort);
           Navigator.pop(context);
         },
         onTeamFilterChanged: (team) {
-          setState(() => _selectedTeamFilter = team);
           Navigator.pop(context);
+          _onTeamFilterChanged(team);
         },
         onClearFilters: () {
-          setState(() {
-            _selectedTeamFilter = null;
-            _sortOption = PlayerSortOption.pointsHigh;
-          });
           Navigator.pop(context);
+          _onTeamFilterChanged(null);
+          setState(() => _sortOption = PlayerSortOption.pointsHigh);
         },
       ),
     );
@@ -573,38 +658,9 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
           child: _buildBudgetBar(theme),
         ),
       ),
-      body: Column(
-        children: [
-          // Position tabs
-          Container(
-            color: theme.colorScheme.surface,
-            child: TabBar(
-              controller: _tabController,
-              indicatorColor: theme.primaryColor,
-              labelColor: Colors.white,
-              unselectedLabelColor: bgTextColor,
-              tabs: List.generate(4, (index) => 
-                _buildPositionTab(_positionCodes[index]),
-              ),
-            ),
-          ),
-          
-          // Sort & Filter bar - Always visible
-          _buildSortFilterBar(theme),
-          
-          // Player list
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : TabBarView(
-                    controller: _tabController,
-                    children: _positionCodes.map((posCode) {
-                      return _buildPlayerList(theme, posCode);
-                    }).toList(),
-                  ),
-          ),
-        ],
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _buildFieldBasedView(theme),
       bottomNavigationBar: _buildBottomBar(theme),
     );
   }
@@ -670,6 +726,671 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
         ],
       ),
     );
+  }
+
+  /// Main field-based view - shows soccer field with clickable slots
+  Widget _buildFieldBasedView(ThemeData theme) {
+    final startingXI = _selectedPlayers.take(11).toList();
+    final bench = _selectedPlayers.skip(11).toList();
+    
+    // Calculate total projected points
+    double totalProjectedPoints = 0;
+    for (final player in _selectedPlayers) {
+      final rosterPlayer = _allRosterPlayers.where((p) => p.id == player.playerId).firstOrNull;
+      if (rosterPlayer != null) {
+        totalProjectedPoints += rosterPlayer.projectedPoints;
+      }
+    }
+    
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          // Projected points header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            color: theme.colorScheme.surface,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Build Your Squad',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: Colors.white,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: theme.primaryColor.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: theme.primaryColor),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.trending_up, size: 16, color: theme.primaryColor),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${totalProjectedPoints.toStringAsFixed(1)} pts',
+                        style: TextStyle(
+                          color: theme.primaryColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Formation selector
+          Container(
+            height: 44,
+            color: theme.colorScheme.surface,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              children: Formation.values.map((formation) {
+                final isSelected = formation == _selectedFormation;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    selected: isSelected,
+                    label: Text(formation.name),
+                    selectedColor: theme.primaryColor,
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.white : bgTextColor,
+                      fontSize: 12,
+                    ),
+                    onSelected: (_) => setState(() => _selectedFormation = formation),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          
+          // Soccer field - main area
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: SoccerFieldWidget(
+              players: startingXI,
+              formation: _selectedFormation,
+              isEditable: true,
+              height: 320,
+              onPlayerTap: (player) => _showSubstitutionDialog(player),
+              onSlotTap: (position, index) => _showPlayerSelectionSheet(_positionFromString(position)),
+            ),
+          ),
+          
+          // Bench section
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: _buildBenchSection(theme, bench),
+          ),
+          
+          // Quick add button
+          if (_selectedPlayers.length < kTotalSquadSize)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: OutlinedButton.icon(
+                onPressed: () => _showPlayerSelectionSheet(null),
+                icon: const Icon(Icons.person_add),
+                label: Text('Add Player (${_selectedPlayers.length}/$kTotalSquadSize)'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+  
+  /// Build bench section with 4 slots
+  Widget _buildBenchSection(ThemeData theme, List<FantasyTeamPlayer> bench) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: bgColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.airline_seat_recline_normal, size: 18, color: bgTextColor),
+              const SizedBox(width: 8),
+              Text(
+                'Substitutes (${bench.length}/4)',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: bgTextColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: List.generate(4, (index) {
+              final player = index < bench.length ? bench[index] : null;
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: index < 3 ? 8 : 0),
+                  child: _buildBenchSlot(theme, player, index),
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Build individual bench slot
+  Widget _buildBenchSlot(ThemeData theme, FantasyTeamPlayer? player, int index) {
+    final positionNeeded = _getBenchPositionNeeded(index);
+    
+    return GestureDetector(
+      onTap: player != null 
+          ? () => _showSubstitutionDialog(player)
+          : () => _showPlayerSelectionSheet(positionNeeded),
+      child: Container(
+        height: 70,
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: player != null 
+                ? _getPositionColor(player.position) 
+                : bgTextColor.withValues(alpha: 0.3),
+          ),
+        ),
+        child: player != null
+            ? _buildFilledBenchSlot(theme, player)
+            : _buildEmptyBenchSlot(theme, positionNeeded),
+      ),
+    );
+  }
+  
+  Widget _buildFilledBenchSlot(ThemeData theme, FantasyTeamPlayer player) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: _getPositionColor(player.position),
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Text(
+              player.position.name.substring(0, 1).toUpperCase(),
+              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Text(
+            player.playerName.split(' ').last,
+            style: const TextStyle(fontSize: 10),
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildEmptyBenchSlot(ThemeData theme, PlayerPosition? position) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: bgTextColor.withValues(alpha: 0.2),
+            shape: BoxShape.circle,
+            border: Border.all(color: bgTextColor.withValues(alpha: 0.5), style: BorderStyle.solid),
+          ),
+          child: Icon(Icons.add, size: 16, color: bgTextColor),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          position != null ? _getPositionAbbr(position) : 'SUB',
+          style: TextStyle(fontSize: 10, color: bgTextColor),
+        ),
+      ],
+    );
+  }
+  
+  String _getPositionAbbr(PlayerPosition position) {
+    switch (position) {
+      case PlayerPosition.goalkeeper:
+        return 'GK';
+      case PlayerPosition.defender:
+        return 'DEF';
+      case PlayerPosition.midfielder:
+        return 'MID';
+      case PlayerPosition.attacker:
+      case PlayerPosition.forward:
+        return 'FWD';
+    }
+  }
+  
+  PlayerPosition? _getBenchPositionNeeded(int index) {
+    // Bench should have: 1 GK, 1 DEF, 1 MID, 1 FWD
+    switch (index) {
+      case 0:
+        return PlayerPosition.goalkeeper;
+      case 1:
+        return PlayerPosition.defender;
+      case 2:
+        return PlayerPosition.midfielder;
+      case 3:
+        return PlayerPosition.forward;
+      default:
+        return null;
+    }
+  }
+  
+  PlayerPosition? _positionFromString(String position) {
+    switch (position.toUpperCase()) {
+      case 'GK':
+      case 'GOALKEEPER':
+        return PlayerPosition.goalkeeper;
+      case 'DEF':
+      case 'DEFENDER':
+        return PlayerPosition.defender;
+      case 'MID':
+      case 'MIDFIELDER':
+        return PlayerPosition.midfielder;
+      case 'FWD':
+      case 'FORWARD':
+      case 'ATT':
+      case 'ATTACKER':
+        return PlayerPosition.forward;
+      default:
+        return null;
+    }
+  }
+  
+  /// Show player selection bottom sheet
+  void _showPlayerSelectionSheet(PlayerPosition? filterPosition) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _PlayerSelectionSheet(
+        allPlayers: _allRosterPlayers,
+        selectedPlayers: _selectedPlayers,
+        budgetRemaining: _budgetRemaining,
+        filterPosition: filterPosition,
+        ligaMxTeams: _ligaMxTeams,
+        onPlayerSelected: (rosterPlayer) {
+          _togglePlayer(rosterPlayer);
+          Navigator.pop(context);
+        },
+        onViewProfile: (rosterPlayer) => _navigateToPlayerProfile(rosterPlayer.id),
+      ),
+    );
+  }
+
+  /// Build collapsible field visualization showing squad slots (legacy - kept for reference)
+  Widget _buildFieldVisualization(ThemeData theme) {
+    // Convert selected RosterPlayers to FantasyTeamPlayers for the field
+    final startingXI = _selectedPlayers.take(11).toList();
+    final bench = _selectedPlayers.skip(11).toList();
+    
+    // Calculate total projected points
+    double totalProjectedPoints = 0;
+    for (final player in _selectedPlayers) {
+      // Find the roster player to get projected points
+      final rosterPlayer = _allRosterPlayers.where((p) => p.id == player.playerId).firstOrNull;
+      if (rosterPlayer != null) {
+        totalProjectedPoints += rosterPlayer.projectedPoints;
+      }
+    }
+    
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      child: Column(
+        children: [
+          // Header with toggle and projected points
+          InkWell(
+            onTap: () => setState(() => _showFieldView = !_showFieldView),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: theme.colorScheme.surface,
+              child: Row(
+                children: [
+                  Icon(
+                    _showFieldView ? Icons.expand_less : Icons.expand_more,
+                    color: bgTextColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Squad View',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const Spacer(),
+                  // Projected points badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: theme.primaryColor.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: theme.primaryColor),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.trending_up, size: 14, color: theme.primaryColor),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${totalProjectedPoints.toStringAsFixed(1)} pts',
+                          style: TextStyle(
+                            color: theme.primaryColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          
+          // Collapsible field
+          if (_showFieldView) ...[
+            // Formation selector
+            Container(
+              height: 40,
+              color: theme.colorScheme.surface,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: Formation.values.map((formation) {
+                  final isSelected = formation == _selectedFormation;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilterChip(
+                      selected: isSelected,
+                      label: Text(formation.name),
+                      selectedColor: theme.primaryColor,
+                      labelStyle: TextStyle(
+                        color: isSelected ? Colors.white : bgTextColor,
+                        fontSize: 12,
+                      ),
+                      onSelected: (_) => setState(() => _selectedFormation = formation),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            
+            // Soccer field - compact height
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: SoccerFieldWidget(
+                players: startingXI,
+                formation: _selectedFormation,
+                isEditable: true,
+                height: 200,
+                onPlayerTap: (player) => _showSubstitutionDialog(player),
+                onSlotTap: (position, index) => _scrollToPosition(position),
+              ),
+            ),
+            
+            // Bench display - compact
+            if (bench.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                child: SizedBox(
+                  height: 60,
+                  child: BenchWidget(
+                    benchPlayers: bench,
+                    isEditable: true,
+                    compact: true,
+                    onPlayerTap: (player) => _showSubstitutionDialog(player),
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+  
+  /// Show substitution dialog when tapping a player on the field
+  void _showSubstitutionDialog(FantasyTeamPlayer player) {
+    final theme = Theme.of(context);
+    
+    // Get players that can substitute for this position
+    final playerIndex = _selectedPlayers.indexOf(player);
+    final isOnBench = playerIndex >= 11;
+    
+    // Get compatible substitutes
+    List<FantasyTeamPlayer> availableSwaps;
+    if (isOnBench) {
+      // Bench player - can swap with starting XI of same position
+      availableSwaps = _selectedPlayers
+          .take(11)
+          .where((p) => p.position == player.position)
+          .toList();
+    } else {
+      // Starting XI - can swap with bench players of same position
+      availableSwaps = _selectedPlayers
+          .skip(11)
+          .where((p) => p.position == player.position)
+          .toList();
+    }
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: theme.colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: _getPositionColor(player.position),
+                  child: Text(
+                    player.playerName.split(' ').take(2).map((s) => s.isNotEmpty ? s[0] : '').join(),
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        player.playerName,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      Text(
+                        '${_getPositionName(player.position)} • ${player.teamName ?? ""}',
+                        style: TextStyle(color: bgTextColor, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isOnBench ? Colors.grey : Colors.green,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    isOnBench ? 'BENCH' : 'STARTING',
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Substitution options
+            if (availableSwaps.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: bgTextColor),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        isOnBench 
+                            ? 'No starting players with same position to swap with'
+                            : 'No substitutes with same position available',
+                        style: TextStyle(color: bgTextColor),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else ...[
+              Text(
+                'Swap with:',
+                style: TextStyle(color: bgTextColor, fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              ...availableSwaps.map((swapPlayer) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: _getPositionColor(swapPlayer.position),
+                  child: Text(
+                    swapPlayer.playerName.split(' ').take(2).map((s) => s.isNotEmpty ? s[0] : '').join(),
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+                title: Text(swapPlayer.playerName),
+                subtitle: Text(swapPlayer.teamName ?? '', style: TextStyle(color: bgTextColor)),
+                trailing: ElevatedButton(
+                  onPressed: () {
+                    _swapPlayers(player, swapPlayer);
+                    Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: theme.primaryColor,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                  ),
+                  child: const Text('Swap', style: TextStyle(color: Colors.white)),
+                ),
+              )),
+            ],
+            
+            const SizedBox(height: 16),
+            
+            // Remove from squad option
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  _removePlayerFromSquad(player);
+                  Navigator.pop(context);
+                },
+                icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                label: const Text('Remove from Squad', style: TextStyle(color: Colors.red)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.red),
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  /// Swap two players in the squad
+  void _swapPlayers(FantasyTeamPlayer player1, FantasyTeamPlayer player2) {
+    setState(() {
+      final index1 = _selectedPlayers.indexOf(player1);
+      final index2 = _selectedPlayers.indexOf(player2);
+      if (index1 != -1 && index2 != -1) {
+        _selectedPlayers[index1] = player2;
+        _selectedPlayers[index2] = player1;
+      }
+    });
+  }
+  
+  /// Remove player from squad
+  void _removePlayerFromSquad(FantasyTeamPlayer player) {
+    setState(() {
+      _selectedPlayers.remove(player);
+      _budgetRemaining += player.credits;
+    });
+  }
+  
+  /// Scroll to a position section when empty slot is tapped
+  void _scrollToPosition(String position) {
+    // Just show a hint that they need to select a player
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Select a $position from the list below'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+  
+  Color _getPositionColor(PlayerPosition position) {
+    switch (position) {
+      case PlayerPosition.goalkeeper:
+        return Colors.orange.shade700;
+      case PlayerPosition.defender:
+        return Colors.blue.shade700;
+      case PlayerPosition.midfielder:
+        return Colors.green.shade700;
+      case PlayerPosition.attacker:
+      case PlayerPosition.forward:
+        return Colors.red.shade700;
+    }
+  }
+  
+  String _getPositionName(PlayerPosition position) {
+    switch (position) {
+      case PlayerPosition.goalkeeper:
+        return 'Goalkeeper';
+      case PlayerPosition.defender:
+        return 'Defender';
+      case PlayerPosition.midfielder:
+        return 'Midfielder';
+      case PlayerPosition.attacker:
+      case PlayerPosition.forward:
+        return 'Forward';
+    }
   }
 
   /// Visible sort and filter bar
@@ -752,7 +1473,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        _selectedTeamFilter ?? 'All Teams',
+                        _selectedTeamFilter?.name ?? 'All Teams',
                         style: TextStyle(
                           fontSize: 13,
                           color: _selectedTeamFilter != null 
@@ -765,7 +1486,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
                     ),
                     if (_selectedTeamFilter != null)
                       GestureDetector(
-                        onTap: () => setState(() => _selectedTeamFilter = null),
+                        onTap: () => _onTeamFilterChanged(null),
                         child: Icon(
                           Icons.close, 
                           size: 16, 
@@ -839,7 +1560,6 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
   /// Show team filter options popup
   void _showTeamFilterOptions() {
     final theme = Theme.of(context);
-    final sortedTeams = _teamNames.toList()..sort();
     
     showModalBottomSheet(
       context: context,
@@ -870,8 +1590,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
                   if (_selectedTeamFilter != null)
                     TextButton(
                       onPressed: () {
-                        setState(() => _selectedTeamFilter = null);
                         Navigator.pop(context);
+                        _onTeamFilterChanged(null);
                       },
                       child: const Text('Clear'),
                     ),
@@ -900,36 +1620,45 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
                         ? Icon(Icons.check, color: theme.primaryColor) 
                         : null,
                     onTap: () {
-                      setState(() => _selectedTeamFilter = null);
                       Navigator.pop(context);
+                      _onTeamFilterChanged(null);
                     },
                   ),
                   const Divider(height: 1),
                   // Team list
-                  ...sortedTeams.map((team) {
-                    final playerCount = _allRosterPlayers.where((p) => p.teamName == team).length;
+                  ..._ligaMxTeams.map((team) {
+                    final isSelected = _selectedTeamFilter?.id == team.id;
+                    final playerCount = _allRosterPlayers.where((p) => p.teamId == team.id).length;
                     return ListTile(
-                      leading: Icon(
-                        Icons.shield,
-                        color: _selectedTeamFilter == team ? theme.primaryColor : bgTextColor,
-                      ),
+                      leading: team.logo != null
+                          ? CircleAvatar(
+                              backgroundImage: CachedNetworkImageProvider(team.logo!),
+                              backgroundColor: Colors.transparent,
+                              radius: 16,
+                            )
+                          : Icon(
+                              Icons.shield,
+                              color: isSelected ? theme.primaryColor : bgTextColor,
+                            ),
                       title: Text(
-                        team,
+                        team.name,
                         style: TextStyle(
-                          color: _selectedTeamFilter == team ? theme.primaryColor : null,
-                          fontWeight: _selectedTeamFilter == team ? FontWeight.w600 : null,
+                          color: isSelected ? theme.primaryColor : null,
+                          fontWeight: isSelected ? FontWeight.w600 : null,
                         ),
                       ),
-                      subtitle: Text(
-                        '$playerCount players',
-                        style: TextStyle(fontSize: 12, color: bgTextColor),
-                      ),
-                      trailing: _selectedTeamFilter == team 
+                      subtitle: playerCount > 0 
+                          ? Text(
+                              '$playerCount loaded',
+                              style: TextStyle(fontSize: 12, color: bgTextColor),
+                            )
+                          : null,
+                      trailing: isSelected 
                           ? Icon(Icons.check, color: theme.primaryColor) 
                           : null,
                       onTap: () {
-                        setState(() => _selectedTeamFilter = team);
                         Navigator.pop(context);
+                        _onTeamFilterChanged(team);
                       },
                     );
                   }),
@@ -966,7 +1695,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
         : 3;
     
     // Count available players for this position
-    final availableCount = _getFilteredPlayers(positionCode).length;
+    final availableCount = _getFilteredPlayers().where((p) => p.positionCode.toUpperCase() == positionCode).length;
     
     return Tab(
       child: Column(
@@ -1004,9 +1733,120 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
       ),
     );
   }
+  
+  /// Build horizontal team filter chips
+  Widget _buildTeamFilterChips(ThemeData theme) {
+    return Container(
+      height: 50,
+      color: theme.colorScheme.surface,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        itemCount: _ligaMxTeams.length + 1, // +1 for "All Teams"
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            // "All Teams" chip
+            final isSelected = _selectedTeamFilter == null;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FilterChip(
+                selected: isSelected,
+                label: const Text('All Teams'),
+                selectedColor: theme.primaryColor,
+                checkmarkColor: Colors.white,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : bgTextColor,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+                onSelected: (_) => _onTeamFilterChanged(null),
+              ),
+            );
+          }
+          
+          final team = _ligaMxTeams[index - 1];
+          final isSelected = _selectedTeamFilter?.id == team.id;
+          
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              selected: isSelected,
+              avatar: team.logo != null
+                  ? CircleAvatar(
+                      backgroundImage: CachedNetworkImageProvider(team.logo!),
+                      backgroundColor: Colors.transparent,
+                    )
+                  : null,
+              label: Text(team.name),
+              selectedColor: theme.primaryColor,
+              checkmarkColor: Colors.white,
+              labelStyle: TextStyle(
+                color: isSelected ? Colors.white : bgTextColor,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
+              onSelected: (_) => _onTeamFilterChanged(isSelected ? null : team),
+            ),
+          );
+        },
+      ),
+    );
+  }
+  
+  /// Build player list with infinite scroll
+  Widget _buildPlayerListWithInfiniteScroll(ThemeData theme) {
+    final filteredPlayers = _getFilteredPlayers();
+    
+    if (filteredPlayers.isEmpty && !_isLoadingMore) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off, size: 48, color: bgTextColor),
+            const SizedBox(height: 16),
+            Text(
+              _searchQuery.isNotEmpty 
+                  ? 'No players found for "$_searchQuery"'
+                  : 'Loading players...',
+              style: TextStyle(color: bgTextColor),
+            ),
+            if (_selectedTeamFilter != null) ...[
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => _onTeamFilterChanged(null),
+                child: const Text('Clear team filter'),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+    
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.all(8),
+      itemCount: filteredPlayers.length + (_hasMorePlayers ? 1 : 0),
+      itemBuilder: (context, index) {
+        // Loading indicator at the bottom
+        if (index >= filteredPlayers.length) {
+          return Container(
+            padding: const EdgeInsets.all(16),
+            alignment: Alignment.center,
+            child: const CircularProgressIndicator(),
+          );
+        }
+        
+        final player = filteredPlayers[index];
+        return FadedSlideAnimation(
+          beginOffset: Offset(0, 0.03 * (index % 10 + 1)),
+          endOffset: Offset.zero,
+          slideDuration: const Duration(milliseconds: 150),
+          child: _buildPlayerCard(theme, player),
+        );
+      },
+    );
+  }
 
   Widget _buildPlayerList(ThemeData theme, String positionCode) {
-    final filteredPlayers = _getFilteredPlayers(positionCode);
+    final filteredPlayers = _getFilteredPlayers();
     
     if (filteredPlayers.isEmpty) {
       return Center(
@@ -1053,7 +1893,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
     final canAfford = player.credits <= _budgetRemaining || isSelected;
     
     // Get position color
-    final posColor = _getPositionColor(player.positionCode);
+    final posColor = _getPositionColorFromCode(player.positionCode);
     
     return Card(
       color: isSelected 
@@ -1213,7 +2053,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
     final theme = Theme.of(context);
     final isSelected = _isPlayerSelected(player.id);
     final canAfford = player.credits <= _budgetRemaining || isSelected;
-    final posColor = _getPositionColor(player.positionCode);
+    final posColor = _getPositionColorFromCode(player.positionCode);
     
     showModalBottomSheet(
       context: context,
@@ -1714,7 +2554,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
     );
   }
 
-  Color _getPositionColor(String positionCode) {
+  Color _getPositionColorFromCode(String positionCode) {
     switch (positionCode.toUpperCase()) {
       case 'GK':
         return Colors.orange;
@@ -1809,16 +2649,16 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> with SingleTickerProv
 
 class _SortFilterSheet extends StatelessWidget {
   final PlayerSortOption currentSort;
-  final String? selectedTeam;
-  final List<String> teamNames;
+  final LigaMxTeam? selectedTeam;
+  final List<LigaMxTeam> teams;
   final Function(PlayerSortOption) onSortChanged;
-  final Function(String?) onTeamFilterChanged;
+  final Function(LigaMxTeam?) onTeamFilterChanged;
   final VoidCallback onClearFilters;
 
   const _SortFilterSheet({
     required this.currentSort,
     required this.selectedTeam,
-    required this.teamNames,
+    required this.teams,
     required this.onSortChanged,
     required this.onTeamFilterChanged,
     required this.onClearFilters,
@@ -1885,8 +2725,8 @@ class _SortFilterSheet extends StatelessWidget {
             style: TextStyle(color: bgTextColor, fontSize: 12),
           ),
           const SizedBox(height: 8),
-          DropdownButtonFormField<String?>(
-            value: selectedTeam,
+          DropdownButtonFormField<int?>(
+            value: selectedTeam?.id,
             decoration: InputDecoration(
               filled: true,
               fillColor: bgColor,
@@ -1897,16 +2737,21 @@ class _SortFilterSheet extends StatelessWidget {
               hintText: 'All Teams',
             ),
             items: [
-              const DropdownMenuItem(
+              const DropdownMenuItem<int?>(
                 value: null,
                 child: Text('All Teams'),
               ),
-              ...teamNames.map((team) => DropdownMenuItem(
-                value: team,
-                child: Text(team, overflow: TextOverflow.ellipsis),
+              ...teams.map((team) => DropdownMenuItem<int?>(
+                value: team.id,
+                child: Text(team.name, overflow: TextOverflow.ellipsis),
               )),
             ],
-            onChanged: onTeamFilterChanged,
+            onChanged: (int? teamId) {
+              final team = teamId == null 
+                  ? null 
+                  : teams.firstWhere((t) => t.id == teamId);
+              onTeamFilterChanged(team);
+            },
           ),
           
           const SizedBox(height: 16),
@@ -2253,5 +3098,582 @@ class _CaptainSelectionSheet extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+// ==================== PLAYER SELECTION SHEET ====================
+
+class _PlayerSelectionSheet extends StatefulWidget {
+  final List<RosterPlayer> allPlayers;
+  final List<FantasyTeamPlayer> selectedPlayers;
+  final double budgetRemaining;
+  final PlayerPosition? filterPosition;
+  final List<LigaMxTeam> ligaMxTeams;
+  final Function(RosterPlayer) onPlayerSelected;
+  final Function(RosterPlayer) onViewProfile;
+  
+  const _PlayerSelectionSheet({
+    required this.allPlayers,
+    required this.selectedPlayers,
+    required this.budgetRemaining,
+    this.filterPosition,
+    required this.ligaMxTeams,
+    required this.onPlayerSelected,
+    required this.onViewProfile,
+  });
+  
+  @override
+  State<_PlayerSelectionSheet> createState() => _PlayerSelectionSheetState();
+}
+
+class _PlayerSelectionSheetState extends State<_PlayerSelectionSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  final PlayersRepository _playersRepository = PlayersRepository();
+  
+  String _searchQuery = '';
+  PlayerSortOption _sortOption = PlayerSortOption.pointsHigh;
+  LigaMxTeam? _selectedTeam;
+  
+  // API search results
+  List<RosterPlayer> _apiSearchResults = [];
+  bool _isSearching = false;
+  Timer? _debounceTimer;
+  
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _debounceTimer?.cancel();
+    super.dispose();
+  }
+  
+  /// Handle search query change with debounce
+  void _onSearchChanged(String query) {
+    setState(() => _searchQuery = query);
+    
+    // Cancel previous timer
+    _debounceTimer?.cancel();
+    
+    // Clear API results if query is empty
+    if (query.isEmpty) {
+      setState(() {
+        _apiSearchResults = [];
+        _isSearching = false;
+      });
+      return;
+    }
+    
+    // Debounce API search (wait 500ms after user stops typing)
+    if (query.length >= 2) {
+      _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+        _searchPlayersFromApi(query);
+      });
+    }
+  }
+  
+  /// Search for players via API
+  Future<void> _searchPlayersFromApi(String query) async {
+    if (!mounted) return;
+    
+    setState(() => _isSearching = true);
+    
+    try {
+      debugPrint('Searching API for: $query');
+      final results = await _playersRepository.searchRosterPlayers(query);
+      
+      if (mounted) {
+        setState(() {
+          _apiSearchResults = results;
+          _isSearching = false;
+        });
+        debugPrint('API search returned ${results.length} players');
+      }
+    } catch (e) {
+      debugPrint('API search error: $e');
+      if (mounted) {
+        setState(() => _isSearching = false);
+      }
+    }
+  }
+  
+  List<RosterPlayer> get _filteredPlayers {
+    // Combine local players with API search results
+    final allAvailable = <RosterPlayer>[...widget.allPlayers];
+    
+    // Add API results - ALWAYS add them even if ID exists (API has fresher data)
+    for (final player in _apiSearchResults) {
+      // Remove existing player with same ID to replace with API version
+      allAvailable.removeWhere((p) => p.id == player.id);
+      allAvailable.add(player);
+    }
+    
+    var players = allAvailable.where((p) {
+      // Don't show already selected players
+      if (widget.selectedPlayers.any((sp) => sp.playerId == p.id)) {
+        return false;
+      }
+
+      // Filter by position if specified
+      if (widget.filterPosition != null) {
+        final playerPos = _positionFromCode(p.positionCode);
+        if (playerPos != widget.filterPosition) {
+          return false;
+        }
+      }
+      
+      // Filter by search query - check name, displayName, and teamName
+      // Also normalize accents for better matching
+      if (_searchQuery.isNotEmpty) {
+        final query = _normalizeString(_searchQuery.toLowerCase());
+        final normalizedName = _normalizeString(p.name.toLowerCase());
+        final normalizedDisplayName = _normalizeString(p.displayName.toLowerCase());
+        final normalizedTeamName = _normalizeString(p.teamName.toLowerCase());
+        
+        final nameMatch = normalizedName.contains(query);
+        final displayNameMatch = normalizedDisplayName.contains(query);
+        final teamMatch = normalizedTeamName.contains(query);
+        
+        if (!nameMatch && !displayNameMatch && !teamMatch) {
+          return false;
+        }
+      }
+      
+      // Filter by team
+      if (_selectedTeam != null && p.teamId != _selectedTeam!.id) {
+        return false;
+      }
+      
+      return true;
+    }).toList();
+    
+    debugPrint('Filtered to ${players.length} players');
+    
+    // Sort
+    switch (_sortOption) {
+      case PlayerSortOption.pointsHigh:
+        players.sort((a, b) => b.projectedPoints.compareTo(a.projectedPoints));
+        break;
+      case PlayerSortOption.pointsLow:
+        players.sort((a, b) => a.projectedPoints.compareTo(b.projectedPoints));
+        break;
+      case PlayerSortOption.creditHigh:
+        players.sort((a, b) => b.credits.compareTo(a.credits));
+        break;
+      case PlayerSortOption.creditLow:
+        players.sort((a, b) => a.credits.compareTo(b.credits));
+        break;
+      case PlayerSortOption.nameAZ:
+        players.sort((a, b) => a.name.compareTo(b.name));
+        break;
+      case PlayerSortOption.selectedPercent:
+        // No selected percent data, fallback to points
+        players.sort((a, b) => b.projectedPoints.compareTo(a.projectedPoints));
+        break;
+    }
+    
+    return players;
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final filteredPlayers = _filteredPlayers;
+    
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: theme.scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              // Handle
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: bgTextColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              
+              // Header
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(
+                      widget.filterPosition != null 
+                          ? _getPositionIcon(widget.filterPosition!)
+                          : Icons.person_add,
+                      color: theme.primaryColor,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.filterPosition != null 
+                            ? 'Select ${_getPositionName(widget.filterPosition!)}'
+                            : 'Add Player',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: widget.budgetRemaining > 0 
+                            ? Colors.green.withValues(alpha: 0.2)
+                            : Colors.red.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${widget.budgetRemaining.toStringAsFixed(1)} left',
+                        style: TextStyle(
+                          color: widget.budgetRemaining > 0 ? Colors.green : Colors.red,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Search bar
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search by name or team...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _isSearching 
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  _onSearchChanged('');
+                                },
+                              )
+                            : null,
+                    filled: true,
+                    fillColor: bgColor,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  onChanged: _onSearchChanged,
+                ),
+              ),
+              
+              const SizedBox(height: 8),
+              
+              // Filter/Sort row
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    // Sort dropdown
+                    Expanded(
+                      child: DropdownButtonFormField<PlayerSortOption>(
+                        value: _sortOption,
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: bgColor,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          isDense: true,
+                        ),
+                        items: PlayerSortOption.values.map((opt) {
+                          return DropdownMenuItem(
+                            value: opt,
+                            child: Text(_getSortLabel(opt), style: const TextStyle(fontSize: 12)),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value != null) setState(() => _sortOption = value);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Team filter dropdown
+                    Expanded(
+                      child: DropdownButtonFormField<int?>(
+                        value: _selectedTeam?.id,
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: bgColor,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem<int?>(value: null, child: Text('All Teams', style: TextStyle(fontSize: 12))),
+                          ...widget.ligaMxTeams.map((team) => DropdownMenuItem<int?>(
+                            value: team.id,
+                            child: Text(team.name, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                          )),
+                        ],
+                        onChanged: (teamId) {
+                          setState(() {
+                            _selectedTeam = teamId == null 
+                                ? null 
+                                : widget.ligaMxTeams.firstWhere((t) => t.id == teamId);
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 8),
+              
+              // Results count
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Row(
+                  children: [
+                    Text(
+                      '${filteredPlayers.length} players',
+                      style: TextStyle(color: bgTextColor, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Player list
+              Expanded(
+                child: filteredPlayers.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.search_off, size: 48, color: bgTextColor),
+                            const SizedBox(height: 8),
+                            Text('No players found', style: TextStyle(color: bgTextColor)),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: filteredPlayers.length,
+                        itemBuilder: (context, index) {
+                          final player = filteredPlayers[index];
+                          final canAfford = player.credits <= widget.budgetRemaining;
+                          
+                          return _buildPlayerCard(theme, player, canAfford);
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+  
+  Widget _buildPlayerCard(ThemeData theme, RosterPlayer player, bool canAfford) {
+    final posColor = _getPositionColorFromCode(player.positionCode);
+    
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      color: bgColor,
+      child: InkWell(
+        onTap: () => widget.onViewProfile(player),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              // Position badge
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: posColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Center(
+                  child: Text(
+                    player.positionCode,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              
+              // Player info
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      player.name,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                    Text(
+                      player.teamName,
+                      style: TextStyle(color: bgTextColor, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Stats
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.trending_up, size: 14, color: theme.primaryColor),
+                      const SizedBox(width: 2),
+                      Text(
+                        '${player.projectedPoints.toStringAsFixed(1)}',
+                        style: TextStyle(
+                          color: theme.primaryColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    '${player.credits.toStringAsFixed(1)} cr',
+                    style: TextStyle(
+                      color: canAfford ? bgTextColor : Colors.red,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(width: 8),
+              
+              // Add button
+              IconButton(
+                onPressed: canAfford ? () => widget.onPlayerSelected(player) : null,
+                icon: Icon(
+                  Icons.add_circle,
+                  color: canAfford ? Colors.green : bgTextColor.withValues(alpha: 0.3),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  IconData _getPositionIcon(PlayerPosition position) {
+    switch (position) {
+      case PlayerPosition.goalkeeper:
+        return Icons.sports_handball;
+      case PlayerPosition.defender:
+        return Icons.shield;
+      case PlayerPosition.midfielder:
+        return Icons.swap_horiz;
+      case PlayerPosition.attacker:
+      case PlayerPosition.forward:
+        return Icons.sports_soccer;
+    }
+  }
+  
+  String _getPositionName(PlayerPosition position) {
+    switch (position) {
+      case PlayerPosition.goalkeeper:
+        return 'Goalkeeper';
+      case PlayerPosition.defender:
+        return 'Defender';
+      case PlayerPosition.midfielder:
+        return 'Midfielder';
+      case PlayerPosition.attacker:
+      case PlayerPosition.forward:
+        return 'Forward';
+    }
+  }
+  
+  String _getSortLabel(PlayerSortOption option) {
+    return option.displayName;
+  }
+  
+  /// Normalize string by removing accents for better search matching
+  String _normalizeString(String input) {
+    const accentsLower = 'àáâãäåæçèéêëìíîïðñòóôõöøùúûüýÿ';
+    const accentsUpper = 'ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝŸ';
+    const withoutAccentsLower = 'aaaaaaaceeeeiiiidnooooooouuuuyy';
+    const withoutAccentsUpper = 'AAAAAAACEEEEIIIIDNOOOOOOOUUUUYY';
+    
+    var result = input;
+    for (var i = 0; i < accentsLower.length; i++) {
+      result = result.replaceAll(accentsLower[i], withoutAccentsLower[i]);
+      result = result.replaceAll(accentsUpper[i], withoutAccentsUpper[i]);
+    }
+    return result;
+  }
+  
+  PlayerPosition _positionFromCode(String code) {
+    switch (code.toUpperCase()) {
+      case 'GK':
+        return PlayerPosition.goalkeeper;
+      case 'DEF':
+        return PlayerPosition.defender;
+      case 'MID':
+        return PlayerPosition.midfielder;
+      case 'ATT':
+      return PlayerPosition.attacker;
+      case 'ST':
+      case 'FWD':
+      case 'CF':
+        return PlayerPosition.forward;
+      default:
+        return PlayerPosition.midfielder;
+    }
+  }
+  
+  Color _getPositionColorFromCode(String positionCode) {
+    switch (positionCode.toUpperCase()) {
+      case 'GK':
+        return Colors.orange;
+      case 'DEF':
+        return Colors.blue;
+      case 'MID':
+        return Colors.green;
+      case 'FWD':
+      case 'ATT':
+      case 'ST':
+      case 'CF':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
   }
 }

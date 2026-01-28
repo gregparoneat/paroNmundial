@@ -430,17 +430,23 @@ class BenchWidget extends StatelessWidget {
   final List<FantasyTeamPlayer> benchPlayers;
   final Function(FantasyTeamPlayer player)? onPlayerTap;
   final bool isEditable;
+  final bool compact;
 
   const BenchWidget({
     super.key,
     required this.benchPlayers,
     this.onPlayerTap,
     this.isEditable = false,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    
+    if (compact) {
+      return _buildCompactBench(theme);
+    }
     
     return Container(
       padding: const EdgeInsets.all(12),
@@ -486,6 +492,87 @@ class BenchWidget extends StatelessWidget {
         ],
       ),
     );
+  }
+  
+  Widget _buildCompactBench(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.airline_seat_recline_normal, size: 14, color: bgTextColor),
+          const SizedBox(width: 4),
+          Text(
+            'Bench:',
+            style: TextStyle(fontSize: 11, color: bgTextColor, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: benchPlayers.map((player) => _buildCompactBenchPlayer(player, theme)).toList(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildCompactBenchPlayer(FantasyTeamPlayer player, ThemeData theme) {
+    return GestureDetector(
+      onTap: onPlayerTap != null ? () => onPlayerTap!(player) : null,
+      child: Container(
+        margin: const EdgeInsets.only(right: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: _getPositionColor(player.position),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  _getPositionAbbr(player.position),
+                  style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              player.playerName.split(' ').last,
+              style: const TextStyle(color: Colors.white, fontSize: 10),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Color _getPositionColor(PlayerPosition position) {
+    switch (position) {
+      case PlayerPosition.goalkeeper:
+        return Colors.orange;
+      case PlayerPosition.defender:
+        return Colors.blue;
+      case PlayerPosition.midfielder:
+        return Colors.green;
+      case PlayerPosition.attacker:
+      case PlayerPosition.forward:
+        return Colors.red;
+    }
   }
 
   Widget _buildBenchPlayer(FantasyTeamPlayer player, ThemeData theme) {
@@ -546,20 +633,6 @@ class BenchWidget extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  Color _getPositionColor(PlayerPosition position) {
-    switch (position) {
-      case PlayerPosition.goalkeeper:
-        return Colors.orange.shade700;
-      case PlayerPosition.defender:
-        return Colors.blue.shade700;
-      case PlayerPosition.midfielder:
-        return Colors.green.shade700;
-      case PlayerPosition.attacker:
-      case PlayerPosition.forward:
-        return Colors.red.shade700;
-    }
   }
 
   String _getPositionAbbr(PlayerPosition position) {

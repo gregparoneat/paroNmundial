@@ -83,12 +83,30 @@ class SportMonksClient {
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body);
         
+        // Debug: Print raw pagination info
+        final pagination = jsonData['pagination'] as Map<String, dynamic>?;
+        if (pagination != null) {
+          debugPrint('Pagination: total=${pagination['total']}, count=${pagination['count']}, '
+              'per_page=${pagination['per_page']}, current_page=${pagination['current_page']}, '
+              'total_pages=${pagination['total_pages']}, has_more=${pagination['has_more']}');
+        }
+        
+        // Debug: Check for subscription info or messages
+        final subscription = jsonData['subscription'];
+        if (subscription != null) {
+          debugPrint('Subscription info: $subscription');
+        }
+        final message = jsonData['message'];
+        if (message != null) {
+          debugPrint('API Message: $message');
+        }
+        
         // Parse the data
         final data = parser(jsonData['data']);
         
         return SportMonksResponse<T>(
           data: data,
-          pagination: jsonData['pagination'] as Map<String, dynamic>?,
+          pagination: pagination,
           rateLimit: jsonData['rate_limit'] as Map<String, dynamic>?,
           timezone: jsonData['timezone'] as String?,
         );
@@ -366,11 +384,27 @@ class SportMonksClient {
       'include': 'players',  // Simple include to get player list with basic info
     };
     
-    return get<List<Map<String, dynamic>>>(
+    debugPrint('Fetching teams with players - page: $page, perPage: $perPage');
+    
+    final response = await get<List<Map<String, dynamic>>>(
       '/teams',
       queryParams: queryParams,
-      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+      parser: (data) {
+        if (data == null) return [];
+        final teams = (data as List).cast<Map<String, dynamic>>();
+        debugPrint('Raw teams response: ${teams.length} teams');
+        for (final team in teams) {
+          final name = team['name'];
+          final id = team['id'];
+          final players = team['players'];
+          debugPrint('  Team: $name (ID: $id), players: ${players is List ? players.length : "none"}');
+        }
+        return teams;
+      },
     );
+    
+    debugPrint('getAllTeamsWithPlayers - hasMore: ${response.hasMore}');
+    return response;
   }
 
   /// Get all players with pagination
@@ -389,7 +423,7 @@ class SportMonksClient {
       'nationality',
       'position',
       'detailedPosition',
-      'currentTeam',
+      // Note: currentTeam is NOT available on /players endpoint
       'statistics.details',
     ];
     queryParams['include'] = SportMonksConfig.buildIncludes(defaultIncludes);

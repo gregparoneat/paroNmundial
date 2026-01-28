@@ -9,6 +9,9 @@ class CacheKeys {
   static const String fixtures = 'fixtures';
   static const String teams = 'teams';
   static const String leagues = 'leagues';
+  static const String ligaMxRoster = 'liga_mx_roster';
+  static const String ligaMxRosterTimestamp = 'liga_mx_roster_timestamp';
+  static const String ligaMxTeams = 'liga_mx_teams';
 }
 
 /// Cache box names
@@ -160,6 +163,84 @@ class CacheService {
       }
     }
     return result;
+  }
+
+  // ==================== LIGA MX ROSTER CACHE ====================
+  
+  static const Duration _rosterCacheExpiry = Duration(hours: 6);
+  
+  /// Get cached Liga MX roster players
+  List<Map<String, dynamic>>? getLigaMxRoster() {
+    // Check timestamp first
+    final timestampStr = _playersBox.get(CacheKeys.ligaMxRosterTimestamp);
+    if (timestampStr != null) {
+      try {
+        final timestamp = DateTime.parse(timestampStr);
+        if (DateTime.now().difference(timestamp) > _rosterCacheExpiry) {
+          debugPrint('Liga MX roster cache expired');
+          return null;
+        }
+      } catch (e) {
+        debugPrint('Error parsing roster timestamp: $e');
+        return null;
+      }
+    } else {
+      return null;
+    }
+    
+    final data = _playersBox.get(CacheKeys.ligaMxRoster);
+    if (data == null) return null;
+    
+    try {
+      final List<dynamic> decoded = json.decode(data);
+      debugPrint('Loaded ${decoded.length} players from Hive cache');
+      return decoded.cast<Map<String, dynamic>>();
+    } catch (e) {
+      debugPrint('Error decoding Liga MX roster: $e');
+      return null;
+    }
+  }
+  
+  /// Save Liga MX roster players to cache
+  Future<void> saveLigaMxRoster(List<Map<String, dynamic>> players) async {
+    await _playersBox.put(CacheKeys.ligaMxRoster, json.encode(players));
+    await _playersBox.put(CacheKeys.ligaMxRosterTimestamp, DateTime.now().toIso8601String());
+    debugPrint('Saved ${players.length} Liga MX roster players to Hive cache');
+  }
+  
+  /// Add players to Liga MX roster cache (merge with existing)
+  Future<void> addToLigaMxRoster(List<Map<String, dynamic>> newPlayers) async {
+    final existing = getLigaMxRoster() ?? [];
+    
+    // Merge - add new players that don't exist
+    for (final player in newPlayers) {
+      final playerId = player['id'];
+      if (!existing.any((p) => p['id'] == playerId)) {
+        existing.add(player);
+      }
+    }
+    
+    await saveLigaMxRoster(existing);
+  }
+  
+  /// Get cached Liga MX teams
+  List<Map<String, dynamic>>? getLigaMxTeams() {
+    final data = _teamsBox.get(CacheKeys.ligaMxTeams);
+    if (data == null) return null;
+    
+    try {
+      final List<dynamic> decoded = json.decode(data);
+      return decoded.cast<Map<String, dynamic>>();
+    } catch (e) {
+      debugPrint('Error decoding Liga MX teams: $e');
+      return null;
+    }
+  }
+  
+  /// Save Liga MX teams to cache
+  Future<void> saveLigaMxTeams(List<Map<String, dynamic>> teams) async {
+    await _teamsBox.put(CacheKeys.ligaMxTeams, json.encode(teams));
+    debugPrint('Saved ${teams.length} Liga MX teams to Hive cache');
   }
 
   // ==================== GENERAL CACHE ====================
