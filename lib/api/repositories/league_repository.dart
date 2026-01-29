@@ -114,9 +114,27 @@ class LeagueRepository {
     }
   }
 
-  /// Get all public leagues
+  /// Get all public leagues (marks isJoined for leagues user has already joined)
   Future<List<League>> getPublicLeagues() async {
     await _ensureInitialized();
+    
+    // First get the list of leagues the user has joined
+    final currentUser = await getCurrentUser();
+    final myLeagueIds = <String>{};
+    
+    for (final key in _membersBoxInstance!.keys) {
+      final data = _membersBoxInstance!.get(key);
+      if (data != null) {
+        try {
+          final member = LeagueMember.fromJson(json.decode(data) as Map<String, dynamic>);
+          if (member.oderId == currentUser.oderId) {
+            myLeagueIds.add(member.leagueId);
+          }
+        } catch (e) {
+          debugPrint('Error parsing member for isJoined check: $e');
+        }
+      }
+    }
     
     final leagues = <League>[];
     for (final key in _leaguesBoxInstance!.keys) {
@@ -125,7 +143,8 @@ class LeagueRepository {
         try {
           final league = League.fromJson(json.decode(data) as Map<String, dynamic>);
           if (league.isPublic && league.status == LeagueStatus.draft) {
-            leagues.add(league);
+            // Mark as joined if user is a member
+            leagues.add(league.copyWith(isJoined: myLeagueIds.contains(league.id)));
           }
         } catch (e) {
           debugPrint('Error parsing league $key: $e');
@@ -160,12 +179,12 @@ class LeagueRepository {
       }
     }
     
-    // Get league details
+    // Get league details and mark all as joined (since these are "My Leagues")
     final leagues = <League>[];
     for (final leagueId in myLeagueIds) {
       final league = await getLeague(leagueId);
       if (league != null) {
-        leagues.add(league);
+        leagues.add(league.copyWith(isJoined: true));
       }
     }
     

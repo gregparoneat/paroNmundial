@@ -221,6 +221,43 @@ class SportMonksClient {
     );
   }
 
+  /// Get player by ID with their latest fixtures
+  /// Uses include=latest to get the most recent fixtures the player participated in
+  Future<SportMonksResponse<Map<String, dynamic>>> getPlayerWithLatestFixtures(
+    int playerId, {
+    int fixtureCount = 10,
+  }) async {
+    final queryParams = <String, String>{
+      'include': 'latest',
+    };
+    
+    debugPrint('SportMonks: Getting player $playerId with latest fixtures');
+    
+    return get<Map<String, dynamic>>(
+      '/players/$playerId',
+      queryParams: queryParams,
+      parser: (data) => data as Map<String, dynamic>,
+    );
+  }
+
+  /// Get fixture with detailed stats for player form calculation
+  /// Includes events, statistics, timeline, and sidelined information
+  Future<SportMonksResponse<Map<String, dynamic>?>> getFixtureWithDetailedStats(
+    int fixtureId,
+  ) async {
+    final queryParams = <String, String>{
+      'include': 'events;statistics;timeline;sidelined;lineups;participants;scores;state',
+    };
+    
+    debugPrint('SportMonks: Getting fixture $fixtureId with detailed stats');
+    
+    return get<Map<String, dynamic>?>(
+      '/fixtures/$fixtureId',
+      queryParams: queryParams,
+      parser: (data) => data as Map<String, dynamic>?,
+    );
+  }
+
   /// Get team by ID
   Future<SportMonksResponse<Map<String, dynamic>?>> getTeamById(
     int teamId, {
@@ -312,11 +349,14 @@ class SportMonksClient {
     final endStr = _formatDate(end);
     
     final queryParams = <String, String>{};
-    // Include events for goals/assists/cards, lineups for minutes played
+    // Include events for goals/assists/cards, lineups with details for minutes played
+    // and statistics for player match stats
     final defaultIncludes = includes ?? [
       'participants',
       'events.player',
       'lineups.player',
+      'lineups.details',    // Contains minutes played, rating, etc.
+      'statistics.player',  // Contains detailed player statistics per match
       'scores',
       'state',
     ];

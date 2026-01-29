@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:fantacy11/app_config/colors.dart';
+import 'package:fantacy11/features/home/widgets/my_leagues_carousel.dart';
 import 'package:fantacy11/features/match/ui/match_list.dart';
 import 'package:fantacy11/features/responsive_widget.dart';
 import 'package:fantacy11/generated/l10n.dart';
@@ -28,7 +29,7 @@ class HomeState extends State<Home> {
   BannerAd? _anchoredBanner;
   bool _loadingAnchoredBanner = false;
   
-  // Date filter state
+  // Date filter state - initialize to today
   DateTime? _selectedDate;
   final List<DateTime> _quickDates = [];
 
@@ -36,6 +37,9 @@ class HomeState extends State<Home> {
   void initState() {
     super.initState();
     _initQuickDates();
+    // Initialize to today's date to ensure consistent behavior
+    final now = DateTime.now();
+    _selectedDate = DateTime(now.year, now.month, now.day);
   }
 
   void _initQuickDates() {
@@ -213,22 +217,14 @@ class HomeState extends State<Home> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20.0),
                     child: Text(
-                      locale.myMatches,
+                      locale.myLeagues,
                       style: theme.textTheme.bodySmall!.copyWith(
                         color: Colors.white.withValues(alpha: 0.5),
                       ),
                     ),
                   ),
-                  MatchList.horizontal(
-                    locale.live,
-                    '',
-                    (matchInfo) => Navigator.pushNamed(
-                      context,
-                      PageRoutes.matchLive,
-                      arguments: matchInfo,
-                    ),
-                    key: const ValueKey('my_matches_horizontal'),
-                  ),
+                  const SizedBox(height: 8),
+                  const MyLeaguesCarousel(),
                   if (_anchoredBanner != null)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 20),

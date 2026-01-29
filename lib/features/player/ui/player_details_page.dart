@@ -8,6 +8,7 @@ import 'package:fantacy11/features/fantasy/fantasy_points_predictor.dart';
 import 'package:fantacy11/features/match/models/match_info.dart';
 import 'package:fantacy11/features/player/models/player_info.dart';
 import 'package:fantacy11/generated/l10n.dart';
+import 'package:fantacy11/services/cache_service.dart';
 import 'package:flutter/material.dart';
 
 class PlayerDetailsPage extends StatefulWidget {
@@ -22,197 +23,35 @@ class PlayerDetailsPage extends StatefulWidget {
 class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
   final PlayersRepository _repository = PlayersRepository();
   final FixturesRepository _fixturesRepository = FixturesRepository();
-  final SeasonsRepository _seasonsRepository = SeasonsRepository();
+  final CacheService _cacheService = CacheService();
   Player? _player;
   bool _isLoading = true;
-  bool _isLoadingTeams = false;
   bool _isLoadingNextMatch = false;
   bool _isLoadingRecentForm = false;
-  bool _isLoadingTournamentStats = false;
   MatchInfo? _nextMatch;
   OpponentInfo? _opponentInfo;
   RecentMatchStats? _recentMatchStats;
-  RecentMatchStats? _tournamentStats; // Stats for the current tournament only
-  SeasonInfo? _currentSeason;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    // Load current season first, then player data
-    _loadCurrentSeason();
     
     if (widget.player != null) {
-      // Use the passed player temporarily, then refresh with full data
+      // Use the passed player - it already has data from Firestore/cache
       _player = widget.player;
       _isLoading = false;
       
-      // Always fetch fresh player data to ensure we have complete statistics
-      _refreshPlayerData(widget.player!.id);
-      
-      // Fetch team details (current team and transfer teams)
-      _loadTeamDetails();
-      // Fetch next match and recent form in parallel
+      // Only load what's needed: next match and recent form for predictions
+      // These run in parallel
       _loadNextMatch();
       _loadRecentForm();
     } else {
-      _loadDemoPlayer();
-    }
-  }
-  
-  /// Refresh player data from API to ensure complete statistics
-  Future<void> _refreshPlayerData(int playerId) async {
-    try {
-      debugPrint('Refreshing player data for ID: $playerId');
-      final freshPlayer = await _repository.getPlayerById(playerId);
-      
-      if (mounted && freshPlayer != null) {
-        setState(() {
-          _player = freshPlayer;
-        });
-        debugPrint('Player data refreshed: ${freshPlayer.name}');
-        debugPrint('Teams count: ${freshPlayer.teams.length}');
-        debugPrint('Statistics count: ${freshPlayer.statistics.length}');
-        
-        // Re-trigger dependent data loads with fresh data
-        _loadTeamDetails();
-        _loadNextMatch();
-        _loadRecentForm();
-      }
-    } catch (e) {
-      debugPrint('Error refreshing player data: $e');
-      // Keep using cached data if refresh fails
-    }
-  }
-
-  Future<void> _loadCurrentSeason() async {
-    try {
-      final season = await _seasonsRepository.getCurrentLigaMxSeason();
-      if (mounted && season != null) {
-        setState(() {
-          _currentSeason = season;
-        });
-        debugPrint('Current season loaded: ${season.name} (ID: ${season.id})');
-        if (season.currentStage != null) {
-          debugPrint('Current stage: ${season.currentStage!.name} (ID: ${season.currentStage!.id})');
-          debugPrint('Stage start date: ${season.currentStage!.startDate}');
-          // Now that we have the stage info, load tournament-specific stats
-          _loadTournamentStats();
-        }
-      }
-    } catch (e) {
-      debugPrint('Error loading current season: $e');
-    }
-  }
-
-  /// Load tournament-specific stats using the current stage's date range
-  Future<void> _loadTournamentStats() async {
-    if (_player == null || _currentSeason?.currentStage == null) {
-      debugPrint('_loadTournamentStats: Missing player or stage info');
-      return;
-    }
-
-    final stage = _currentSeason!.currentStage!;
-    final startDate = stage.startDate;
-    
-    if (startDate == null) {
-      debugPrint('_loadTournamentStats: No start date for stage ${stage.name}');
-      return;
-    }
-
-    final teamId = _player!.currentTeam?.teamId;
-    final playerId = _player!.id;
-
-    if (teamId == null || teamId <= 0) {
-      debugPrint('_loadTournamentStats: No valid team ID');
-      return;
-    }
-
-    debugPrint('_loadTournamentStats: Loading stats for ${stage.name} (${startDate.toIso8601String().split('T')[0]} to now)');
-    setState(() {
-      _isLoadingTournamentStats = true;
-    });
-
-    try {
-      final tournamentStats = await _fixturesRepository.getPlayerTournamentStats(
-        playerId,
-        teamId,
-        startDate: startDate,
-        endDate: DateTime.now(),
-      );
-
-      if (mounted) {
-        setState(() {
-          _tournamentStats = tournamentStats;
-          _isLoadingTournamentStats = false;
-        });
-
-        if (tournamentStats != null) {
-          debugPrint('_loadTournamentStats: Got stats from ${tournamentStats.matchesPlayed} tournament matches');
-          debugPrint('_loadTournamentStats: Goals: ${tournamentStats.goals}, Assists: ${tournamentStats.assists}');
-        } else {
-          debugPrint('_loadTournamentStats: No tournament stats available');
-        }
-      }
-    } catch (e) {
-      debugPrint('_loadTournamentStats: Error - $e');
-      if (mounted) {
-        setState(() {
-          _isLoadingTournamentStats = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _loadTeamDetails() async {
-    if (_player == null) return;
-    
-    setState(() {
-      _isLoadingTeams = true;
-    });
-
-    try {
-      // Debug: Check if team data came from API include
-      debugPrint('Player teams count: ${_player!.teams.length}');
-      if (_player!.currentTeam != null) {
-        debugPrint('Current team ID: ${_player!.currentTeam!.teamId}');
-        debugPrint('Current team name from include: ${_player!.currentTeam!.teamName}');
-      }
-
-      // Load current team info if not populated from API include
-      if (_player!.currentTeam != null && _player!.currentTeam!.teamName == null) {
-        try {
-          final teamInfo = await _repository.getTeamInfo(_player!.currentTeam!.teamId);
-          if (mounted && teamInfo.isNotEmpty) {
-            _player!.currentTeam!.teamName = teamInfo['name'];
-            _player!.currentTeam!.teamLogo = teamInfo['logo'];
-            _player!.currentTeam!.teamShortCode = teamInfo['shortCode'];
-            debugPrint('Loaded team info: ${teamInfo['name']}');
-          }
-        } catch (e) {
-          debugPrint('Error loading current team: $e');
-        }
-      }
-      
-      // Also load transfer team names
-      try {
-        await _repository.populateTransferTeamNames(_player!);
-      } catch (e) {
-        debugPrint('Error loading transfer teams: $e');
-      }
-      
-      if (mounted) {
-        setState(() {
-          _isLoadingTeams = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading team details: $e');
-      if (mounted) {
-        setState(() {
-          _isLoadingTeams = false;
-        });
-      }
+      // No player provided - show error
+      setState(() {
+        _error = 'No player provided';
+        _isLoading = false;
+      });
     }
   }
 
@@ -309,12 +148,40 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
       return;
     }
 
-    debugPrint('_loadRecentForm: Loading recent form for player $playerId on team $teamId');
+    debugPrint('_loadRecentForm: Loading recent form for player $playerId');
     setState(() {
       _isLoadingRecentForm = true;
     });
 
     try {
+      // Step 1: Check Hive cache first
+      final cachedStats = _cacheService.getPlayerFormStats(playerId);
+      if (cachedStats != null) {
+        debugPrint('_loadRecentForm: Found cached form stats for player $playerId');
+        final recentStats = RecentMatchStats(
+          matchesPlayed: cachedStats['matchesPlayed'] as int? ?? 0,
+          goals: cachedStats['goals'] as int? ?? 0,
+          assists: cachedStats['assists'] as int? ?? 0,
+          minutesPlayed: cachedStats['minutesPlayed'] as int? ?? 0,
+          cleanSheets: cachedStats['cleanSheets'] as int? ?? 0,
+          yellowCards: cachedStats['yellowCards'] as int? ?? 0,
+          redCards: cachedStats['redCards'] as int? ?? 0,
+          saves: cachedStats['saves'] as int? ?? 0,
+          averageRating: cachedStats['averageRating'] as double?,
+          fixturesAnalyzed: cachedStats['fixturesAnalyzed'] as int?,
+        );
+        
+        if (mounted) {
+          setState(() {
+            _recentMatchStats = recentStats;
+            _isLoadingRecentForm = false;
+          });
+        }
+        return;
+      }
+
+      // Step 2: Fetch from API if not cached
+      debugPrint('_loadRecentForm: No cache, fetching from API for player $playerId on team $teamId');
       final recentStats = await _fixturesRepository.getPlayerRecentStats(
         playerId,
         teamId,
@@ -327,9 +194,24 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
           _isLoadingRecentForm = false;
         });
 
+        // Step 3: Cache the results in Hive
         if (recentStats != null) {
           debugPrint('_loadRecentForm: Got stats from ${recentStats.matchesPlayed} matches');
           debugPrint('_loadRecentForm: Goals: ${recentStats.goals}, Assists: ${recentStats.assists}, Minutes: ${recentStats.minutesPlayed}');
+          
+          // Save to cache
+          await _cacheService.savePlayerFormStats(playerId, {
+            'matchesPlayed': recentStats.matchesPlayed,
+            'goals': recentStats.goals,
+            'assists': recentStats.assists,
+            'minutesPlayed': recentStats.minutesPlayed,
+            'cleanSheets': recentStats.cleanSheets,
+            'yellowCards': recentStats.yellowCards,
+            'redCards': recentStats.redCards,
+            'saves': recentStats.saves,
+            'averageRating': recentStats.averageRating,
+            'fixturesAnalyzed': recentStats.fixturesAnalyzed,
+          });
         } else {
           debugPrint('_loadRecentForm: No recent stats available');
         }
@@ -344,39 +226,10 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
     }
   }
 
-  Future<void> _loadDemoPlayer() async {
-    try {
-      // Uses the repository which falls back to mock data if API not configured
-      final player = await _repository.getDemoPlayer();
-      if (player != null) {
-        setState(() {
-          _player = player;
-          _isLoading = false;
-        });
-        // Fetch team details (current team and transfer teams)
-        _loadTeamDetails();
-        // Fetch next match and recent form
-        _loadNextMatch();
-        _loadRecentForm();
-      } else {
-        setState(() {
-          _error = 'No player data found';
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _error = 'Failed to load player: $e';
-        _isLoading = false;
-      });
-    }
-  }
-
   @override
   void dispose() {
     _repository.dispose();
     _fixturesRepository.dispose();
-    _seasonsRepository.dispose();
     super.dispose();
   }
 
@@ -406,15 +259,13 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
 
     return _PlayerDetailsContent(
       player: _player!,
-      isLoadingTeams: _isLoadingTeams,
       isLoadingNextMatch: _isLoadingNextMatch,
       isLoadingRecentForm: _isLoadingRecentForm,
-      isLoadingTournamentStats: _isLoadingTournamentStats,
       nextMatch: _nextMatch,
       opponentInfo: _opponentInfo,
       recentMatchStats: _recentMatchStats,
-      tournamentStats: _tournamentStats,
-      currentSeason: _currentSeason,
+      // These use defaults (false/null) since we don't load them separately
+      // The player already has stats from Firestore/API include
     );
   }
 }
@@ -444,9 +295,11 @@ class _PlayerDetailsContent extends StatelessWidget {
     this.currentSeason,
   });
 
-  /// Get the stats for the current season, with fallback
+  /// Get the stats for the current season, with fallback to latest stats
+  /// Uses the player's most recent stats since we don't need to fetch season separately
   PlayerStatistics? get currentSeasonStats {
-    return player.getStatsForCurrentSeason(currentSeason?.id);
+    // Use null to get the latest stats from the player's statistics
+    return player.getStatsForCurrentSeason(null);
   }
 
   @override

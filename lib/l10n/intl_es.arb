@@ -1,6 +1,7 @@
 {
     "home": "Inicio",
-    "myMatches": "Mis Ligas",
+    "myMatches": "Mis Partidos",
+    "myLeagues": "Mis Ligas",
     "wallet": "Cartera",
     "account": "Cuenta",
     "letsPlay": "Vamos a jugar",
@@ -240,5 +241,14 @@
     "searchForPlayers": "Buscar Jugadores",
     "enterAtLeast3Chars": "Ingresa al menos 3 caracteres para buscar",
     "lastMatchesPlus": "Últimos {count} partidos",
-    "plusMatchup": "+ enfrentamiento"
+    "plusMatchup": "+ enfrentamiento",
+    
+    "selectFavoriteTeam": "Selecciona Tu Equipo Favorito",
+    "favoriteTeamDescription": "Elige tu equipo favorito de la Liga MX. Personalizaremos tu experiencia y mostraremos jugadores de tu equipo primero.",
+    "errorLoadingTeams": "Error al cargar equipos",
+    "noTeamsFound": "No se encontraron equipos",
+    "saving": "Guardando...",
+    "favoriteTeam": "Equipo Favorito",
+    "changeFavoriteTeam": "Cambiar Equipo Favorito",
+    "yourFavoriteTeam": "Tu Equipo Favorito"
 }

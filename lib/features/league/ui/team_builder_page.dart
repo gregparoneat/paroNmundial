@@ -133,25 +133,36 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     setState(() => _isLoading = true);
     
     try {
-      // Load teams first (uses Hive cache internally)
+      // Load teams first (uses Hive cache or Firestore)
       _ligaMxTeams = await _playersRepository.getLigaMxTeams();
       
       // Check if we have cached players in Hive
-      final cachedPlayers = _playersRepository.getCachedPlayers();
+      var cachedPlayers = _playersRepository.getCachedPlayers();
+      debugPrint('Found ${cachedPlayers.length} players in Hive cache');
+      
+      // If cache is empty or has very few players, load from Firestore
+      if (cachedPlayers.length < 100) {
+        debugPrint('Cache insufficient, loading from Firestore...');
+        final firestorePlayers = await _playersRepository.loadAllPlayersFromFirestore();
+        if (firestorePlayers.isNotEmpty) {
+          cachedPlayers = firestorePlayers;
+          debugPrint('Loaded ${cachedPlayers.length} players from Firestore');
+        }
+      }
+      
       if (cachedPlayers.isNotEmpty) {
-        debugPrint('Using ${cachedPlayers.length} cached players from Hive');
         if (mounted) {
           setState(() {
             _allRosterPlayers = cachedPlayers;
-            _hasMorePlayers = cachedPlayers.length < 300; // May need more if cache incomplete
+            _hasMorePlayers = false; // All players loaded from Firestore
             _isLoading = false;
           });
         }
         return;
       }
       
-      // No cache - load first page of players from API
-      debugPrint('No cached players, loading from API');
+      // Fallback - load from SportMonks API (shouldn't happen if Firestore is set up)
+      debugPrint('No Firestore data, falling back to SportMonks API');
       await _loadPlayersPage();
       
       if (mounted) {
@@ -3128,85 +3139,24 @@ class _PlayerSelectionSheet extends StatefulWidget {
 
 class _PlayerSelectionSheetState extends State<_PlayerSelectionSheet> {
   final TextEditingController _searchController = TextEditingController();
-  final PlayersRepository _playersRepository = PlayersRepository();
   
   String _searchQuery = '';
   PlayerSortOption _sortOption = PlayerSortOption.pointsHigh;
   LigaMxTeam? _selectedTeam;
   
-  // API search results
-  List<RosterPlayer> _apiSearchResults = [];
-  bool _isSearching = false;
-  Timer? _debounceTimer;
-  
   @override
   void dispose() {
     _searchController.dispose();
-    _debounceTimer?.cancel();
     super.dispose();
   }
   
-  /// Handle search query change with debounce
+  /// Handle search query change
   void _onSearchChanged(String query) {
     setState(() => _searchQuery = query);
-    
-    // Cancel previous timer
-    _debounceTimer?.cancel();
-    
-    // Clear API results if query is empty
-    if (query.isEmpty) {
-      setState(() {
-        _apiSearchResults = [];
-        _isSearching = false;
-      });
-      return;
-    }
-    
-    // Debounce API search (wait 500ms after user stops typing)
-    if (query.length >= 2) {
-      _debounceTimer = Timer(const Duration(milliseconds: 500), () {
-        _searchPlayersFromApi(query);
-      });
-    }
-  }
-  
-  /// Search for players via API
-  Future<void> _searchPlayersFromApi(String query) async {
-    if (!mounted) return;
-    
-    setState(() => _isSearching = true);
-    
-    try {
-      debugPrint('Searching API for: $query');
-      final results = await _playersRepository.searchRosterPlayers(query);
-      
-      if (mounted) {
-        setState(() {
-          _apiSearchResults = results;
-          _isSearching = false;
-        });
-        debugPrint('API search returned ${results.length} players');
-      }
-    } catch (e) {
-      debugPrint('API search error: $e');
-      if (mounted) {
-        setState(() => _isSearching = false);
-      }
-    }
   }
   
   List<RosterPlayer> get _filteredPlayers {
-    // Combine local players with API search results
-    final allAvailable = <RosterPlayer>[...widget.allPlayers];
-    
-    // Add API results - ALWAYS add them even if ID exists (API has fresher data)
-    for (final player in _apiSearchResults) {
-      // Remove existing player with same ID to replace with API version
-      allAvailable.removeWhere((p) => p.id == player.id);
-      allAvailable.add(player);
-    }
-    
-    var players = allAvailable.where((p) {
+    var players = widget.allPlayers.where((p) {
       // Don't show already selected players
       if (widget.selectedPlayers.any((sp) => sp.playerId == p.id)) {
         return false;
@@ -3352,24 +3302,15 @@ class _PlayerSelectionSheetState extends State<_PlayerSelectionSheet> {
                   decoration: InputDecoration(
                     hintText: 'Search by name or team...',
                     prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _isSearching 
-                        ? const Padding(
-                            padding: EdgeInsets.all(12),
-                            child: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                              _onSearchChanged('');
+                            },
                           )
-                        : _searchQuery.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  _onSearchChanged('');
-                                },
-                              )
-                            : null,
+                        : null,
                     filled: true,
                     fillColor: bgColor,
                     border: OutlineInputBorder(

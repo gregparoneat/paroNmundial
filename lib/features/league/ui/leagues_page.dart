@@ -441,7 +441,15 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
                       color: Colors.amber,
                     ),
                   const Spacer(),
-                  if (league.canJoin)
+                  if (league.isJoined)
+                    TextButton(
+                      onPressed: () => _navigateToLeague(league),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.green,
+                      ),
+                      child: const Text('View →'),
+                    )
+                  else if (league.canJoin)
                     TextButton(
                       onPressed: () => _navigateToLeague(league),
                       child: const Text('Join →'),

@@ -120,12 +120,6 @@ class Contests extends StatelessWidget {
                           if (matchInfo?.homeTeam != null &&
                               matchInfo?.awayTeam != null)
                             _buildTeamStatsCard(context),
-                          if (matchInfo?.homeTeam != null &&
-                              matchInfo?.awayTeam != null)
-                            const SizedBox(height: 16),
-
-                          // Players Section
-                          _buildPlayersSection(context),
                         ],
                       ),
                     ),
@@ -512,62 +506,6 @@ class Contests extends StatelessWidget {
           ),
         ),
       ],
-      ),
-    );
-  }
-
-  Widget _buildPlayersSection(BuildContext context) {
-    var theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.groups, color: theme.primaryColor, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'Players',
-                style: theme.textTheme.bodyMedium!.copyWith(
-                  color: bgTextColor,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'View detailed player profiles and statistics',
-            style: theme.textTheme.bodyMedium!.copyWith(
-              color: Colors.white70,
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pushNamed(context, PageRoutes.playerDetails);
-              },
-              icon: const Icon(Icons.person_search, size: 20),
-              label: const Text('View Demo Player'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: theme.primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

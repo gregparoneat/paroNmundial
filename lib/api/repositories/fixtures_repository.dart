@@ -269,52 +269,57 @@ class FixturesRepository {
     return [];
   }
 
-  /// Get recent match statistics for a specific player
-  /// Fetches the last [matchCount] completed matches and extracts player's actual stats
+  /// Get recent match statistics for a specific player using accurate algorithm
+  /// 
+  /// Algorithm:
+  /// 1. Get player's latest fixtures (using include=latest)
+  /// 2. For each fixture, get detailed stats (events, statistics, timeline, sidelined)
+  /// 3. Skip international/invalid fixtures (null response)
+  /// 4. Only consider fixtures within the last 6 weeks
+  /// 5. Use timeline to verify player involvement
+  /// 6. Repeat until we have 5 fixtures worth of data
+  /// 7. Track actual fixtures used for form calculation
+  /// 
+  /// If 0 fixtures in last 6 weeks = player is likely injured or bench warmer
   Future<RecentMatchStats?> getPlayerRecentStats(int playerId, int teamId, {int matchCount = 5}) async {
-    if (!SportMonksConfig.isConfigured || teamId <= 0 || playerId <= 0) {
-      print('Cannot fetch recent stats: API not configured or invalid IDs (player: $playerId, team: $teamId)');
+    if (!SportMonksConfig.isConfigured || playerId <= 0) {
+      print('Cannot fetch recent stats: API not configured or invalid player ID ($playerId)');
       return null;
     }
 
     try {
-      print('Fetching recent fixtures for team $teamId to get player $playerId stats');
+      print('=== ACCURATE FORM CALCULATION for player $playerId ===');
       
-      // Get fixtures from last 60 days (should cover 5+ matches)
-      final response = await _client.getRecentFixturesForTeam(teamId, daysBack: 60);
+      // Step 1: Get player with their latest fixtures
+      final playerResponse = await _client.getPlayerWithLatestFixtures(playerId);
+      final playerData = playerResponse.data;
       
-      if (response.data.isEmpty) {
-        print('No recent fixtures found for team $teamId');
-        return null;
+      final latestFixtures = playerData['latest'] as List?;
+      if (latestFixtures == null || latestFixtures.isEmpty) {
+        print('No latest fixtures found for player $playerId');
+        print('Player data keys: ${playerData.keys.toList()}');
+        return _createZeroFormStats();
       }
       
-      print('Found ${response.data.length} recent fixtures for team $teamId');
+      print('Found ${latestFixtures.length} fixture references for player $playerId');
       
-      // Filter to completed matches only and sort by date (newest first)
-      final completedFixtures = response.data.where((fixture) {
-        final state = fixture['state'] as Map<String, dynamic>?;
-        final stateId = state?['id'] as int?;
-        // State ID 5 = finished, 3 = finished after extra time, etc.
-        return stateId == 5 || stateId == 3 || stateId == 11;
-      }).toList();
-      
-      completedFixtures.sort((a, b) {
-        final aTimestamp = a['starting_at_timestamp'] as int? ?? 0;
-        final bTimestamp = b['starting_at_timestamp'] as int? ?? 0;
-        return bTimestamp.compareTo(aTimestamp); // Newest first
-      });
-      
-      // Take only the last N matches
-      final recentMatches = completedFixtures.take(matchCount).toList();
-      
-      if (recentMatches.isEmpty) {
-        print('No completed matches found for team $teamId');
-        return null;
+      // Debug: Log structure of first fixture reference
+      if (latestFixtures.isNotEmpty) {
+        final firstRef = latestFixtures.first;
+        print('First fixture reference type: ${firstRef.runtimeType}');
+        if (firstRef is Map) {
+          print('First fixture reference keys: ${firstRef.keys.toList()}');
+          print('First fixture ID: ${firstRef['id']}');
+        } else if (firstRef is int) {
+          print('Fixture references are direct IDs');
+        }
       }
       
-      print('Analyzing ${recentMatches.length} recent completed matches');
+      // 6 weeks cutoff
+      final sixWeeksAgo = DateTime.now().subtract(const Duration(days: 42));
       
-      // Extract player stats from each match
+      // Stats accumulators
+      int matchesAnalyzed = 0;
       int matchesPlayed = 0;
       int goals = 0;
       int assists = 0;
@@ -326,35 +331,108 @@ class FixturesRepository {
       double totalRating = 0;
       int ratingCount = 0;
       
-      for (final fixture in recentMatches) {
-        final playerStats = _extractPlayerStatsFromFixture(fixture, playerId, teamId);
+      // Step 2: Process each fixture until we have enough data
+      // Fixtures come in order - first one is the most recent
+      for (final fixtureRef in latestFixtures) {
+        if (matchesAnalyzed >= matchCount) break;
         
-        if (playerStats != null && playerStats['played'] == true) {
-          matchesPlayed++;
-          goals += playerStats['goals'] as int? ?? 0;
-          assists += playerStats['assists'] as int? ?? 0;
-          minutesPlayed += playerStats['minutes'] as int? ?? 0;
-          yellowCards += playerStats['yellowCards'] as int? ?? 0;
-          redCards += playerStats['redCards'] as int? ?? 0;
-          saves += playerStats['saves'] as int? ?? 0;
+        // Handle different possible structures of fixture reference
+        // The 'latest' array contains lineup entries, NOT fixtures directly
+        // Each entry has 'fixture_id' (the actual fixture) and 'id' (the lineup entry ID)
+        int? fixtureId;
+        if (fixtureRef is int) {
+          fixtureId = fixtureRef;
+        } else if (fixtureRef is Map) {
+          // Use 'fixture_id' NOT 'id' - 'id' is the lineup entry ID
+          fixtureId = fixtureRef['fixture_id'] as int?;
+        }
+        
+        if (fixtureId == null) {
+          print('Could not extract fixture_id from latest entry: $fixtureRef');
+          continue;
+        }
+        
+        print('Processing fixture $fixtureId - calling fixtures endpoint for detailed stats...');
+        
+        // Step 3: Get detailed fixture data by calling the fixtures endpoint
+        // API call: /fixtures/{fixtureId}?include=events;statistics;timeline;sidelined;lineups;participants;scores;state
+        try {
+          final fixtureResponse = await _client.getFixtureWithDetailedStats(fixtureId);
+          final fixture = fixtureResponse.data;
           
-          if (playerStats['cleanSheet'] == true) {
-            cleanSheets++;
+          // Null response likely means international game or fixture not in our league coverage - skip it
+          if (fixture == null) {
+            print('Fixture $fixtureId returned null (likely international/not covered) - skipping');
+            continue;
           }
           
-          if (playerStats['rating'] != null) {
-            totalRating += playerStats['rating'] as double;
-            ratingCount++;
+          print('Fixture $fixtureId loaded - has timeline: ${fixture['timeline'] != null}, statistics: ${fixture['statistics'] != null}, events: ${fixture['events'] != null}');
+          
+          // Step 4: Check fixture date (must be within 6 weeks)
+          final fixtureTimestamp = fixture['starting_at_timestamp'] as int?;
+          if (fixtureTimestamp != null) {
+            final fixtureDate = DateTime.fromMillisecondsSinceEpoch(fixtureTimestamp * 1000);
+            if (fixtureDate.isBefore(sixWeeksAgo)) {
+              print('Fixture $fixtureId is older than 6 weeks (${fixtureDate.toIso8601String()}) - stopping');
+              break; // Since fixtures are sorted newest first, stop here
+            }
           }
+          
+          // Check fixture is completed
+          final state = fixture['state'] as Map<String, dynamic>?;
+          final stateId = state?['id'] as int?;
+          if (stateId != 5 && stateId != 3 && stateId != 11) {
+            print('Fixture $fixtureId not completed (state: $stateId) - skipping');
+            continue;
+          }
+          
+          // Step 5 & 6: Extract player stats using timeline, statistics, and sidelined
+          final playerStats = _extractPlayerStatsFromDetailedFixture(
+            fixture, 
+            playerId, 
+            teamId,
+          );
+          
+          matchesAnalyzed++;
+          
+          if (playerStats != null && playerStats['played'] == true) {
+            matchesPlayed++;
+            goals += playerStats['goals'] as int? ?? 0;
+            assists += playerStats['assists'] as int? ?? 0;
+            minutesPlayed += playerStats['minutes'] as int? ?? 0;
+            yellowCards += playerStats['yellowCards'] as int? ?? 0;
+            redCards += playerStats['redCards'] as int? ?? 0;
+            saves += playerStats['saves'] as int? ?? 0;
+            
+            if (playerStats['cleanSheet'] == true) {
+              cleanSheets++;
+            }
+            
+            if (playerStats['rating'] != null) {
+              totalRating += playerStats['rating'] as double;
+              ratingCount++;
+            }
+            
+            print('Fixture $fixtureId: Player played ${playerStats['minutes']} mins, ${playerStats['goals']} goals, ${playerStats['assists']} assists');
+          } else {
+            print('Fixture $fixtureId: Player did not participate (sidelined/bench)');
+          }
+          
+        } on SportMonksException catch (e) {
+          print('Error fetching fixture $fixtureId: $e - skipping');
+          continue;
         }
       }
       
+      print('=== Form calculation complete: $matchesPlayed matches played out of $matchesAnalyzed analyzed ===');
+      
+      // Step 7: Handle case where player hasn't played in 6 weeks
       if (matchesPlayed == 0) {
-        print('Player $playerId did not play in any of the last $matchCount matches');
-        return null;
+        print('Player $playerId has not played in the last 6 weeks - likely injured or bench warmer');
+        return _createZeroFormStats();
       }
       
-      print('Player $playerId stats from last $matchesPlayed matches: $goals goals, $assists assists, $minutesPlayed mins');
+      print('Player $playerId form stats: $goals goals, $assists assists, $minutesPlayed mins in $matchesPlayed matches');
       
       return RecentMatchStats(
         matchesPlayed: matchesPlayed,
@@ -366,19 +444,232 @@ class FixturesRepository {
         redCards: redCards,
         saves: saves,
         averageRating: ratingCount > 0 ? totalRating / ratingCount : null,
+        fixturesAnalyzed: matchesAnalyzed,
       );
     } on SportMonksException catch (e) {
       print('SportMonks API Error fetching recent stats: $e');
       return null;
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('Error fetching recent stats for player $playerId: $e');
+      print('Stack trace: $stackTrace');
       return null;
     }
+  }
+  
+  /// Create zero form stats for players with no recent activity
+  RecentMatchStats _createZeroFormStats() {
+    return RecentMatchStats(
+      matchesPlayed: 0,
+      goals: 0,
+      assists: 0,
+      minutesPlayed: 0,
+      cleanSheets: 0,
+      yellowCards: 0,
+      redCards: 0,
+      saves: 0,
+      averageRating: null,
+      fixturesAnalyzed: 0,
+    );
+  }
+  
+  /// Extract player stats from a detailed fixture (with events, lineups, sidelined)
+  /// 
+  /// Data sources:
+  /// - events: goals (type_id 14/16), assists (related_player_id on goals), 
+  ///           cards (type_id 19/20/21), substitutions (type_id 18)
+  /// - lineups: starter (type_id 11) vs bench (type_id 12)
+  /// - sidelined: injured/suspended players
+  /// 
+  /// Note: statistics in fixture response are TEAM-level, not player-level!
+  /// 
+  /// Substitution event format:
+  /// - player_id = player coming ON (substitute entering)
+  /// - related_player_id = player going OFF (being replaced)
+  Map<String, dynamic>? _extractPlayerStatsFromDetailedFixture(
+    Map<String, dynamic> fixture,
+    int playerId,
+    int teamId,
+  ) {
+    bool played = false;
+    bool wasStarter = false;
+    bool isSidelined = false;
+    bool isOnBench = false;
+    int goals = 0;
+    int assists = 0;
+    int minutes = 0;
+    int yellowCards = 0;
+    int redCards = 0;
+    int saves = 0;
+    bool cleanSheet = false;
+    double? rating;
+    int? subInMinute;   // Minute player came ON
+    int? subOutMinute;  // Minute player went OFF
+    
+    final fixtureId = fixture['id'];
+    
+    // Step 1: Check if player is sidelined (injured/suspended)
+    final sidelined = fixture['sidelined'] as List?;
+    if (sidelined != null) {
+      for (final entry in sidelined) {
+        if (entry is! Map<String, dynamic>) continue;
+        final sidelinedPlayerId = entry['player_id'] as int?;
+        if (sidelinedPlayerId == playerId) {
+          isSidelined = true;
+          print('Fixture $fixtureId: Player $playerId is sidelined (injured/suspended)');
+          return {'played': false, 'sidelined': true};
+        }
+      }
+    }
+    
+    // Step 2: Check lineups to determine if player was starter or bench
+    final lineups = fixture['lineups'] as List?;
+    if (lineups != null) {
+      for (final lineup in lineups) {
+        if (lineup is! Map<String, dynamic>) continue;
+        final lineupPlayerId = lineup['player_id'] as int?;
+        if (lineupPlayerId == playerId) {
+          // type_id 11 = starting lineup, type_id 12 = substitute (on bench)
+          final lineupTypeId = lineup['type_id'] as int?;
+          wasStarter = lineupTypeId == 11;
+          isOnBench = lineupTypeId == 12;
+          
+          if (wasStarter) {
+            played = true;
+            print('Fixture $fixtureId: Player $playerId was a STARTER');
+          } else if (isOnBench) {
+            print('Fixture $fixtureId: Player $playerId was on BENCH');
+          }
+          break;
+        }
+      }
+    }
+    
+    // Step 3: Check events for goals, assists, cards, and substitutions
+    final events = fixture['events'] as List?;
+    if (events != null) {
+      for (final event in events) {
+        if (event is! Map<String, dynamic>) continue;
+        final eventPlayerId = event['player_id'] as int?;
+        final relatedPlayerId = event['related_player_id'] as int?;
+        final typeId = event['type_id'] as int?;
+        final minute = event['minute'] as int? ?? 0;
+        
+        // Goal (type_id 14) or Penalty Goal (type_id 16)
+        if (eventPlayerId == playerId && (typeId == 14 || typeId == 16)) {
+          goals++;
+          played = true;
+          print('Fixture $fixtureId: Player $playerId scored at minute $minute');
+        }
+        
+        // Assist - related_player_id on goal event (player who assisted)
+        if (relatedPlayerId == playerId && (typeId == 14 || typeId == 16)) {
+          assists++;
+          played = true;
+          print('Fixture $fixtureId: Player $playerId assisted at minute $minute');
+        }
+        
+        // Yellow card (type_id 19)
+        if (eventPlayerId == playerId && typeId == 19) {
+          yellowCards++;
+          played = true;
+        }
+        
+        // Red card (type_id 20) or second yellow (type_id 21)
+        if (eventPlayerId == playerId && (typeId == 20 || typeId == 21)) {
+          redCards++;
+          played = true;
+        }
+        
+        // Substitution (type_id 18)
+        // IMPORTANT: player_id = player coming ON, related_player_id = player going OFF
+        if (typeId == 18) {
+          // Player came ON as substitute
+          if (eventPlayerId == playerId) {
+            subInMinute = minute;
+            played = true;
+            print('Fixture $fixtureId: Player $playerId came ON at minute $minute');
+          }
+          // Player went OFF (was subbed out)
+          if (relatedPlayerId == playerId) {
+            subOutMinute = minute;
+            print('Fixture $fixtureId: Player $playerId went OFF at minute $minute');
+          }
+        }
+      }
+    }
+    
+    // If player was on bench but never came on, they didn't play
+    if (isOnBench && subInMinute == null) {
+      print('Fixture $fixtureId: Player $playerId stayed on bench (did not play)');
+      return {'played': false, 'onBench': true};
+    }
+    
+    // If player not found in lineups at all
+    if (!wasStarter && !isOnBench && !played) {
+      print('Fixture $fixtureId: Player $playerId not in lineup');
+      return null;
+    }
+    
+    if (!played) {
+      return {'played': false};
+    }
+    
+    // Step 4: Calculate minutes played
+    if (wasStarter) {
+      // Starter: played from 0 until subbed out (or full 90)
+      minutes = subOutMinute ?? 90;
+    } else if (subInMinute != null) {
+      // Substitute: played from subIn until subOut (or end of game)
+      if (subOutMinute != null && subOutMinute > subInMinute) {
+        minutes = subOutMinute - subInMinute;
+      } else {
+        minutes = 90 - subInMinute;
+      }
+    }
+    
+    print('Fixture $fixtureId: Player $playerId - starter=$wasStarter, subIn=$subInMinute, subOut=$subOutMinute, TOTAL MINUTES=$minutes');
+    
+    // Step 5: Check for clean sheet (opponent scored 0 goals)
+    // Look at result_info or check final score
+    final resultInfo = fixture['result_info'] as String?;
+    final participants = fixture['participants'] as List?;
+    if (participants != null) {
+      // Find opponent's goals
+      for (final participant in participants) {
+        if (participant is! Map<String, dynamic>) continue;
+        final participantId = participant['id'] as int?;
+        if (participantId != null && participantId != teamId) {
+          // This is the opponent
+          final meta = participant['meta'] as Map<String, dynamic>?;
+          if (meta != null) {
+            final opponentGoals = _parseIntSafe(meta['goals']) ?? 
+                                  _parseIntSafe(meta['score']) ?? 0;
+            cleanSheet = opponentGoals == 0;
+          }
+          break;
+        }
+      }
+    }
+    
+    return {
+      'played': played,
+      'wasStarter': wasStarter,
+      'goals': goals,
+      'assists': assists,
+      'minutes': minutes,
+      'yellowCards': yellowCards,
+      'redCards': redCards,
+      'saves': saves,
+      'cleanSheet': cleanSheet,
+      'rating': rating,
+    };
   }
 
   /// Get player's stats for a specific tournament/stage using date range
   /// This is the most accurate way to get tournament-specific stats since
   /// SportMonks aggregates stats per-season (full year) not per-stage
+  /// 
+  /// Uses detailed fixture data (events, statistics, timeline, sidelined) for accuracy
   Future<RecentMatchStats?> getPlayerTournamentStats(
     int playerId, 
     int teamId, {
@@ -401,9 +692,6 @@ class FixturesRepository {
         endDate: end,
         includes: [
           'participants',
-          'events.player',
-          'lineups.player',
-          'lineups.details',
           'scores',
           'state',
         ],
@@ -416,19 +704,17 @@ class FixturesRepository {
       
       print('Found ${response.data.length} fixtures in tournament date range');
       
-      // Filter to completed matches only
+      // Filter to completed matches only and sort by date (newest first)
       final completedFixtures = response.data.where((fixture) {
         final state = fixture['state'] as Map<String, dynamic>?;
         final stateId = state?['id'] as int?;
-        // State ID 5 = finished, 3 = finished after extra time, 11 = finished after penalties
         return stateId == 5 || stateId == 3 || stateId == 11;
       }).toList();
       
-      // Sort by date (oldest first for chronological order)
       completedFixtures.sort((a, b) {
         final aTimestamp = a['starting_at_timestamp'] as int? ?? 0;
         final bTimestamp = b['starting_at_timestamp'] as int? ?? 0;
-        return aTimestamp.compareTo(bTimestamp);
+        return bTimestamp.compareTo(aTimestamp); // Newest first
       });
       
       if (completedFixtures.isEmpty) {
@@ -439,6 +725,7 @@ class FixturesRepository {
       print('Analyzing ${completedFixtures.length} completed tournament matches');
       
       // Aggregate player stats from all tournament matches
+      int matchesAnalyzed = 0;
       int matchesPlayed = 0;
       int goals = 0;
       int assists = 0;
@@ -451,34 +738,62 @@ class FixturesRepository {
       int ratingCount = 0;
       
       for (final fixture in completedFixtures) {
-        final playerStats = _extractPlayerStatsFromFixture(fixture, playerId, teamId);
+        final fixtureId = fixture['id'] as int?;
+        if (fixtureId == null) continue;
         
-        if (playerStats != null && playerStats['played'] == true) {
-          matchesPlayed++;
-          goals += playerStats['goals'] as int? ?? 0;
-          assists += playerStats['assists'] as int? ?? 0;
-          minutesPlayed += playerStats['minutes'] as int? ?? 0;
-          yellowCards += playerStats['yellowCards'] as int? ?? 0;
-          redCards += playerStats['redCards'] as int? ?? 0;
-          saves += playerStats['saves'] as int? ?? 0;
+        // Get detailed fixture data for accurate stats
+        try {
+          final detailedResponse = await _client.getFixtureWithDetailedStats(fixtureId);
+          final detailedFixture = detailedResponse.data;
           
-          if (playerStats['cleanSheet'] == true) {
-            cleanSheets++;
+          if (detailedFixture == null) {
+            print('Fixture $fixtureId returned null (likely international) - skipping');
+            continue;
           }
           
-          if (playerStats['rating'] != null) {
-            totalRating += playerStats['rating'] as double;
-            ratingCount++;
+          matchesAnalyzed++;
+          
+          final playerStats = _extractPlayerStatsFromDetailedFixture(
+            detailedFixture, 
+            playerId, 
+            teamId,
+          );
+          
+          if (playerStats != null && playerStats['played'] == true) {
+            matchesPlayed++;
+            goals += playerStats['goals'] as int? ?? 0;
+            assists += playerStats['assists'] as int? ?? 0;
+            minutesPlayed += playerStats['minutes'] as int? ?? 0;
+            yellowCards += playerStats['yellowCards'] as int? ?? 0;
+            redCards += playerStats['redCards'] as int? ?? 0;
+            saves += playerStats['saves'] as int? ?? 0;
+            
+            if (playerStats['cleanSheet'] == true) {
+              cleanSheets++;
+            }
+            
+            if (playerStats['rating'] != null) {
+              totalRating += playerStats['rating'] as double;
+              ratingCount++;
+            }
+            
+            print('Tournament fixture $fixtureId: Player played ${playerStats['minutes']} mins');
           }
+        } on SportMonksException catch (e) {
+          print('Error fetching fixture $fixtureId details: $e - skipping');
+          continue;
         }
       }
       
       if (matchesPlayed == 0) {
-        print('Player $playerId did not play in any tournament matches');
-        return null;
+        print('Player $playerId did not play in any tournament matches ($matchesAnalyzed analyzed)');
+        return RecentMatchStats(
+          matchesPlayed: 0,
+          fixturesAnalyzed: matchesAnalyzed,
+        );
       }
       
-      print('Tournament stats for player $playerId: $matchesPlayed matches, $goals goals, $assists assists');
+      print('Tournament stats for player $playerId: $matchesPlayed matches played, $goals goals, $assists assists, $minutesPlayed mins');
       
       return RecentMatchStats(
         matchesPlayed: matchesPlayed,
@@ -490,6 +805,7 @@ class FixturesRepository {
         redCards: redCards,
         saves: saves,
         averageRating: ratingCount > 0 ? totalRating / ratingCount : null,
+        fixturesAnalyzed: matchesAnalyzed,
       );
     } on SportMonksException catch (e) {
       print('SportMonks API Error fetching tournament stats: $e');
@@ -508,6 +824,7 @@ class FixturesRepository {
     int teamId,
   ) {
     bool played = false;
+    bool wasStarter = false;
     int goals = 0;
     int assists = 0;
     int minutes = 0;
@@ -516,8 +833,35 @@ class FixturesRepository {
     int saves = 0;
     bool cleanSheet = false;
     double? rating;
+    int? subInMinute;
+    int? subOutMinute;
     
-    // Check lineups for player participation and minutes
+    final fixtureId = fixture['id'];
+    
+    // First check fixture statistics (most accurate source)
+    final statistics = fixture['statistics'] as List?;
+    if (statistics != null) {
+      for (final stat in statistics) {
+        if (stat is! Map<String, dynamic>) continue;
+        final statPlayerId = stat['player_id'] as int?;
+        if (statPlayerId == playerId) {
+          played = true;
+          final data = stat['data'] as Map<String, dynamic>?;
+          if (data != null) {
+            minutes = _parseIntSafe(data['minutes']) ?? minutes;
+            goals = _parseIntSafe(data['goals']) ?? goals;
+            assists = _parseIntSafe(data['assists']) ?? assists;
+            yellowCards = _parseIntSafe(data['yellowcards']) ?? yellowCards;
+            redCards = _parseIntSafe(data['redcards']) ?? redCards;
+            saves = _parseIntSafe(data['saves']) ?? saves;
+            rating = _parseDoubleSafe(data['rating']) ?? rating;
+          }
+          break;
+        }
+      }
+    }
+    
+    // Check lineups for player participation
     final lineups = fixture['lineups'] as List?;
     if (lineups != null) {
       for (final lineup in lineups) {
@@ -527,37 +871,29 @@ class FixturesRepository {
         if (lineupPlayerId == playerId) {
           played = true;
           
-          // Get minutes from lineup meta or details
+          // type_id 11 = starting lineup, type_id 12 = substitute
+          final lineupTypeId = lineup['type_id'] as int?;
+          wasStarter = lineupTypeId == 11;
+          
+          // Get stats from lineup details if not found in statistics
           final details = lineup['details'] as List?;
-          if (details != null) {
+          if (details != null && minutes == 0) {
             for (final detail in details) {
               if (detail is! Map<String, dynamic>) continue;
               final typeId = detail['type_id'] as int?;
-              final value = detail['value'] as dynamic;
+              final value = detail['value'];
               
-              // Type IDs vary, but common ones:
-              // Minutes played is often in the lineup data directly
-              if (typeId == 119) { // Minutes played
-                minutes = (value is int) ? value : int.tryParse(value.toString()) ?? 0;
+              if (typeId == 119 && minutes == 0) {
+                minutes = _parseIntSafe(value) ?? 0;
               }
-              if (typeId == 79) { // Rating
-                rating = (value is double) ? value : double.tryParse(value.toString());
+              if (typeId == 79 && rating == null) {
+                rating = _parseDoubleSafe(value);
               }
-              if (typeId == 57) { // Saves
-                saves = (value is int) ? value : int.tryParse(value.toString()) ?? 0;
+              if ((typeId == 209 || typeId == 57) && saves == 0) {
+                saves = _parseIntSafe(value) ?? 0;
               }
             }
           }
-          
-          // If minutes not found in details, estimate from position
-          if (minutes == 0) {
-            final position = lineup['position'] as String?;
-            if (position != null && position.isNotEmpty) {
-              // Started the match
-              minutes = 90; // Default to full match, will be adjusted by events
-            }
-          }
-          
           break;
         }
       }
@@ -567,7 +903,7 @@ class FixturesRepository {
       return null;
     }
     
-    // Check events for goals, assists, cards, substitutions
+    // Check events for goals, assists, cards, and substitutions
     final events = fixture['events'] as List?;
     if (events != null) {
       for (final event in events) {
@@ -576,15 +912,14 @@ class FixturesRepository {
         final eventPlayerId = event['player_id'] as int?;
         final relatedPlayerId = event['related_player_id'] as int?;
         final typeId = event['type_id'] as int?;
-        final minute = event['minute'] as int?;
+        final minute = event['minute'] as int? ?? 0;
         
-        // Goal scored (type_id 14 = Goal, 16 = Penalty Goal)
+        // Goal (type_id 14) or Penalty Goal (type_id 16)
         if (eventPlayerId == playerId && (typeId == 14 || typeId == 16)) {
           goals++;
         }
         
-        // Assist (the related_player_id on a goal event is often the assister)
-        // Or check for type_id that indicates assist
+        // Assist (related_player_id on goal event)
         if (relatedPlayerId == playerId && (typeId == 14 || typeId == 16)) {
           assists++;
         }
@@ -599,43 +934,45 @@ class FixturesRepository {
           redCards++;
         }
         
-        // Substitution out (type_id 18) - adjust minutes
-        if (eventPlayerId == playerId && typeId == 18 && minute != null) {
-          minutes = minute;
-        }
-        
-        // Substitution in (type_id 18 with related_player_id being the one coming on)
-        if (relatedPlayerId == playerId && typeId == 18 && minute != null) {
-          minutes = 90 - minute;
+        // Substitution (type_id 18)
+        // player_id = player going OFF, related_player_id = player coming ON
+        if (typeId == 18) {
+          if (eventPlayerId == playerId) {
+            subOutMinute = minute;
+          }
+          if (relatedPlayerId == playerId) {
+            subInMinute = minute;
+          }
         }
       }
     }
     
-    // Check for clean sheet (team didn't concede)
+    // Calculate minutes if not found from statistics/lineup details
+    if (minutes == 0) {
+      if (wasStarter) {
+        minutes = subOutMinute ?? 90;
+      } else if (subInMinute != null) {
+        if (subOutMinute != null && subOutMinute > subInMinute) {
+          minutes = subOutMinute - subInMinute;
+        } else {
+          minutes = 90 - subInMinute;
+        }
+      }
+    }
+    
+    print('Fixture $fixtureId - Player $playerId: starter=$wasStarter, subIn=$subInMinute, subOut=$subOutMinute, minutes=$minutes, goals=$goals');
+    
+    // Check for clean sheet
     final scores = fixture['scores'] as List?;
     if (scores != null) {
-      final participants = fixture['participants'] as List?;
-      if (participants != null) {
-        // Find which team the player is on and check if they conceded
-        for (final participant in participants) {
-          if (participant is! Map<String, dynamic>) continue;
-          final participantId = participant['id'] as int?;
-          if (participantId == teamId) {
-            final meta = participant['meta'] as Map<String, dynamic>?;
-            final location = meta?['location'] as String?;
-            
-            // Find the opponent's score
-            for (final score in scores) {
-              if (score is! Map<String, dynamic>) continue;
-              final scoreParticipant = score['participant_id'] as int?;
-              if (scoreParticipant != teamId) {
-                final goalsAgainst = score['score']?['goals'] as int? ?? 0;
-                cleanSheet = goalsAgainst == 0;
-                break;
-              }
-            }
-            break;
-          }
+      for (final score in scores) {
+        if (score is! Map<String, dynamic>) continue;
+        final scoreParticipant = score['participant_id'] as int?;
+        if (scoreParticipant != teamId) {
+          final scoreData = score['score'] as Map<String, dynamic>?;
+          final goalsAgainst = scoreData?['goals'] as int? ?? 0;
+          cleanSheet = goalsAgainst == 0;
+          break;
         }
       }
     }
@@ -651,6 +988,22 @@ class FixturesRepository {
       'cleanSheet': cleanSheet,
       'rating': rating,
     };
+  }
+  
+  int? _parseIntSafe(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+  
+  double? _parseDoubleSafe(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 
   /// Dispose resources

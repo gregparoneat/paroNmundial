@@ -148,6 +148,7 @@ class League {
   final double? entryFee;
   final double? prizePool;
   final String? leagueImageUrl;
+  final bool isJoined; // Whether current user has joined this league
 
   League({
     required this.id,
@@ -168,12 +169,13 @@ class League {
     this.entryFee,
     this.prizePool,
     this.leagueImageUrl,
+    this.isJoined = false,
   });
 
   bool get isPublic => type == LeagueType.public;
   bool get isPrivate => type == LeagueType.private;
   bool get isFull => memberCount >= maxMembers;
-  bool get canJoin => !isFull && status == LeagueStatus.draft;
+  bool get canJoin => !isFull && status == LeagueStatus.draft && !isJoined;
 
   /// Generate a short invite code
   static String generateInviteCode() {
@@ -221,6 +223,7 @@ Or click: $inviteLink
     double? entryFee,
     double? prizePool,
     String? leagueImageUrl,
+    bool? isJoined,
   }) {
     return League(
       id: id ?? this.id,
@@ -241,6 +244,7 @@ Or click: $inviteLink
       entryFee: entryFee ?? this.entryFee,
       prizePool: prizePool ?? this.prizePool,
       leagueImageUrl: leagueImageUrl ?? this.leagueImageUrl,
+      isJoined: isJoined ?? this.isJoined,
     );
   }
 

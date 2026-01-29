@@ -1,6 +1,7 @@
 {
   "home": "Home",
   "myMatches": "My Matches",
+  "myLeagues": "My Leagues",
   "wallet": "Wallet",
   "account": "Account",
   "letsPlay": "Let's Play",
@@ -280,5 +281,15 @@
       }
     }
   },
-  "plusMatchup": "+ matchup"
+  "plusMatchup": "+ matchup",
+  
+  "selectFavoriteTeam": "Select Your Favorite Team",
+  "favoriteTeamDescription": "Choose your favorite Liga MX team. We'll personalize your experience and show players from your team first.",
+  "errorLoadingTeams": "Error loading teams",
+  "noTeamsFound": "No teams found",
+  "retry": "Retry",
+  "saving": "Saving...",
+  "favoriteTeam": "Favorite Team",
+  "changeFavoriteTeam": "Change Favorite Team",
+  "yourFavoriteTeam": "Your Favorite Team"
 }

@@ -223,7 +223,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
 
   Widget _buildAppBar(ThemeData theme) {
     return SliverAppBar(
-      expandedHeight: 180,
+      expandedHeight: 100,
       pinned: true,
       backgroundColor: theme.colorScheme.surface,
       flexibleSpace: FlexibleSpaceBar(
@@ -231,21 +231,21 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
           _league.name,
           style: const TextStyle(fontSize: 16),
         ),
+        centerTitle: true,
         background: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                theme.primaryColor.withValues(alpha: 0.8),
-                theme.primaryColor.withValues(alpha: 0.4),
+                theme.primaryColor.withValues(alpha: 0.6),
                 theme.colorScheme.surface,
               ],
             ),
           ),
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.only(bottom: 40),
+              padding: const EdgeInsets.only(bottom: 32),
               child: Icon(
                 _league.isPrivate ? Icons.lock : Icons.public,
                 size: 64,

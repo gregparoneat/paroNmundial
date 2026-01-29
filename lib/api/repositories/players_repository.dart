@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:fantacy11/api/firestore_service.dart';
 import 'package:fantacy11/api/sportmonks_client.dart';
 import 'package:fantacy11/api/sportmonks_config.dart';
 import 'package:fantacy11/features/player/models/player_info.dart';
@@ -142,16 +143,22 @@ class _TeamPlayerInfo {
 }
 
 /// Repository for fetching player data
+/// Uses Firestore as primary source, falls back to SportMonks API if needed
 class PlayersRepository {
   final SportMonksClient _client;
+  final FirestoreService _firestoreService;
   
   // Cache for Liga MX roster players
   List<RosterPlayer>? _ligaMxRosterCache;
   DateTime? _ligaMxRosterCacheTime;
   static const Duration _cacheExpiry = Duration(hours: 6);
   
-  PlayersRepository({SportMonksClient? client}) 
-      : _client = client ?? SportMonksClient();
+  // Flag to track if Firestore has data
+  bool? _firestoreHasData;
+  
+  PlayersRepository({SportMonksClient? client, FirestoreService? firestoreService}) 
+      : _client = client ?? SportMonksClient(),
+        _firestoreService = firestoreService ?? FirestoreService();
 
   /// Search players by name (returns Player objects)
   Future<List<Player>> searchPlayers(String query) async {
@@ -311,13 +318,16 @@ class PlayersRepository {
         }
       }
       
+      // Filter out players with "Unknown Team"
+      final filteredPlayers = players.where((p) => p.teamName != 'Unknown Team').toList();
+      
       // Add to Hive cache
-      if (players.isNotEmpty) {
-        _addToCache(players);
+      if (filteredPlayers.isNotEmpty) {
+        _addToCache(filteredPlayers);
       }
       
-      debugPrint('Search returned ${players.length} roster players');
-      return players;
+      debugPrint('Search returned ${filteredPlayers.length} roster players (filtered from ${players.length})');
+      return filteredPlayers;
     } on SportMonksException catch (e) {
       debugPrint('SportMonks API Error during search: $e');
       return [];
@@ -365,11 +375,6 @@ class PlayersRepository {
       debugPrint('SportMonks API Error: $e');
       return [];
     }
-  }
-
-  /// Get demo/mock player
-  Future<Player?> getDemoPlayer() async {
-    return _loadMockPlayer();
   }
 
   /// Get team info by ID
@@ -509,24 +514,30 @@ class PlayersRepository {
       }
     }
     
-    debugPrint('Loaded ${players.length} players from Hive cache');
-    return players;
+    // Filter out any "Unknown Team" players that might be in old cache
+    final validPlayers = players.where((p) => p.teamName != 'Unknown Team').toList();
+    debugPrint('Loaded ${validPlayers.length} valid players from Hive cache (filtered from ${players.length})');
+    return validPlayers;
   }
   
-  /// Add players to Hive cache
+  /// Add players to Hive cache (filters out "Unknown Team" players)
   Future<void> _addToCache(List<RosterPlayer> players) async {
     if (players.isEmpty) return;
     
-    final jsonList = players.map((p) => p.toJson()).toList();
+    // Filter out players with "Unknown Team" before caching
+    final validPlayers = players.where((p) => p.teamName != 'Unknown Team').toList();
+    if (validPlayers.isEmpty) return;
+    
+    final jsonList = validPlayers.map((p) => p.toJson()).toList();
     await _cacheService.addToLigaMxRoster(jsonList);
     
     // Also update in-memory cache for faster access
-    for (final player in players) {
+    for (final player in validPlayers) {
       _playerDetailsCache[player.id] = player;
     }
   }
 
-  /// Get all Liga MX teams from CSV with logos from API
+  /// Get all Liga MX teams - first from Hive cache, then Firestore, then API
   Future<List<LigaMxTeam>> getLigaMxTeams() async {
     // Check in-memory cache first
     if (_teamsMemoryCache != null) {
@@ -545,8 +556,25 @@ class PlayersRepository {
       return _teamsMemoryCache!;
     }
     
+    // Try Firestore first
+    try {
+      final firestoreTeams = await _loadTeamsFromFirestore();
+      if (firestoreTeams.isNotEmpty) {
+        _teamsMemoryCache = firestoreTeams;
+        // Save to Hive cache
+        await _cacheService.saveLigaMxTeams(
+          firestoreTeams.map((t) => {'id': t.id, 'name': t.name, 'logo': t.logo}).toList(),
+        );
+        debugPrint('Loaded ${firestoreTeams.length} teams from Firestore');
+        return firestoreTeams;
+      }
+    } catch (e) {
+      debugPrint('Firestore teams fetch failed, falling back to API: $e');
+    }
+    
+    // Fall back to CSV + SportMonks API
     if (!SportMonksConfig.isConfigured) {
-      throw Exception('SportMonks API is not configured.');
+      throw Exception('No data source available - Firestore empty and SportMonks not configured');
     }
     
     final csvTeams = await _loadLigaMxTeamsFromCsv();
@@ -579,8 +607,307 @@ class PlayersRepository {
       teams.map((t) => {'id': t.id, 'name': t.name, 'logo': t.logo}).toList(),
     );
     
-    debugPrint('Loaded ${teams.length} Liga MX teams');
+    debugPrint('Loaded ${teams.length} Liga MX teams from CSV/API');
     return teams;
+  }
+  
+  /// Load teams from Firestore (SportMonks format)
+  Future<List<LigaMxTeam>> _loadTeamsFromFirestore() async {
+    final teamsData = await _firestoreService.getTeams();
+    
+    return teamsData.map((t) => LigaMxTeam(
+      id: _parseIntValue(t['id']) ?? 0,
+      name: t['name']?.toString() ?? t['short_code']?.toString() ?? 'Unknown',
+      logo: t['image_path']?.toString() ?? t['logo']?.toString(),
+    )).where((t) => t.id > 0).toList();
+  }
+  
+  /// Load all players from Firestore and cache them
+  /// This is the preferred method as it loads all data in one call
+  /// Pass forceRefresh=true to bypass cache and reload from Firestore
+  Future<List<RosterPlayer>> loadAllPlayersFromFirestore({bool forceRefresh = false}) async {
+    debugPrint('Loading all players from Firestore (forceRefresh: $forceRefresh)...');
+    
+    // Check Hive cache first (only if not forcing refresh and cache has substantial data)
+    if (!forceRefresh) {
+      final cachedPlayers = getCachedPlayers();
+      // Only use cache if it has a substantial number of players (Liga MX has ~500+ players)
+      if (cachedPlayers.length >= 300) {
+        debugPrint('Found ${cachedPlayers.length} players in Hive cache (sufficient)');
+        return cachedPlayers;
+      }
+      debugPrint('Cache has ${cachedPlayers.length} players (insufficient, need 300+)');
+    }
+    
+    try {
+      // Load teams first so we can look up team names when parsing players
+      await getLigaMxTeams();
+      
+      final playersData = await _firestoreService.getPlayers();
+      
+      if (playersData.isEmpty) {
+        debugPrint('No players found in Firestore');
+        // Return cached players if Firestore is empty
+        return getCachedPlayers();
+      }
+      
+      debugPrint('Firestore returned ${playersData.length} player documents');
+      
+      // Debug: Log first document structure
+      if (playersData.isNotEmpty) {
+        final firstDoc = playersData.first;
+        debugPrint('First document keys: ${firstDoc.keys.toList()}');
+        if (firstDoc.containsKey('data')) {
+          final data = firstDoc['data'];
+          if (data is Map) {
+            debugPrint('data field keys: ${data.keys.toList()}');
+          }
+        }
+        if (firstDoc.containsKey('id')) {
+          debugPrint('Direct id field: ${firstDoc['id']}');
+        }
+        if (firstDoc.containsKey('statistics')) {
+          debugPrint('Has statistics: ${(firstDoc['statistics'] as List?)?.length ?? 0} entries');
+        }
+      }
+      
+      final players = <RosterPlayer>[];
+      int parseErrors = 0;
+      
+      for (final data in playersData) {
+        final player = _parseFirestorePlayer(data);
+        if (player != null) {
+          players.add(player);
+          _playerDetailsCache[player.id] = player;
+        } else {
+          parseErrors++;
+          // Log first 3 parse errors for debugging
+          if (parseErrors <= 3) {
+            debugPrint('Parse error #$parseErrors - doc keys: ${data.keys.toList()}');
+          }
+        }
+      }
+      
+      debugPrint('Parsed ${players.length} valid players from Firestore ($parseErrors parse errors)');
+      
+      // Save to Hive cache (replace existing)
+      if (players.isNotEmpty) {
+        await _cacheService.clearLigaMxRoster(); // Clear old cache
+        _addToCache(players);
+      }
+      
+      debugPrint('Loaded ${players.length} players from Firestore');
+      return players;
+    } catch (e) {
+      debugPrint('Error loading players from Firestore: $e');
+      return [];
+    }
+  }
+  
+  /// Parse a Firestore player document into RosterPlayer
+  /// Handles SportMonks API field format (snake_case)
+  RosterPlayer? _parseFirestorePlayer(Map<String, dynamic> data) {
+    try {
+      // The data might be nested under a 'data' key from Firestore
+      final playerData = data['data'] is Map<String, dynamic> 
+          ? data['data'] as Map<String, dynamic> 
+          : data;
+      
+      final id = _parseIntValue(playerData['id']) ?? _parseIntValue(playerData['player_id']);
+      if (id == null || id <= 0) {
+        debugPrint('Parse error: No valid ID in player document');
+        return null;
+      }
+      
+      // SportMonks uses display_name, common_name, name
+      final name = playerData['name']?.toString() ?? 
+                   playerData['common_name']?.toString() ?? 
+                   'Unknown';
+      final displayName = playerData['display_name']?.toString() ?? 
+                          playerData['common_name']?.toString() ?? 
+                          name;
+      
+      // Parse position - SportMonks includes position object
+      String positionCode = 'MID';
+      String position = 'Midfielder';
+      final positionData = playerData['position'];
+      if (positionData is String) {
+        positionCode = _normalizePositionCode(positionData);
+        position = _getPositionName(positionCode);
+      } else if (positionData is Map) {
+        // SportMonks position object has 'code', 'developer_name', 'name'
+        positionCode = _normalizePositionCode(
+          positionData['developer_name']?.toString() ?? 
+          positionData['code']?.toString() ?? 
+          positionData['name']?.toString() ?? 
+          'MID'
+        );
+        position = positionData['name']?.toString() ?? _getPositionName(positionCode);
+      }
+      
+      // Parse team info from statistics array (most recent season)
+      int teamId = 0;
+      String teamName = 'Unknown Team';
+      String? teamLogo;
+      int? jerseyNumber;
+      Map<String, dynamic> stats = {};
+      
+      // Statistics array contains team_id for each season
+      final statistics = playerData['statistics'] as List?;
+      if (statistics != null && statistics.isNotEmpty) {
+        // Find the most recent season (highest season_id usually = most recent)
+        Map<String, dynamic>? latestStat;
+        int latestSeasonId = 0;
+        
+        for (final stat in statistics) {
+          if (stat is! Map<String, dynamic>) continue;
+          final seasonId = _parseIntValue(stat['season_id']) ?? 0;
+          if (seasonId > latestSeasonId) {
+            latestSeasonId = seasonId;
+            latestStat = stat;
+          }
+        }
+        
+        if (latestStat != null) {
+          teamId = _parseIntValue(latestStat['team_id']) ?? 0;
+          jerseyNumber = _parseIntValue(latestStat['jersey_number']);
+          
+          // Parse detailed stats if available
+          final details = latestStat['details'] as List?;
+          if (details != null) {
+            for (final detail in details) {
+              if (detail is! Map<String, dynamic>) continue;
+              final typeId = _parseIntValue(detail['type_id']);
+              final value = detail['value'];
+              
+              switch (typeId) {
+                case 52: stats['goals'] = value; break;
+                case 79: stats['rating'] = value; break;
+                case 84: stats['assists'] = value; break;
+                case 119: stats['minutes'] = value; break;
+                case 194: stats['cleanSheets'] = value; break;
+                case 209: stats['saves'] = value; break;
+                case 321: stats['appearances'] = value; break;
+              }
+            }
+          }
+        }
+      }
+      
+      // Look up team name from our cached teams
+      if (teamId > 0) {
+        final cachedTeams = _cacheService.getLigaMxTeams();
+        if (cachedTeams != null) {
+          final matchingTeam = cachedTeams.firstWhere(
+            (t) => t['id'] == teamId,
+            orElse: () => <String, dynamic>{},
+          );
+          if (matchingTeam.isNotEmpty) {
+            teamName = matchingTeam['name']?.toString() ?? 'Team $teamId';
+            teamLogo = matchingTeam['logo']?.toString();
+          }
+        }
+        
+        // Fallback - use team ID as name if not found in cache
+        if (teamName == 'Unknown Team') {
+          teamName = 'Team $teamId';
+        }
+      }
+      
+      // Skip players without a valid team - but log first one for debugging
+      if (teamId == 0) {
+        // Log first few failures for debugging
+        debugPrint('Parse skip: Player $id ($displayName) has no team_id in statistics');
+        return null;
+      }
+      
+      final projectedPoints = _calculateProjectedPointsFromStats(stats, positionCode);
+      final credits = _calculateCredits(projectedPoints, positionCode);
+      
+      return RosterPlayer(
+        id: id,
+        name: name,
+        displayName: displayName,
+        imagePath: playerData['image_path']?.toString(),
+        position: position,
+        positionCode: positionCode,
+        teamId: teamId,
+        teamName: teamName,
+        teamLogo: teamLogo,
+        jerseyNumber: jerseyNumber ?? _parseIntValue(playerData['jersey_number']),
+        credits: credits,
+        projectedPoints: projectedPoints,
+        selectedByPercent: 0,
+        stats: stats.isNotEmpty ? stats : null,
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Error parsing Firestore player: $e');
+      debugPrint('Stack trace: $stackTrace');
+      return null;
+    }
+  }
+  
+  /// Calculate projected points from stats map
+  double _calculateProjectedPointsFromStats(Map<String, dynamic> stats, String positionCode) {
+    double points = 2.0; // Base points
+    
+    final goals = _parseIntValue(stats['goals']) ?? 0;
+    final assists = _parseIntValue(stats['assists']) ?? 0;
+    final cleanSheets = _parseIntValue(stats['cleanSheets']) ?? _parseIntValue(stats['clean_sheets']) ?? 0;
+    final saves = _parseIntValue(stats['saves']) ?? 0;
+    final appearances = _parseIntValue(stats['appearances']) ?? 0;
+    final rating = _parseDoubleSafe(stats['rating']) ?? 0;
+    
+    // Position-based scoring
+    switch (positionCode) {
+      case 'GK':
+        points += goals * 10;
+        points += cleanSheets * 4;
+        points += saves * 0.5;
+        points += rating > 7 ? (rating - 7) * 2 : 0;
+        break;
+      case 'DEF':
+        points += goals * 6;
+        points += assists * 3;
+        points += cleanSheets * 4;
+        break;
+      case 'MID':
+        points += goals * 5;
+        points += assists * 3;
+        points += cleanSheets * 1;
+        break;
+      case 'FWD':
+        points += goals * 4;
+        points += assists * 3;
+        break;
+    }
+    
+    // Normalize by appearances
+    if (appearances > 0) {
+      points = points / appearances * 5; // Normalize to ~5 matches
+    }
+    
+    return points.clamp(1.0, 15.0);
+  }
+  
+  /// Helper to safely parse double
+  double? _parseDoubleSafe(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+  
+  /// Get position name from code
+  String _getPositionName(String code) {
+    switch (code) {
+      case 'GK': return 'Goalkeeper';
+      case 'DEF': return 'Defender';
+      case 'MID': return 'Midfielder';
+      case 'FWD': return 'Forward';
+      default: return 'Unknown';
+    }
   }
   
   /// Get player IDs for a specific team (cached)
@@ -678,7 +1005,8 @@ class PlayersRepository {
           );
           
           final rosterPlayer = _parsePlayerToRosterPlayer(playerResponse.data!, teamInfo);
-          if (rosterPlayer != null) {
+          // Filter out players with "Unknown Team"
+          if (rosterPlayer != null && rosterPlayer.teamName != 'Unknown Team') {
             _playerDetailsCache[playerId] = rosterPlayer;
             players.add(rosterPlayer);
           }
@@ -701,6 +1029,7 @@ class PlayersRepository {
   }
   
   /// Get players from all teams with pagination (loads one team at a time)
+  /// Prioritizes the user's favorite team if set
   /// teamIndex: which team to load (0-17 for Liga MX)
   /// page: page within that team
   Future<AllPlayersResult> getAllPlayersPage({
@@ -708,7 +1037,7 @@ class PlayersRepository {
     int page = 1,
     int pageSize = 20,
   }) async {
-    final teams = await getLigaMxTeams();
+    final teams = await getLigaMxTeamsWithFavoriteFirst();
     
     if (teamIndex >= teams.length) {
       return AllPlayersResult(
@@ -740,6 +1069,62 @@ class PlayersRepository {
       currentPage: page,
       totalTeams: teams.length,
       currentTeam: team,
+    );
+  }
+  
+  /// Get Liga MX teams with the user's favorite team first
+  /// If no favorite team is set, returns teams in default order
+  Future<List<LigaMxTeam>> getLigaMxTeamsWithFavoriteFirst() async {
+    final teams = await getLigaMxTeams();
+    final favoriteTeam = _cacheService.getFavoriteTeam();
+    
+    if (favoriteTeam == null) {
+      return teams;
+    }
+    
+    // Find the favorite team index
+    final favoriteIndex = teams.indexWhere((t) => t.id == favoriteTeam.id);
+    
+    if (favoriteIndex <= 0) {
+      // Already first or not found
+      return teams;
+    }
+    
+    // Move favorite team to the front
+    final reorderedTeams = List<LigaMxTeam>.from(teams);
+    final favorite = reorderedTeams.removeAt(favoriteIndex);
+    reorderedTeams.insert(0, favorite);
+    
+    debugPrint('Reordered teams - favorite team ${favorite.name} is now first');
+    return reorderedTeams;
+  }
+  
+  /// Get players from the user's favorite team
+  /// Returns empty list if no favorite team is set
+  Future<TeamPlayersResult> getFavoriteTeamPlayers({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final favoriteTeam = _cacheService.getFavoriteTeam();
+    
+    if (favoriteTeam == null) {
+      debugPrint('No favorite team set');
+      return TeamPlayersResult(
+        players: [],
+        hasMore: false,
+        currentPage: 1,
+        totalPages: 0,
+        totalPlayers: 0,
+      );
+    }
+    
+    debugPrint('Loading players from favorite team: ${favoriteTeam.name}');
+    return getTeamPlayers(
+      teamId: favoriteTeam.id,
+      teamName: favoriteTeam.name,
+      teamLogo: favoriteTeam.logo,
+      page: page,
+      pageSize: pageSize,
     );
   }
   

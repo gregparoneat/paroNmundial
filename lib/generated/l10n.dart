@@ -61,7 +61,11 @@ class S {
 
   /// `My Matches`
   String get myMatches {
-    return Intl.message('My Leagues', name: 'myMatches', desc: '', args: []);
+    return Intl.message('My Matches', name: 'myMatches', desc: '', args: []);
+  }
+
+  String get myLeagues {
+    return Intl.message('My Leagues', name: 'myLeagues', desc: '', args: []);
   }
 
   String get fixtures {
@@ -1610,11 +1614,6 @@ class S {
     return Intl.message('Search players by name...', name: 'searchPlayersHint', desc: '', args: []);
   }
 
-  /// `Retry`
-  String get retry {
-    return Intl.message('Retry', name: 'retry', desc: '', args: []);
-  }
-
   /// `No players found for "{query}"`
   String noPlayersFoundFor(String query) {
     return Intl.message(
@@ -1663,6 +1662,51 @@ class S {
   /// `+ matchup`
   String get plusMatchup {
     return Intl.message('+ matchup', name: 'plusMatchup', desc: '', args: []);
+  }
+
+  /// `Select Your Favorite Team`
+  String get selectFavoriteTeam {
+    return Intl.message('Select Your Favorite Team', name: 'selectFavoriteTeam', desc: '', args: []);
+  }
+
+  /// `Choose your favorite Liga MX team. We'll personalize your experience and show players from your team first.`
+  String get favoriteTeamDescription {
+    return Intl.message('Choose your favorite Liga MX team. We\'ll personalize your experience and show players from your team first.', name: 'favoriteTeamDescription', desc: '', args: []);
+  }
+
+  /// `Error loading teams`
+  String get errorLoadingTeams {
+    return Intl.message('Error loading teams', name: 'errorLoadingTeams', desc: '', args: []);
+  }
+
+  /// `No teams found`
+  String get noTeamsFound {
+    return Intl.message('No teams found', name: 'noTeamsFound', desc: '', args: []);
+  }
+
+  /// `Retry`
+  String get retry {
+    return Intl.message('Retry', name: 'retry', desc: '', args: []);
+  }
+
+  /// `Saving...`
+  String get saving {
+    return Intl.message('Saving...', name: 'saving', desc: '', args: []);
+  }
+
+  /// `Favorite Team`
+  String get favoriteTeam {
+    return Intl.message('Favorite Team', name: 'favoriteTeam', desc: '', args: []);
+  }
+
+  /// `Change Favorite Team`
+  String get changeFavoriteTeam {
+    return Intl.message('Change Favorite Team', name: 'changeFavoriteTeam', desc: '', args: []);
+  }
+
+  /// `Your Favorite Team`
+  String get yourFavoriteTeam {
+    return Intl.message('Your Favorite Team', name: 'yourFavoriteTeam', desc: '', args: []);
   }
 }
 

@@ -11,6 +11,9 @@ class RecentMatchStats {
   final int redCards;
   final int saves;
   final double? averageRating;
+  /// Number of fixtures analyzed to get these stats (may differ from matchesPlayed)
+  /// A low fixturesAnalyzed with 0 matchesPlayed indicates injured/bench player
+  final int? fixturesAnalyzed;
 
   const RecentMatchStats({
     required this.matchesPlayed,
@@ -22,7 +25,13 @@ class RecentMatchStats {
     this.redCards = 0,
     this.saves = 0,
     this.averageRating,
+    this.fixturesAnalyzed,
   });
+  
+  /// Returns true if player appears to be injured or warming the bench
+  /// (fixtures were analyzed but player didn't play in any)
+  bool get isLikelyInjuredOrBench => 
+      fixturesAnalyzed != null && fixturesAnalyzed! > 0 && matchesPlayed == 0;
 
   /// Create from a list of match data (simulated from season stats)
   /// In a real scenario, this would come from per-match API data
@@ -367,14 +376,35 @@ class FantasyPointsPredictor {
   }
 
   /// Calculate recent form score (0-100)
+  /// 
+  /// Form scoring:
+  /// - 0: Player is injured or bench warmer (no playtime in last 6 weeks)
+  /// - 25: Very low form (few minutes, no contributions)
+  /// - 50: Average/neutral form
+  /// - 75+: Great form (regular starter with good contributions)
   static double _calculateFormScore(RecentMatchStats recent, PositionCategory position) {
-    if (recent.matchesPlayed == 0) return 50.0;
+    // Check if player is injured or bench warmer (fixtures analyzed but didn't play)
+    if (recent.isLikelyInjuredOrBench) {
+      return 0.0; // Severely penalize - player unlikely to play
+    }
+    
+    // No data available - use neutral score
+    if (recent.matchesPlayed == 0) {
+      return 50.0;
+    }
 
     double score = 50.0; // Base score
 
-    // Playing time factor
+    // Playing time factor - heavily weighted
+    // Regular starter (80+ mins avg) = +15, sub (30 mins avg) = +5
     final playingTimeFactor = (recent.minutesPerMatch / 90).clamp(0.0, 1.0);
-    score += playingTimeFactor * 10;
+    score += playingTimeFactor * 15;
+    
+    // Participation rate bonus (played in most of the analyzed fixtures)
+    if (recent.fixturesAnalyzed != null && recent.fixturesAnalyzed! > 0) {
+      final participationRate = recent.matchesPlayed / recent.fixturesAnalyzed!;
+      score += participationRate * 10; // Max +10 for playing every game
+    }
 
     // Position-specific factors
     switch (position) {

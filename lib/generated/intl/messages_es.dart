@@ -185,7 +185,8 @@ class MessageLookup extends MessageLookupByLibrary {
       "Múltiples entradas",
     ),
     "myContestsTwo": MessageLookupByLibrary.simpleMessage("MIS CONCURSOS (2)"),
-    "myMatches": MessageLookupByLibrary.simpleMessage("Mis Ligas"),
+    "myLeagues": MessageLookupByLibrary.simpleMessage("Mis Ligas"),
+    "myMatches": MessageLookupByLibrary.simpleMessage("Mis Partidos"),
     "myProfile": MessageLookupByLibrary.simpleMessage("Mi perfil"),
     "myTeamThree": MessageLookupByLibrary.simpleMessage("MI EQUIPO (3)"),
     "noOtherSportsAvailableContactAdmin": MessageLookupByLibrary.simpleMessage(
@@ -372,5 +373,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "enterAtLeast3Chars": MessageLookupByLibrary.simpleMessage("Ingresa al menos 3 caracteres para buscar"),
     "lastMatchesPlus": (count) => "Últimos $count partidos",
     "plusMatchup": MessageLookupByLibrary.simpleMessage("+ enfrentamiento"),
+    "selectFavoriteTeam": MessageLookupByLibrary.simpleMessage("Selecciona Tu Equipo Favorito"),
+    "favoriteTeamDescription": MessageLookupByLibrary.simpleMessage("Elige tu equipo favorito de la Liga MX. Personalizaremos tu experiencia y mostraremos jugadores de tu equipo primero."),
+    "errorLoadingTeams": MessageLookupByLibrary.simpleMessage("Error al cargar equipos"),
+    "noTeamsFound": MessageLookupByLibrary.simpleMessage("No se encontraron equipos"),
+    "saving": MessageLookupByLibrary.simpleMessage("Guardando..."),
+    "favoriteTeam": MessageLookupByLibrary.simpleMessage("Equipo Favorito"),
+    "changeFavoriteTeam": MessageLookupByLibrary.simpleMessage("Cambiar Equipo Favorito"),
+    "yourFavoriteTeam": MessageLookupByLibrary.simpleMessage("Tu Equipo Favorito"),
   };
 }

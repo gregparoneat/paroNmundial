@@ -2,6 +2,31 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+/// Model for the user's favorite team
+class FavoriteTeam {
+  final int id;
+  final String name;
+  final String? logo;
+  
+  const FavoriteTeam({
+    required this.id,
+    required this.name,
+    this.logo,
+  });
+  
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'logo': logo,
+  };
+  
+  factory FavoriteTeam.fromJson(Map<String, dynamic> json) => FavoriteTeam(
+    id: json['id'] as int,
+    name: json['name'] as String,
+    logo: json['logo'] as String?,
+  );
+}
+
 /// Cache keys for different data types
 class CacheKeys {
   static const String recentPlayers = 'recent_players';
@@ -12,6 +37,20 @@ class CacheKeys {
   static const String ligaMxRoster = 'liga_mx_roster';
   static const String ligaMxRosterTimestamp = 'liga_mx_roster_timestamp';
   static const String ligaMxTeams = 'liga_mx_teams';
+  
+  // Player form stats cache (per player)
+  static String playerFormStats(int playerId) => 'player_form_$playerId';
+  static String playerFormTimestamp(int playerId) => 'player_form_ts_$playerId';
+  
+  // Player tournament stats cache (per player per stage)
+  static String playerTournamentStats(int playerId, int stageId) => 'player_tourn_${playerId}_$stageId';
+  static String playerTournamentTimestamp(int playerId, int stageId) => 'player_tourn_ts_${playerId}_$stageId';
+  
+  // User preferences
+  static const String favoriteTeamId = 'favorite_team_id';
+  static const String favoriteTeamName = 'favorite_team_name';
+  static const String favoriteTeamLogo = 'favorite_team_logo';
+  static const String onboardingCompleted = 'onboarding_completed';
 }
 
 /// Cache box names
@@ -223,6 +262,13 @@ class CacheService {
     await saveLigaMxRoster(existing);
   }
   
+  /// Clear Liga MX roster cache
+  Future<void> clearLigaMxRoster() async {
+    await _playersBox.delete(CacheKeys.ligaMxRoster);
+    await _playersBox.delete(CacheKeys.ligaMxRosterTimestamp);
+    debugPrint('Cleared Liga MX roster cache');
+  }
+  
   /// Get cached Liga MX teams
   List<Map<String, dynamic>>? getLigaMxTeams() {
     final data = _teamsBox.get(CacheKeys.ligaMxTeams);
@@ -243,6 +289,49 @@ class CacheService {
     debugPrint('Saved ${teams.length} Liga MX teams to Hive cache');
   }
 
+  // ==================== USER PREFERENCES ====================
+  
+  /// Get the user's favorite team
+  FavoriteTeam? getFavoriteTeam() {
+    final teamId = _generalBox.get(CacheKeys.favoriteTeamId);
+    final teamName = _generalBox.get(CacheKeys.favoriteTeamName);
+    
+    if (teamId == null || teamName == null) return null;
+    
+    return FavoriteTeam(
+      id: int.tryParse(teamId) ?? 0,
+      name: teamName,
+      logo: _generalBox.get(CacheKeys.favoriteTeamLogo),
+    );
+  }
+  
+  /// Save the user's favorite team
+  Future<void> saveFavoriteTeam(FavoriteTeam team) async {
+    await _generalBox.put(CacheKeys.favoriteTeamId, team.id.toString());
+    await _generalBox.put(CacheKeys.favoriteTeamName, team.name);
+    if (team.logo != null) {
+      await _generalBox.put(CacheKeys.favoriteTeamLogo, team.logo!);
+    }
+    debugPrint('Saved favorite team: ${team.name} (ID: ${team.id})');
+  }
+  
+  /// Clear the user's favorite team
+  Future<void> clearFavoriteTeam() async {
+    await _generalBox.delete(CacheKeys.favoriteTeamId);
+    await _generalBox.delete(CacheKeys.favoriteTeamName);
+    await _generalBox.delete(CacheKeys.favoriteTeamLogo);
+  }
+  
+  /// Check if onboarding is completed
+  bool isOnboardingCompleted() {
+    return _generalBox.get(CacheKeys.onboardingCompleted) == 'true';
+  }
+  
+  /// Mark onboarding as completed
+  Future<void> setOnboardingCompleted(bool completed) async {
+    await _generalBox.put(CacheKeys.onboardingCompleted, completed.toString());
+  }
+
   // ==================== GENERAL CACHE ====================
 
   /// Get a general cache value
@@ -258,6 +347,108 @@ class CacheService {
   /// Delete a cache key
   Future<void> delete(String key) async {
     await _generalBox.delete(key);
+  }
+
+  // ==================== PLAYER FORM STATS CACHE ====================
+  
+  /// Cache duration for player form stats (6 hours - form changes slowly)
+  static const Duration _formStatsCacheDuration = Duration(hours: 6);
+  
+  /// Get cached player form stats
+  /// Returns null if not cached or cache is expired
+  Map<String, dynamic>? getPlayerFormStats(int playerId) {
+    final key = CacheKeys.playerFormStats(playerId);
+    final timestampKey = CacheKeys.playerFormTimestamp(playerId);
+    
+    final data = _playersBox.get(key);
+    final timestampStr = _playersBox.get(timestampKey);
+    
+    if (data == null || timestampStr == null) {
+      return null;
+    }
+    
+    // Check if cache is expired
+    final timestamp = int.tryParse(timestampStr);
+    if (timestamp != null) {
+      final cachedAt = DateTime.fromMillisecondsSinceEpoch(timestamp);
+      if (DateTime.now().difference(cachedAt) > _formStatsCacheDuration) {
+        debugPrint('Player $playerId form stats cache expired');
+        return null;
+      }
+    }
+    
+    try {
+      return json.decode(data) as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('Error decoding player form stats: $e');
+      return null;
+    }
+  }
+  
+  /// Save player form stats to cache
+  Future<void> savePlayerFormStats(int playerId, Map<String, dynamic> stats) async {
+    final key = CacheKeys.playerFormStats(playerId);
+    final timestampKey = CacheKeys.playerFormTimestamp(playerId);
+    
+    await _playersBox.put(key, json.encode(stats));
+    await _playersBox.put(timestampKey, DateTime.now().millisecondsSinceEpoch.toString());
+    
+    debugPrint('Cached form stats for player $playerId');
+  }
+  
+  /// Clear form stats cache for a specific player
+  Future<void> clearPlayerFormStats(int playerId) async {
+    final key = CacheKeys.playerFormStats(playerId);
+    final timestampKey = CacheKeys.playerFormTimestamp(playerId);
+    
+    await _playersBox.delete(key);
+    await _playersBox.delete(timestampKey);
+  }
+  
+  // ==================== PLAYER TOURNAMENT STATS CACHE ====================
+  
+  /// Cache duration for tournament stats (12 hours - updated after each matchday)
+  static const Duration _tournamentStatsCacheDuration = Duration(hours: 12);
+  
+  /// Get cached player tournament stats for a specific stage
+  Map<String, dynamic>? getPlayerTournamentStats(int playerId, int stageId) {
+    final key = CacheKeys.playerTournamentStats(playerId, stageId);
+    final timestampKey = CacheKeys.playerTournamentTimestamp(playerId, stageId);
+    
+    final data = _playersBox.get(key);
+    final timestampStr = _playersBox.get(timestampKey);
+    
+    if (data == null || timestampStr == null) {
+      return null;
+    }
+    
+    // Check if cache is expired
+    final timestamp = int.tryParse(timestampStr);
+    if (timestamp != null) {
+      final cachedAt = DateTime.fromMillisecondsSinceEpoch(timestamp);
+      if (DateTime.now().difference(cachedAt) > _tournamentStatsCacheDuration) {
+        debugPrint('Player $playerId tournament stats cache expired');
+        return null;
+      }
+    }
+    
+    try {
+      return json.decode(data) as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('Error decoding player tournament stats: $e');
+      return null;
+    }
+  }
+  
+  /// Save player tournament stats to cache
+  Future<void> savePlayerTournamentStats(int playerId, int stageId, Map<String, dynamic> stats) async {
+    final key = CacheKeys.playerTournamentStats(playerId, stageId);
+    final timestampKey = CacheKeys.playerTournamentTimestamp(playerId, stageId);
+    
+    await _playersBox.put(key, json.encode(stats));
+    await _playersBox.put(timestampKey, DateTime.now().millisecondsSinceEpoch.toString());
+    
+    debugPrint('Cached tournament stats for player $playerId (stage $stageId)');
   }
 
   // ==================== CACHE MANAGEMENT ====================

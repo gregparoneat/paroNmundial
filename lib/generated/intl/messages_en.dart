@@ -344,5 +344,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "enterAtLeast3Chars": MessageLookupByLibrary.simpleMessage("Enter at least 3 characters to search"),
     "lastMatchesPlus": (count) => "Last $count matches",
     "plusMatchup": MessageLookupByLibrary.simpleMessage("+ matchup"),
+    "selectFavoriteTeam": MessageLookupByLibrary.simpleMessage("Select Your Favorite Team"),
+    "favoriteTeamDescription": MessageLookupByLibrary.simpleMessage("Choose your favorite Liga MX team. We'll personalize your experience and show players from your team first."),
+    "errorLoadingTeams": MessageLookupByLibrary.simpleMessage("Error loading teams"),
+    "noTeamsFound": MessageLookupByLibrary.simpleMessage("No teams found"),
+    "saving": MessageLookupByLibrary.simpleMessage("Saving..."),
+    "favoriteTeam": MessageLookupByLibrary.simpleMessage("Favorite Team"),
+    "changeFavoriteTeam": MessageLookupByLibrary.simpleMessage("Change Favorite Team"),
+    "yourFavoriteTeam": MessageLookupByLibrary.simpleMessage("Your Favorite Team"),
   };
 }

@@ -1,7 +1,9 @@
+import 'package:fantacy11/api/repositories/players_repository.dart';
 import 'package:fantacy11/features/auth/login_navigator.dart';
 import 'package:fantacy11/features/responsive_widget.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/services/cache_service.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -11,13 +13,35 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'app_config/styles.dart';
 import 'features/language/language_cubit.dart';
+import 'firebase_options.dart';
 import 'routes/routes.dart';
+
+/// Pre-load players from Firestore into Hive cache
+/// This runs in the background to speed up subsequent player loads
+Future<void> _preloadPlayersFromFirestore() async {
+  try {
+    debugPrint('Pre-loading players from Firestore...');
+    final repository = PlayersRepository();
+    final players = await repository.loadAllPlayersFromFirestore();
+    debugPrint('Pre-loaded ${players.length} players from Firestore');
+  } catch (e) {
+    debugPrint('Failed to pre-load players from Firestore: $e');
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  // Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  
   // Initialize cache service (Hive)
   await CacheService().init();
+  
+  // Pre-load players from Firestore in background (don't await to not block startup)
+  _preloadPlayersFromFirestore();
   
   MobileAds.instance.initialize();
 
