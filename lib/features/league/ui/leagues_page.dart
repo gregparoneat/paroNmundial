@@ -411,7 +411,7 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
                 children: [
                   _buildInfoChip(
                     icon: Icons.account_balance_wallet,
-                    label: '${league.budget.toInt()} credits',
+                    label: '\$${league.budget.toInt()}M',
                   ),
                   const Spacer(),
                   if (league.isJoined)

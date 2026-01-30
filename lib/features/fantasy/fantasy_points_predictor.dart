@@ -44,7 +44,9 @@ class AdvancedStats {
   final int errorLeadToGoal;
   
   // Goalkeeper specific
+  final int saves;
   final int savesInsideBox;
+  final int goalsConceeded;
   
   // Discipline
   final int fouls;
@@ -84,7 +86,9 @@ class AdvancedStats {
     this.totalDuels = 0,
     this.dribbledPast = 0,
     this.errorLeadToGoal = 0,
+    this.saves = 0,
     this.savesInsideBox = 0,
+    this.goalsConceeded = 0,
     this.fouls = 0,
     this.offsides = 0,
     this.ratings = const [],
@@ -143,7 +147,9 @@ class AdvancedStats {
       totalDuels: totalDuels + other.totalDuels,
       dribbledPast: dribbledPast + other.dribbledPast,
       errorLeadToGoal: errorLeadToGoal + other.errorLeadToGoal,
+      saves: saves + other.saves,
       savesInsideBox: savesInsideBox + other.savesInsideBox,
+      goalsConceeded: goalsConceeded + other.goalsConceeded,
       fouls: fouls + other.fouls,
       offsides: offsides + other.offsides,
       ratings: [...ratings, ...other.ratings],
@@ -162,7 +168,7 @@ class AdvancedStats {
     int accurateCrosses = 0, totalCrosses = 0, crossesBlocked = 0;
     int tackles = 0, interceptions = 0, clearances = 0, blocks = 0;
     int aerialsWon = 0, duelsWon = 0, totalDuels = 0, dribbledPast = 0, errorLeadToGoal = 0;
-    int savesInsideBox = 0, fouls = 0, offsides = 0;
+    int saves = 0, savesInsideBox = 0, goalsConceeded = 0, fouls = 0, offsides = 0;
     double? rating;
     
     final foundCodes = <String>[];
@@ -278,8 +284,14 @@ class AdvancedStats {
         case 'ERROR_LEAD_TO_GOAL':
           errorLeadToGoal = intValue;
           break;
+        case 'SAVES':
+          saves = intValue;
+          break;
         case 'SAVES_INSIDE_BOX':
           savesInsideBox = intValue;
+          break;
+        case 'GOALS_CONCEDED':
+          goalsConceeded = intValue;
           break;
         case 'FOULS':
           fouls = intValue;
@@ -327,7 +339,9 @@ class AdvancedStats {
       totalDuels: totalDuels,
       dribbledPast: dribbledPast,
       errorLeadToGoal: errorLeadToGoal,
+      saves: saves,
       savesInsideBox: savesInsideBox,
+      goalsConceeded: goalsConceeded,
       fouls: fouls,
       offsides: offsides,
       ratings: rating != null ? [rating] : [],

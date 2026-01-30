@@ -19,10 +19,13 @@ class RosterPlayer {
   final String teamName;
   final String? teamLogo;
   final int? jerseyNumber;
-  final double credits; // Fantasy credit value
+  final double price; // Price in millions of USD (e.g., 8.5 = $8.5M)
   final double projectedPoints; // Projected fantasy points
   final double selectedByPercent; // % of users who selected
   final Map<String, dynamic>? stats; // Season statistics
+  
+  /// Backwards compatibility - returns price (previously called credits)
+  double get credits => price;
 
   RosterPlayer({
     required this.id,
@@ -35,7 +38,7 @@ class RosterPlayer {
     required this.teamName,
     this.teamLogo,
     this.jerseyNumber,
-    this.credits = 8.0,
+    this.price = 5.0,
     this.projectedPoints = 5.0,
     this.selectedByPercent = 0,
     this.stats,
@@ -50,6 +53,9 @@ class RosterPlayer {
   /// Cheeks player: projected points < 2.0 (indicates very poor form) 🍑
   /// Note: This uses the RosterPlayer scale (2-15), not the full prediction scale (0-100)
   bool get isCheeks => projectedPoints < 2.0;
+  
+  /// Get formatted price string (e.g., "$8.5M")
+  String get formattedPrice => '\$${price.toStringAsFixed(1)}M';
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -62,7 +68,8 @@ class RosterPlayer {
     'teamName': teamName,
     'teamLogo': teamLogo,
     'jerseyNumber': jerseyNumber,
-    'credits': credits,
+    'price': price,
+    'credits': price, // Backwards compatibility
     'projectedPoints': projectedPoints,
     'selectedByPercent': selectedByPercent,
     'stats': stats,
@@ -79,7 +86,8 @@ class RosterPlayer {
     teamName: json['teamName'] as String,
     teamLogo: json['teamLogo'] as String?,
     jerseyNumber: json['jerseyNumber'] as int?,
-    credits: (json['credits'] as num?)?.toDouble() ?? 8.0,
+    price: (json['price'] as num?)?.toDouble() ?? 
+           (json['credits'] as num?)?.toDouble() ?? 5.0, // Support both
     projectedPoints: (json['projectedPoints'] as num?)?.toDouble() ?? 5.0,
     selectedByPercent: (json['selectedByPercent'] as num?)?.toDouble() ?? 0,
     stats: json['stats'] as Map<String, dynamic>?,
@@ -169,6 +177,23 @@ class PlayersRepository {
   PlayersRepository({SportMonksClient? client, FirestoreService? firestoreService}) 
       : _client = client ?? SportMonksClient(),
         _firestoreService = firestoreService ?? FirestoreService();
+
+  /// Force refresh player stats from SportMonks API
+  /// Call this to update player prices based on latest season stats
+  Future<List<RosterPlayer>> refreshPlayerStats() async {
+    debugPrint('Force refreshing player stats...');
+    
+    // Clear the stats cache
+    await _cacheService.clearPlayerSeasonStats();
+    
+    // Clear the roster cache to force reload
+    await _cacheService.clearLigaMxRoster();
+    _ligaMxRosterCache = null;
+    _ligaMxRosterCacheTime = null;
+    
+    // Reload all players from Firestore with fresh stats
+    return loadAllPlayersFromFirestore(forceRefresh: true);
+  }
 
   /// Search players by name (returns Player objects)
   Future<List<Player>> searchPlayers(String query) async {
@@ -300,10 +325,10 @@ class PlayersRepository {
             }
           }
           
-          // Calculate credits and projected points
+          // Calculate price and projected points
           final stats = _extractPlayerStats(json);
           final projectedPoints = _calculateProjectedPoints(stats, positionCode);
-          final credits = _calculateCredits(projectedPoints, positionCode);
+          final price = _calculatePrice(stats, positionCode, projectedPoints);
           
           final rosterPlayer = RosterPlayer(
             id: playerId,
@@ -316,7 +341,7 @@ class PlayersRepository {
             teamName: teamName,
             teamLogo: teamLogo,
             jerseyNumber: jerseyNumber ?? json['jersey_number'] as int?,
-            credits: credits,
+            price: price,
             projectedPoints: projectedPoints,
             stats: stats,
           );
@@ -500,24 +525,43 @@ class PlayersRepository {
     }
     
     // Convert cached JSON to RosterPlayer objects
+    // ALWAYS recalculate prices from stats to ensure consistency
     final players = <RosterPlayer>[];
     for (final data in cachedData) {
       try {
+        final stats = data['stats'] as Map<String, dynamic>?;
+        final positionCode = data['positionCode'] as String;
+        
+        // Recalculate price and projected points from stats
+        // This ensures we use the latest pricing logic
+        double price;
+        double projectedPoints;
+        
+        if (stats != null && stats.isNotEmpty) {
+          projectedPoints = _calculateProjectedPointsFromStats(stats, positionCode);
+          price = _calculatePrice(stats, positionCode, projectedPoints);
+        } else {
+          // Fallback to cached values if no stats
+          price = (data['price'] as num?)?.toDouble() ?? 
+                  (data['credits'] as num?)?.toDouble() ?? 5.0;
+          projectedPoints = (data['projectedPoints'] as num?)?.toDouble() ?? 5.0;
+        }
+        
         players.add(RosterPlayer(
           id: data['id'] as int,
           name: data['name'] as String,
           displayName: data['displayName'] as String,
           imagePath: data['imagePath'] as String?,
           position: data['position'] as String,
-          positionCode: data['positionCode'] as String,
+          positionCode: positionCode,
           teamId: data['teamId'] as int,
           teamName: data['teamName'] as String,
           teamLogo: data['teamLogo'] as String?,
           jerseyNumber: data['jerseyNumber'] as int?,
-          credits: (data['credits'] as num).toDouble(),
-          projectedPoints: (data['projectedPoints'] as num).toDouble(),
+          price: price,
+          projectedPoints: projectedPoints,
           selectedByPercent: (data['selectedByPercent'] as num?)?.toDouble() ?? 0,
-          stats: data['stats'] as Map<String, dynamic>?,
+          stats: stats,
         ));
       } catch (e) {
         debugPrint('Error parsing cached player: $e');
@@ -643,7 +687,25 @@ class PlayersRepository {
       final cachedPlayers = getCachedPlayers();
       // Only use cache if it has a substantial number of players (Liga MX has ~500+ players)
       if (cachedPlayers.length >= 300) {
-        debugPrint('Found ${cachedPlayers.length} players in Hive cache (sufficient)');
+        // Check if cached players have stats - if not, they need enrichment
+        final playersNeedStats = cachedPlayers.where((p) => 
+          p.stats == null || p.stats!.isEmpty || 
+          (p.stats!['goals'] == null && p.stats!['appearances'] == null)
+        ).length;
+        
+        if (playersNeedStats > cachedPlayers.length * 0.5) {
+          // More than 50% of players need stats - enrich them
+          debugPrint('Found ${cachedPlayers.length} cached players but $playersNeedStats need stats - enriching...');
+          final enrichedPlayers = await _enrichPlayersWithStats(cachedPlayers);
+          // Save enriched players back to cache
+          if (enrichedPlayers.isNotEmpty) {
+            await _cacheService.clearLigaMxRoster();
+            _addToCache(enrichedPlayers);
+          }
+          return enrichedPlayers;
+        }
+        
+        debugPrint('Found ${cachedPlayers.length} players in Hive cache (sufficient with stats)');
         return cachedPlayers;
       }
       debugPrint('Cache has ${cachedPlayers.length} players (insufficient, need 300+)');
@@ -700,18 +762,243 @@ class PlayersRepository {
       
       debugPrint('Parsed ${players.length} valid players from Firestore ($parseErrors parse errors)');
       
+      // Now enrich players with stats from SportMonks (for pricing)
+      // This uses cached stats if available, otherwise fetches from API
+      final enrichedPlayers = await _enrichPlayersWithStats(players);
+      
       // Save to Hive cache (replace existing)
-      if (players.isNotEmpty) {
+      if (enrichedPlayers.isNotEmpty) {
         await _cacheService.clearLigaMxRoster(); // Clear old cache
-        _addToCache(players);
+        _addToCache(enrichedPlayers);
       }
       
-      debugPrint('Loaded ${players.length} players from Firestore');
-      return players;
+      debugPrint('Loaded ${enrichedPlayers.length} players from Firestore (enriched with stats)');
+      return enrichedPlayers;
     } catch (e) {
       debugPrint('Error loading players from Firestore: $e');
       return [];
     }
+  }
+  
+  /// Enrich players with season stats from SportMonks
+  /// Uses cached stats if available, fetches from API otherwise
+  Future<List<RosterPlayer>> _enrichPlayersWithStats(List<RosterPlayer> players) async {
+    debugPrint('=== ENRICHING ${players.length} PLAYERS WITH STATS ===');
+    
+    // First check if we have cached stats
+    var cachedStats = _cacheService.getAllPlayerSeasonStats();
+    final needsRefresh = cachedStats == null || cachedStats.isEmpty;
+    cachedStats ??= <int, Map<String, dynamic>>{};
+    
+    debugPrint('Cached stats available for ${cachedStats.length} players, needsRefresh: $needsRefresh');
+    
+    // Identify players that need stats fetched
+    final playersNeedingStats = players.where((p) => 
+      !cachedStats!.containsKey(p.id) || 
+      cachedStats[p.id] == null ||
+      cachedStats[p.id]!.isEmpty ||
+      (cachedStats[p.id]!['goals'] == null && cachedStats[p.id]!['appearances'] == null)
+    ).toList();
+    
+    debugPrint('${playersNeedingStats.length} players need stats fetched');
+    
+    if (playersNeedingStats.isNotEmpty) {
+      debugPrint('Fetching stats for ${playersNeedingStats.length} players from SportMonks...');
+      
+      // Fetch stats in batches to avoid overwhelming the API
+      const batchSize = 10;
+      int fetchedCount = 0;
+      int emptyCount = 0;
+      
+      for (var i = 0; i < playersNeedingStats.length && i < 200; i += batchSize) {
+        final batch = playersNeedingStats.skip(i).take(batchSize);
+        
+        await Future.wait(batch.map((player) async {
+          try {
+            final stats = await _fetchPlayerStatsFromSportMonks(player.id);
+            if (stats != null && stats.isNotEmpty) {
+              cachedStats![player.id] = stats;
+              fetchedCount++;
+              // Log first few successful fetches
+              if (fetchedCount <= 3) {
+                debugPrint('Player ${player.id} (${player.displayName}) stats: goals=${stats['goals']}, assists=${stats['assists']}, appearances=${stats['appearances']}');
+              }
+            } else {
+              emptyCount++;
+            }
+          } catch (e) {
+            debugPrint('Error fetching stats for player ${player.id}: $e');
+          }
+        }));
+        
+        // Log progress every 50 players
+        if ((i + batchSize) % 50 == 0) {
+          debugPrint('Progress: ${i + batchSize}/${playersNeedingStats.length} players processed');
+        }
+        
+        // Small delay between batches to avoid rate limiting
+        if (i + batchSize < playersNeedingStats.length) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+      }
+      
+      debugPrint('Fetched stats for $fetchedCount players ($emptyCount had no stats)');
+      
+      // Save all stats to cache
+      if (cachedStats!.isNotEmpty) {
+        await _cacheService.saveAllPlayerSeasonStats(cachedStats);
+        debugPrint('Saved ${cachedStats.length} player stats to cache');
+      }
+    } else if (cachedStats!.isNotEmpty) {
+      debugPrint('Using cached stats for ${cachedStats.length} players');
+    }
+    
+    // Recalculate prices with the stats
+    final enrichedPlayers = <RosterPlayer>[];
+    int enrichedCount = 0;
+    
+    for (final player in players) {
+      final stats = cachedStats![player.id];
+      if (stats != null && stats.isNotEmpty) {
+        final projectedPoints = _calculateProjectedPointsFromStats(stats, player.positionCode);
+        final price = _calculatePrice(stats, player.positionCode, projectedPoints);
+        enrichedPlayers.add(RosterPlayer(
+          id: player.id,
+          name: player.name,
+          displayName: player.displayName,
+          imagePath: player.imagePath,
+          position: player.position,
+          positionCode: player.positionCode,
+          teamId: player.teamId,
+          teamName: player.teamName,
+          teamLogo: player.teamLogo,
+          jerseyNumber: player.jerseyNumber,
+          price: price,
+          projectedPoints: projectedPoints,
+          selectedByPercent: player.selectedByPercent,
+          stats: stats,
+        ));
+        enrichedCount++;
+      } else {
+        // Keep original player if no stats available
+        enrichedPlayers.add(player);
+      }
+    }
+    
+    // Log price distribution for debugging
+    final forwards = enrichedPlayers.where((p) => p.positionCode == 'FWD').toList();
+    final forwardPrices = forwards.map((p) => p.price).toList()..sort();
+    if (forwardPrices.isNotEmpty) {
+      debugPrint('FWD price range: \$${forwardPrices.first}M - \$${forwardPrices.last}M (${forwards.length} players)');
+    }
+    
+    final midfielders = enrichedPlayers.where((p) => p.positionCode == 'MID').toList();
+    final midPrices = midfielders.map((p) => p.price).toList()..sort();
+    if (midPrices.isNotEmpty) {
+      debugPrint('MID price range: \$${midPrices.first}M - \$${midPrices.last}M (${midfielders.length} players)');
+    }
+    
+    debugPrint('=== ENRICHMENT COMPLETE: $enrichedCount/${players.length} players have stats ===');
+    
+    return enrichedPlayers;
+  }
+  
+  /// Fetch player season stats from SportMonks API
+  Future<Map<String, dynamic>?> _fetchPlayerStatsFromSportMonks(int playerId) async {
+    try {
+      final response = await _client.getPlayerById(
+        playerId,
+        includes: ['statistics.details'],
+      );
+      
+      final playerData = response.data;
+      final statistics = playerData['statistics'] as List?;
+      
+      if (statistics == null || statistics.isEmpty) {
+        debugPrint('Player $playerId: No statistics array in response');
+        return null;
+      }
+      
+      // Find the most recent season with stats
+      Map<String, dynamic>? bestStats;
+      int highestSeasonId = 0;
+      
+      for (final stat in statistics) {
+        if (stat is! Map<String, dynamic>) continue;
+        
+        final seasonId = _parseIntValue(stat['season_id']) ?? 0;
+        final hasValues = stat['has_values'] == true;
+        
+        if (seasonId > highestSeasonId) {
+          final details = stat['details'] as List?;
+          if (details != null && details.isNotEmpty) {
+            highestSeasonId = seasonId;
+            bestStats = _extractStatsFromDetails(details);
+          } else if (hasValues) {
+            // Even without details, mark this season as valid
+            highestSeasonId = seasonId;
+          }
+        }
+      }
+      
+      if (bestStats == null || bestStats.isEmpty) {
+        // Try to extract stats directly from the statistics array (some API versions)
+        for (final stat in statistics) {
+          if (stat is! Map<String, dynamic>) continue;
+          final seasonId = _parseIntValue(stat['season_id']) ?? 0;
+          if (seasonId == highestSeasonId || highestSeasonId == 0) {
+            // Check for direct stat fields
+            final goals = stat['goals'] ?? stat['total_goals'];
+            final assists = stat['assists'] ?? stat['total_assists'];
+            if (goals != null || assists != null) {
+              bestStats = {
+                'goals': goals,
+                'assists': assists,
+                'appearances': stat['appearances'] ?? stat['total_appearances'],
+                'minutes': stat['minutes'] ?? stat['total_minutes'],
+                'rating': stat['rating'] ?? stat['average_rating'],
+              };
+              break;
+            }
+          }
+        }
+      }
+      
+      return bestStats;
+    } catch (e) {
+      debugPrint('SportMonks stats fetch error for player $playerId: $e');
+      return null;
+    }
+  }
+  
+  /// Extract stats map from SportMonks statistics.details array
+  Map<String, dynamic> _extractStatsFromDetails(List details) {
+    final stats = <String, dynamic>{};
+    
+    for (final detail in details) {
+      if (detail is! Map<String, dynamic>) continue;
+      
+      final typeId = _parseIntValue(detail['type_id']);
+      final value = detail['value'];
+      
+      // SportMonks type IDs for common stats
+      switch (typeId) {
+        case 52: stats['goals'] = value; break;          // Goals
+        case 79: stats['rating'] = value; break;         // Rating
+        case 84: stats['assists'] = value; break;        // Assists
+        case 119: stats['minutes'] = value; break;       // Minutes
+        case 194: 
+        case 59: stats['cleanSheets'] = value; break;    // Clean sheets
+        case 209:
+        case 101: stats['saves'] = value; break;         // Saves
+        case 321: 
+        case 42: stats['appearances'] = value; break;    // Appearances
+        case 56: stats['yellowCards'] = value; break;    // Yellow cards
+        case 57: stats['redCards'] = value; break;       // Red cards
+      }
+    }
+    
+    return stats;
   }
   
   /// Parse a Firestore player document into RosterPlayer
@@ -832,7 +1119,7 @@ class PlayersRepository {
       }
       
       final projectedPoints = _calculateProjectedPointsFromStats(stats, positionCode);
-      final credits = _calculateCredits(projectedPoints, positionCode);
+      final price = _calculatePrice(stats.isNotEmpty ? stats : null, positionCode, projectedPoints);
       
       return RosterPlayer(
         id: id,
@@ -845,7 +1132,7 @@ class PlayersRepository {
         teamName: teamName,
         teamLogo: teamLogo,
         jerseyNumber: jerseyNumber ?? _parseIntValue(playerData['jersey_number']),
-        credits: credits,
+        price: price,
         projectedPoints: projectedPoints,
         selectedByPercent: 0,
         stats: stats.isNotEmpty ? stats : null,
@@ -857,16 +1144,30 @@ class PlayersRepository {
     }
   }
   
+  /// Extract numeric value from stats field (handles nested objects like {total: 4, goals: 4})
+  double _extractStatValue(dynamic value) {
+    if (value == null) return 0;
+    if (value is num) return value.toDouble();
+    if (value is Map) {
+      // SportMonks nested format: {total: X, goals: X, penalties: X}
+      return (value['total'] as num?)?.toDouble() ?? 
+             (value['goals'] as num?)?.toDouble() ?? 
+             (value['value'] as num?)?.toDouble() ?? 0;
+    }
+    return double.tryParse(value.toString()) ?? 0;
+  }
+  
   /// Calculate projected points from stats map
   double _calculateProjectedPointsFromStats(Map<String, dynamic> stats, String positionCode) {
     double points = 2.0; // Base points
     
-    final goals = _parseIntValue(stats['goals']) ?? 0;
-    final assists = _parseIntValue(stats['assists']) ?? 0;
-    final cleanSheets = _parseIntValue(stats['cleanSheets']) ?? _parseIntValue(stats['clean_sheets']) ?? 0;
-    final saves = _parseIntValue(stats['saves']) ?? 0;
-    final appearances = _parseIntValue(stats['appearances']) ?? 0;
-    final rating = _parseDoubleSafe(stats['rating']) ?? 0;
+    final goals = _extractStatValue(stats['goals']).toInt();
+    final assists = _extractStatValue(stats['assists']).toInt();
+    final cleanSheets = _extractStatValue(stats['cleanSheets']) .toInt() ?? 
+                        _extractStatValue(stats['clean_sheets']).toInt();
+    final saves = _extractStatValue(stats['saves']).toInt();
+    final appearances = _extractStatValue(stats['appearances']).toInt();
+    final rating = _extractStatValue(stats['rating']);
     
     // Position-based scoring
     switch (positionCode) {
@@ -1221,7 +1522,7 @@ class PlayersRepository {
       // Parse statistics
       final stats = _extractPlayerStats(playerData);
       final projectedPoints = _calculateProjectedPoints(stats, positionCode);
-      final credits = _calculateCredits(projectedPoints, positionCode);
+      final price = _calculatePrice(stats, positionCode, projectedPoints);
       
       return RosterPlayer(
         id: id,
@@ -1234,7 +1535,7 @@ class PlayersRepository {
         teamName: teamInfo.teamName,
         teamLogo: teamInfo.teamLogo,
         jerseyNumber: teamInfo.jerseyNumber,
-        credits: credits,
+        price: price,
         projectedPoints: projectedPoints,
         stats: stats,
       );
@@ -1499,57 +1800,168 @@ class PlayersRepository {
     return double.parse(points.clamp(2.0, 12.0).toStringAsFixed(1));
   }
 
-  /// Calculate fantasy credits (price) based on player value
-  /// Uses a tiered pricing model to ensure budget diversity
-  /// Target: 15 players within 100 credits (avg ~6.67 per player)
-  double _calculateCredits(double projectedPoints, String positionCode) {
+  /// Calculate player price in millions of USD based on season stats
+  /// 
+  /// Uses a realistic pricing model where:
+  /// - Budget: $100M for 15 players (avg ~$6.67M per player)
+  /// - Price range: $1M to $25M
+  /// 
+  /// Pricing factors:
+  /// - Forwards: Goals weighted heavily, assists secondary
+  /// - Midfielders: Goals + assists, playmaking ability
+  /// - Defenders: Clean sheets, rare goals highly valued
+  /// - Goalkeepers: Clean sheets, saves, consistency
+  double _calculatePrice(Map<String, dynamic>? stats, String positionCode, double projectedPoints) {
     final normalizedPos = _normalizePositionCode(positionCode);
     
-    // Base price depends heavily on projected points
-    // We want a good spread: 4.5 to 11.0 credits
-    double credits;
-    
-    if (projectedPoints >= 8.0) {
-      // Elite players (top scorers, premium picks)
-      credits = 9.0 + ((projectedPoints - 8.0) * 1.0);
-    } else if (projectedPoints >= 6.0) {
-      // Premium players
-      credits = 7.0 + ((projectedPoints - 6.0) * 1.0);
-    } else if (projectedPoints >= 4.5) {
-      // Mid-range players
-      credits = 5.5 + ((projectedPoints - 4.5) * 1.0);
-    } else if (projectedPoints >= 3.0) {
-      // Budget players
-      credits = 4.5 + ((projectedPoints - 3.0) * 0.67);
-    } else {
-      // Bargain players
-      credits = 4.5;
-    }
-    
-    // Position-based adjustments (slight)
+    // Base prices by position (in millions USD)
+    double basePrice;
     switch (normalizedPos) {
       case 'GK':
-        // GKs are generally cheaper (only need 2)
-        credits *= 0.9;
+        basePrice = 2.0; // $2M base for goalkeepers
         break;
       case 'DEF':
-        // Defenders slightly cheaper
-        credits *= 0.95;
+        basePrice = 2.5; // $2.5M base for defenders
         break;
       case 'MID':
-        // Midfielders standard
-        credits *= 1.0;
+        basePrice = 3.0; // $3M base for midfielders
         break;
       case 'FWD':
-        // Forwards slightly more expensive (high demand, only need 3)
-        credits *= 1.05;
+        basePrice = 3.5; // $3.5M base for forwards
         break;
+      default:
+        basePrice = 3.0;
+    }
+    
+    // If no stats, use projected points as fallback
+    if (stats == null || stats.isEmpty) {
+      // Scale price based on projected points (2-12 range -> 1.5M-8M)
+      final priceFromPoints = basePrice + (projectedPoints - 3.0) * 0.8;
+      return double.parse(priceFromPoints.clamp(1.5, 10.0).toStringAsFixed(1));
+    }
+    
+    // Extract stats (handles nested SportMonks format like {total: 4, goals: 4})
+    final goals = _extractStatValue(stats['goals']);
+    final assists = _extractStatValue(stats['assists']);
+    final cleanSheets = _extractStatValue(stats['cleanSheets']) + 
+                        _extractStatValue(stats['clean_sheets']);
+    final saves = _extractStatValue(stats['saves']);
+    final appearances = _extractStatValue(stats['appearances']);
+    final rating = _extractStatValue(stats['rating']);
+    final minutes = _extractStatValue(stats['minutes']);
+    
+    // Calculate games played (for per-game calculations)
+    final gamesPlayed = appearances > 0 ? appearances : (minutes > 0 ? minutes / 70 : 1);
+    
+    double price = basePrice;
+    
+    // Position-specific pricing
+    switch (normalizedPos) {
+      case 'FWD':
+        // Forwards: Goals are king
+        // 20+ goals = star striker (~$20M+)
+        // 10-19 goals = good striker (~$10-15M)
+        // 5-9 goals = decent striker (~$6-10M)
+        // <5 goals = budget option (~$3-6M)
+        if (goals >= 20) {
+          price = 18.0 + ((goals - 20) * 0.8);
+        } else if (goals >= 15) {
+          price = 13.0 + ((goals - 15) * 1.0);
+        } else if (goals >= 10) {
+          price = 9.0 + ((goals - 10) * 0.8);
+        } else if (goals >= 5) {
+          price = 5.5 + ((goals - 5) * 0.7);
+        } else {
+          price = basePrice + (goals * 0.5);
+        }
+        // Assists add value for forwards
+        price += assists * 0.25;
+        break;
+        
+      case 'MID':
+        // Midfielders: Goals + assists matter, playmaking valued
+        // Goals are more valuable (rarer for mids)
+        if (goals >= 10) {
+          price = 12.0 + ((goals - 10) * 1.2);
+        } else if (goals >= 5) {
+          price = 7.0 + ((goals - 5) * 1.0);
+        } else {
+          price = basePrice + (goals * 0.8);
+        }
+        // Assists are key for midfielders
+        if (assists >= 10) {
+          price += 4.0 + ((assists - 10) * 0.5);
+        } else if (assists >= 5) {
+          price += 2.0 + ((assists - 5) * 0.4);
+        } else {
+          price += assists * 0.4;
+        }
+        // Clean sheets bonus for defensive mids
+        price += cleanSheets * 0.15;
+        break;
+        
+      case 'DEF':
+        // Defenders: Clean sheets + rare goals
+        // Goals from defenders are highly valuable
+        price += goals * 1.5;
+        price += assists * 0.4;
+        // Clean sheets are important
+        if (cleanSheets >= 15) {
+          price += 4.0 + ((cleanSheets - 15) * 0.3);
+        } else if (cleanSheets >= 10) {
+          price += 2.5 + ((cleanSheets - 10) * 0.3);
+        } else {
+          price += cleanSheets * 0.25;
+        }
+        break;
+        
+      case 'GK':
+        // Goalkeepers: Clean sheets and saves
+        // Clean sheets are paramount
+        if (cleanSheets >= 15) {
+          price = 8.0 + ((cleanSheets - 15) * 0.5);
+        } else if (cleanSheets >= 10) {
+          price = 5.0 + ((cleanSheets - 10) * 0.6);
+        } else if (cleanSheets >= 5) {
+          price = 3.0 + ((cleanSheets - 5) * 0.4);
+        } else {
+          price = basePrice + (cleanSheets * 0.2);
+        }
+        // Saves add value (per game)
+        if (gamesPlayed > 0) {
+          final savesPerGame = saves / gamesPlayed;
+          if (savesPerGame >= 4) {
+            price += 1.5;
+          } else if (savesPerGame >= 3) {
+            price += 1.0;
+          } else if (savesPerGame >= 2) {
+            price += 0.5;
+          }
+        }
+        break;
+    }
+    
+    // Rating bonus (applies to all positions)
+    if (rating > 0) {
+      if (rating >= 7.5) price += 1.5;
+      else if (rating >= 7.2) price += 1.0;
+      else if (rating >= 7.0) price += 0.5;
+      else if (rating < 6.5) price -= 0.5; // Penalty for low rating
+    }
+    
+    // Consistency bonus (played most games)
+    if (gamesPlayed >= 30) {
+      price += 1.0; // Reliable player premium
+    } else if (gamesPlayed >= 25) {
+      price += 0.5;
+    } else if (gamesPlayed < 10) {
+      price *= 0.8; // Discount for rarely used players
     }
     
     // Ensure price is within valid range
-    // Min: 4.5 (allows building full team)
-    // Max: 11.0 (prevents single player from breaking budget)
-    return double.parse(credits.clamp(4.5, 11.0).toStringAsFixed(1));
+    // Min: $1.5M (even bench players have value)
+    // Max: $25M (nobody should break the bank completely)
+    return double.parse(price.clamp(1.5, 25.0).toStringAsFixed(1));
   }
 
   // NOTE: Demo data generator removed - we now always use real API data

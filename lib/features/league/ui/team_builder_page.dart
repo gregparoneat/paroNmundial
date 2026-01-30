@@ -12,8 +12,8 @@ import 'package:flutter/material.dart';
 
 /// Sort options for player list
 enum PlayerSortOption {
-  creditHigh,
-  creditLow,
+  priceHigh,
+  priceLow,
   pointsHigh,
   pointsLow,
   selectedPercent,
@@ -21,9 +21,9 @@ enum PlayerSortOption {
 
   String get displayName {
     switch (this) {
-      case PlayerSortOption.creditHigh:
+      case PlayerSortOption.priceHigh:
         return 'Price: High to Low';
-      case PlayerSortOption.creditLow:
+      case PlayerSortOption.priceLow:
         return 'Price: Low to High';
       case PlayerSortOption.pointsHigh:
         return 'Points: High to Low';
@@ -105,7 +105,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     // Load existing team if any
     if (widget.existingTeam != null) {
       _selectedPlayers = List.from(widget.existingTeam!.players);
-      // Recalculate budget based on actual player credits (don't trust stored value)
+      // Recalculate budget based on actual player prices (don't trust stored value)
       _budgetRemaining = _recalculateBudget();
     }
     
@@ -117,8 +117,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   
   /// Recalculate the budget remaining based on selected players
   double _recalculateBudget() {
-    final usedCredits = _selectedPlayers.fold(0.0, (sum, p) => sum + p.credits);
-    return _budget - usedCredits;
+    final usedAmount = _selectedPlayers.fold(0.0, (sum, p) => sum + p.price);
+    return _budget - usedAmount;
   }
 
   @override
@@ -142,24 +142,22 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
       // Load teams first (uses Hive cache or Firestore)
       _ligaMxTeams = await _playersRepository.getLigaMxTeams();
       
-      // Check if we have cached players in Hive
-      var cachedPlayers = _playersRepository.getCachedPlayers();
-      debugPrint('Found ${cachedPlayers.length} players in Hive cache');
+      // Load players from Firestore (this handles caching and stats enrichment)
+      // Prices are recalculated from stats on each load to ensure latest pricing logic
+      debugPrint('Loading players with stats enrichment...');
+      final players = await _playersRepository.loadAllPlayersFromFirestore();
+      debugPrint('Loaded ${players.length} players (with stats for pricing)');
       
-      // If cache is empty or has very few players, load from Firestore
-      if (cachedPlayers.length < 100) {
-        debugPrint('Cache insufficient, loading from Firestore...');
-        final firestorePlayers = await _playersRepository.loadAllPlayersFromFirestore();
-        if (firestorePlayers.isNotEmpty) {
-          cachedPlayers = firestorePlayers;
-          debugPrint('Loaded ${cachedPlayers.length} players from Firestore');
+      if (players.isNotEmpty) {
+        // Log sample prices for debugging
+        final forwards = players.where((p) => p.positionCode == 'FWD').take(5);
+        for (final fwd in forwards) {
+          debugPrint('FWD ${fwd.displayName}: \$${fwd.price}M (goals: ${fwd.stats?['goals']}, assists: ${fwd.stats?['assists']})');
         }
-      }
-      
-      if (cachedPlayers.isNotEmpty) {
+        
         if (mounted) {
           setState(() {
-            _allRosterPlayers = cachedPlayers;
+            _allRosterPlayers = players;
             _hasMorePlayers = false; // All players loaded from Firestore
             _isLoading = false;
           });
@@ -287,10 +285,10 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
       
       // Then apply sort option
       switch (_sortOption) {
-        case PlayerSortOption.creditHigh:
-          return b.credits.compareTo(a.credits);
-        case PlayerSortOption.creditLow:
-          return a.credits.compareTo(b.credits);
+        case PlayerSortOption.priceHigh:
+          return b.price.compareTo(a.price);
+        case PlayerSortOption.priceLow:
+          return a.price.compareTo(b.price);
         case PlayerSortOption.pointsHigh:
           return b.projectedPoints.compareTo(a.projectedPoints);
         case PlayerSortOption.pointsLow:
@@ -317,7 +315,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
         // Remove player
         final removed = _selectedPlayers.firstWhere((p) => p.playerId == rosterPlayer.id);
         _selectedPlayers.removeWhere((p) => p.playerId == rosterPlayer.id);
-        _budgetRemaining += removed.credits;
+        _budgetRemaining += removed.price;
       } else {
         // Check constraints before adding
         if (_selectedPlayers.length >= kTotalSquadSize) {
@@ -325,7 +323,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           return;
         }
         
-        if (rosterPlayer.credits > _budgetRemaining) {
+        if (rosterPlayer.price > _budgetRemaining) {
           _showError('Not enough budget');
           return;
         }
@@ -347,10 +345,10 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           playerImageUrl: rosterPlayer.imagePath,
           position: position,
           teamName: rosterPlayer.teamName,
-          credits: rosterPlayer.credits,
+          price: rosterPlayer.price,
         );
         _selectedPlayers.add(teamPlayer);
-        _budgetRemaining -= rosterPlayer.credits;
+        _budgetRemaining -= rosterPlayer.price;
       }
     });
   }
@@ -764,7 +762,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Budget: ${_budgetRemaining.toStringAsFixed(1)} / ${_budget.toInt()} credits',
+                'Budget: \$${_budgetRemaining.toStringAsFixed(1)}M / \$${_budget.toInt()}M',
                 style: TextStyle(
                   color: _budgetRemaining < 0 ? Colors.red : bgTextColor,
                   fontWeight: FontWeight.w500,
@@ -1420,7 +1418,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   void _removePlayerFromSquad(FantasyTeamPlayer player) {
     setState(() {
       _selectedPlayers.remove(player);
-      _budgetRemaining += player.credits;
+      _budgetRemaining += player.price;
     });
   }
   
@@ -1743,8 +1741,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
 
   IconData _getSortIcon(PlayerSortOption option) {
     switch (option) {
-      case PlayerSortOption.creditHigh:
-      case PlayerSortOption.creditLow:
+      case PlayerSortOption.priceHigh:
+      case PlayerSortOption.priceLow:
         return Icons.monetization_on;
       case PlayerSortOption.pointsHigh:
       case PlayerSortOption.pointsLow:
@@ -1960,7 +1958,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
 
   Widget _buildPlayerCard(ThemeData theme, RosterPlayer player) {
     final isSelected = _isPlayerSelected(player.id);
-    final canAfford = player.credits <= _budgetRemaining || isSelected;
+    final canAfford = player.price <= _budgetRemaining || isSelected;
     
     // Get position color
     final posColor = _getPositionColorFromCode(player.positionCode);
@@ -2154,7 +2152,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                 ),
               ),
               
-              // Credits badge
+              // Price badge
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
@@ -2164,7 +2162,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  '${player.credits}',
+                  '\$${player.price.toStringAsFixed(1)}M',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: canAfford ? theme.primaryColor : Colors.red,
@@ -2199,7 +2197,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   void _showPlayerDetailsSheet(RosterPlayer player) {
     final theme = Theme.of(context);
     final isSelected = _isPlayerSelected(player.id);
-    final canAfford = player.credits <= _budgetRemaining || isSelected;
+    final canAfford = player.price <= _budgetRemaining || isSelected;
     final posColor = _getPositionColorFromCode(player.positionCode);
     
     showModalBottomSheet(
@@ -2379,7 +2377,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                '${player.credits.toStringAsFixed(1)} Credits',
+                                '\$${player.price.toStringAsFixed(1)}M',
                                 style: theme.textTheme.headlineSmall?.copyWith(
                                   fontWeight: FontWeight.bold,
                                   color: theme.primaryColor,
@@ -2511,7 +2509,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                         label: Text(
                           isSelected 
                               ? 'Remove from Squad' 
-                              : 'Add to Squad (${player.credits} cr)',
+                              : 'Add to Squad (\$${player.price.toStringAsFixed(1)}M)',
                         ),
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -3077,7 +3075,7 @@ class _TeamPreviewSheet extends StatelessWidget {
           ],
         ),
         subtitle: Text(
-          '${player.teamName ?? 'Unknown'} • ${player.credits} credits',
+          '${player.teamName ?? 'Unknown'} • \$${player.price.toStringAsFixed(1)}M',
           style: TextStyle(color: bgTextColor, fontSize: 12),
         ),
         trailing: PopupMenuButton<String>(
@@ -3341,11 +3339,11 @@ class _PlayerSelectionSheetState extends State<_PlayerSelectionSheet> {
       case PlayerSortOption.pointsLow:
         players.sort((a, b) => a.projectedPoints.compareTo(b.projectedPoints));
         break;
-      case PlayerSortOption.creditHigh:
-        players.sort((a, b) => b.credits.compareTo(a.credits));
+      case PlayerSortOption.priceHigh:
+        players.sort((a, b) => b.price.compareTo(a.price));
         break;
-      case PlayerSortOption.creditLow:
-        players.sort((a, b) => a.credits.compareTo(b.credits));
+      case PlayerSortOption.priceLow:
+        players.sort((a, b) => a.price.compareTo(b.price));
         break;
       case PlayerSortOption.nameAZ:
         players.sort((a, b) => a.name.compareTo(b.name));
@@ -3560,7 +3558,7 @@ class _PlayerSelectionSheetState extends State<_PlayerSelectionSheet> {
                         itemCount: filteredPlayers.length,
                         itemBuilder: (context, index) {
                           final player = filteredPlayers[index];
-                          final canAfford = player.credits <= widget.budgetRemaining;
+                          final canAfford = player.price <= widget.budgetRemaining;
                           
                           return _buildPlayerCard(theme, player, canAfford);
                         },
@@ -3764,7 +3762,7 @@ class _PlayerSelectionSheetState extends State<_PlayerSelectionSheet> {
                     ],
                   ),
                   Text(
-                    '${player.credits.toStringAsFixed(1)} cr',
+                    '\$${player.price.toStringAsFixed(1)}M',
                     style: TextStyle(
                       color: canAfford ? bgTextColor : Colors.red,
                       fontSize: 12,

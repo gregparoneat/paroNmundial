@@ -600,7 +600,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildRuleItem('Select 15 players (11 starters + 4 subs) within ${_league.budget.toInt()} credits'),
+              _buildRuleItem('Select 15 players (11 starters + 4 subs) within \$${_league.budget.toInt()}M'),
               _buildRuleItem('Squad: 2 GK, 5 DEF, 5 MID, 3 FWD'),
               _buildRuleItem('Captain gets 2x points, Vice-captain gets 1.5x'),
               _buildRuleItem('Max 4 players from one team'),
@@ -940,7 +940,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                           ),
                         ),
                         Text(
-                          '${players.length}/15 players • ${_myTeam!.budgetRemaining.toStringAsFixed(1)} credits left',
+                          '${players.length}/15 players • \$${_myTeam!.budgetRemaining.toStringAsFixed(1)}M left',
                           style: TextStyle(color: bgTextColor, fontSize: 12),
                         ),
                       ],
@@ -1067,16 +1067,16 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
   /// Build the projected points card for next matchup
   Widget _buildProjectedPointsCard(ThemeData theme) {
     // Calculate total projected points from the team
-    // Using the credits as a proxy for projected points (in real implementation,
+    // Using the price as a proxy for projected points (in real implementation,
     // you'd fetch actual projected points from player stats)
     final players = _myTeam?.players ?? [];
     
-    // Sum up projected points (using credits * 1.5 as an estimate since we don't have direct access)
+    // Sum up projected points (using price as an estimate since expensive players tend to score more)
     // In a real implementation, you'd store projectedPoints in FantasyTeamPlayer
     double totalProjectedPoints = 0;
     for (final player in players) {
-      // Estimate based on credit value - higher value players typically score more
-      final estimatedPoints = player.credits * 1.2 + 2.0;
+      // Estimate based on player price - higher value players typically score more
+      final estimatedPoints = player.price * 0.8 + 2.0;
       totalProjectedPoints += estimatedPoints;
     }
     
@@ -1085,10 +1085,10 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
     final viceCaptain = players.where((p) => p.isViceCaptain).firstOrNull;
     
     if (captain != null) {
-      totalProjectedPoints += captain.credits * 1.2 + 2.0; // Double captain's points
+      totalProjectedPoints += captain.price * 0.8 + 2.0; // Double captain's points
     }
     if (viceCaptain != null) {
-      totalProjectedPoints += (viceCaptain.credits * 1.2 + 2.0) * 0.5; // 1.5x vice-captain's points
+      totalProjectedPoints += (viceCaptain.price * 0.8 + 2.0) * 0.5; // 1.5x vice-captain's points
     }
     
     return Container(
@@ -1590,7 +1590,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
           ],
         ),
         subtitle: Text(
-          '${team.players.length} players • ${team.budgetRemaining.toStringAsFixed(1)} credits left',
+          '${team.players.length} players • \$${team.budgetRemaining.toStringAsFixed(1)}M left',
           style: TextStyle(color: bgTextColor, fontSize: 12),
         ),
         trailing: Column(

@@ -682,7 +682,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
                         Icon(Icons.attach_money, size: 12, color: bgTextColor),
                         const SizedBox(width: 2),
                         Text(
-                          '${player.credits} cr',
+                          '\$${player.price.toStringAsFixed(1)}M',
                           style: TextStyle(fontSize: 11, color: bgTextColor),
                         ),
                       ],

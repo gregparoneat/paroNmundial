@@ -137,7 +137,7 @@ class League {
   final LeagueStatus status;
   final String? inviteCode;
   final int maxMembers;
-  final double budget; // Total budget per team (in credits)
+  final double budget; // Total budget per team (in millions of USD, e.g., 100.0 = $100M)
   final int? matchId; // Associated match ID from SportMonks
   final String? matchName; // e.g., "Team A vs Team B"
   final DateTime? matchDateTime;
@@ -196,13 +196,16 @@ class League {
 
 League: $name
 ${description != null ? 'Description: $description\n' : ''}Match: ${matchName ?? 'TBD'}
-Budget: $budget credits
+Budget: \$${budget.toInt()}M
 FREE to play!
 
 Join with code: $inviteCode
 Or click: $inviteLink
 ''';
   }
+  
+  /// Get formatted budget string (e.g., "$100M")
+  String get formattedBudget => '\$${budget.toInt()}M';
 
   League copyWith({
     String? id,
@@ -397,11 +400,17 @@ class FantasyTeamPlayer {
   final String? playerImageUrl;
   final String? teamName;
   final PlayerPosition position;
-  final double credits; // Cost in credits
+  final double price; // Cost in millions of USD (e.g., 8.5 = $8.5M)
   final double points; // Points earned (calculated after match)
   final double predictedPoints; // Predicted points for next fixture
   final bool isCaptain;
   final bool isViceCaptain;
+  
+  /// Backwards compatibility - returns price (previously called credits)
+  double get credits => price;
+  
+  /// Get formatted price string (e.g., "$8.5M")
+  String get formattedPrice => '\$${price.toStringAsFixed(1)}M';
 
   FantasyTeamPlayer({
     required this.playerId,
@@ -409,7 +418,7 @@ class FantasyTeamPlayer {
     this.playerImageUrl,
     this.teamName,
     required this.position,
-    required this.credits,
+    required this.price,
     this.points = 0,
     this.predictedPoints = 0,
     this.isCaptain = false,
@@ -436,7 +445,7 @@ class FantasyTeamPlayer {
     String? playerImageUrl,
     PlayerPosition? position,
     String? teamName,
-    double? credits,
+    double? price,
     double? points,
     double? predictedPoints,
     bool? isCaptain,
@@ -447,7 +456,7 @@ class FantasyTeamPlayer {
       playerName: playerName ?? this.playerName,
       playerImageUrl: playerImageUrl ?? this.playerImageUrl,
       position: position ?? this.position,
-      credits: credits ?? this.credits,
+      price: price ?? this.price,
       points: points ?? this.points,
       predictedPoints: predictedPoints ?? this.predictedPoints,
       isCaptain: isCaptain ?? this.isCaptain,
@@ -462,7 +471,8 @@ class FantasyTeamPlayer {
       'playerImageUrl': playerImageUrl,
       'position': position.name,
       'teamName': teamName,
-      'credits': credits,
+      'price': price,
+      'credits': price, // Backwards compatibility
       'points': points,
       'predictedPoints': predictedPoints,
       'isCaptain': isCaptain,
@@ -479,7 +489,8 @@ class FantasyTeamPlayer {
         (e) => e.name == json['position'],
         orElse: () => PlayerPosition.midfielder,
       ),
-      credits: (json['credits'] as num).toDouble(),
+      price: (json['price'] as num?)?.toDouble() ?? 
+             (json['credits'] as num?)?.toDouble() ?? 5.0, // Support both
       points: (json['points'] as num?)?.toDouble() ?? 0,
       predictedPoints: (json['predictedPoints'] as num?)?.toDouble() ?? 0,
       isCaptain: json['isCaptain'] as bool? ?? false,
@@ -488,7 +499,7 @@ class FantasyTeamPlayer {
   }
 
   /// Create from a Player model
-  factory FantasyTeamPlayer.fromPlayer(Player player, double credits) {
+  factory FantasyTeamPlayer.fromPlayer(Player player, double price) {
     // Convert PositionInfo to PlayerPosition
     PlayerPosition position = PlayerPosition.midfielder;
     if (player.position != null) {
@@ -518,7 +529,7 @@ class FantasyTeamPlayer {
       playerImageUrl: player.imagePath,
       position: position,
       teamName: player.currentTeam?.teamName,
-      credits: credits,
+      price: price,
     );
   }
 }
@@ -531,8 +542,8 @@ class FantasyTeam {
   final String userName;
   final String teamName;
   final List<FantasyTeamPlayer> players;
-  final double totalCredits;
-  final double budgetRemaining;
+  final double totalCredits; // Total budget in millions USD (e.g., 100.0 = $100M)
+  final double budgetRemaining; // Remaining budget in millions USD
   final double totalPoints;
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -622,7 +633,7 @@ class FantasyTeam {
     if (fwd > 3) errors.add('Cannot have more than 3 forwards (currently $fwd)');
     
     if (budgetRemaining < 0) {
-      errors.add('Over budget by ${(-budgetRemaining).toStringAsFixed(1)} credits');
+      errors.add('Over budget by \$${(-budgetRemaining).toStringAsFixed(1)}M');
     }
     
     return errors;
@@ -722,15 +733,21 @@ class FantasyTeam {
 /// Available player for selection in team builder
 class AvailablePlayer {
   final Player player;
-  final double credits;
+  final double price; // Price in millions USD (e.g., 8.5 = $8.5M)
   final double selectedByPercent; // Percentage of users who selected this player
   final double averagePoints; // Average fantasy points per match
   final bool isSelected; // Is this player in the user's current team?
   final PlayerPosition? position; // Override position for demo players
+  
+  /// Backwards compatibility - returns price (previously called credits)
+  double get credits => price;
+  
+  /// Get formatted price string (e.g., "$8.5M")
+  String get formattedPrice => '\$${price.toStringAsFixed(1)}M';
 
   AvailablePlayer({
     required this.player,
-    required this.credits,
+    required this.price,
     this.selectedByPercent = 0,
     this.averagePoints = 0,
     this.isSelected = false,
@@ -761,7 +778,7 @@ class AvailablePlayer {
 
   AvailablePlayer copyWith({
     Player? player,
-    double? credits,
+    double? price,
     double? selectedByPercent,
     double? averagePoints,
     bool? isSelected,
@@ -769,7 +786,7 @@ class AvailablePlayer {
   }) {
     return AvailablePlayer(
       player: player ?? this.player,
-      credits: credits ?? this.credits,
+      price: price ?? this.price,
       selectedByPercent: selectedByPercent ?? this.selectedByPercent,
       averagePoints: averagePoints ?? this.averagePoints,
       isSelected: isSelected ?? this.isSelected,

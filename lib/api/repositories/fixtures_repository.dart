@@ -606,6 +606,7 @@ class FixturesRepository {
     }
     
     // Step 2: Check lineups to determine if player was starter or bench
+    // Also extract saves and rating from lineup details
     final lineups = fixture['lineups'] as List?;
     if (lineups != null) {
       for (final lineup in lineups) {
@@ -622,6 +623,36 @@ class FixturesRepository {
             print('Fixture $fixtureId: Player $playerId was a STARTER');
           } else if (isOnBench) {
             print('Fixture $fixtureId: Player $playerId was on BENCH');
+          }
+          
+          // Extract saves, rating, and minutes from lineup details
+          final details = lineup['details'] as List?;
+          if (details != null) {
+            for (final detail in details) {
+              if (detail is! Map<String, dynamic>) continue;
+              final type = detail['type'] as Map<String, dynamic>?;
+              final devName = type?['developer_name']?.toString() ?? '';
+              final data = detail['data'] as Map<String, dynamic>?;
+              final value = data?['value'];
+              
+              switch (devName) {
+                case 'SAVES':
+                  saves = _parseIntSafe(value) ?? 0;
+                  print('Fixture $fixtureId: Player $playerId SAVES=$saves');
+                  break;
+                case 'RATING':
+                  rating = _parseDoubleSafe(value);
+                  print('Fixture $fixtureId: Player $playerId RATING=$rating');
+                  break;
+                case 'MINUTES_PLAYED':
+                  final detailMinutes = _parseIntSafe(value) ?? 0;
+                  if (detailMinutes > 0) {
+                    minutes = detailMinutes;
+                    played = true;
+                  }
+                  break;
+              }
+            }
           }
           break;
         }
@@ -714,23 +745,56 @@ class FixturesRepository {
     print('Fixture $fixtureId: Player $playerId - starter=$wasStarter, subIn=$subInMinute, subOut=$subOutMinute, TOTAL MINUTES=$minutes');
     
     // Step 5: Check for clean sheet (opponent scored 0 goals)
-    // Look at result_info or check final score
-    final resultInfo = fixture['result_info'] as String?;
-    final participants = fixture['participants'] as List?;
-    if (participants != null) {
-      // Find opponent's goals
-      for (final participant in participants) {
-        if (participant is! Map<String, dynamic>) continue;
-        final participantId = participant['id'] as int?;
-        if (participantId != null && participantId != teamId) {
-          // This is the opponent
-          final meta = participant['meta'] as Map<String, dynamic>?;
-          if (meta != null) {
-            final opponentGoals = _parseIntSafe(meta['goals']) ?? 
-                                  _parseIntSafe(meta['score']) ?? 0;
-            cleanSheet = opponentGoals == 0;
+    // Use the 'scores' array which is more reliable than participants.meta
+    // Default to false (not a clean sheet) if we can't determine
+    cleanSheet = false;
+    
+    final scores = fixture['scores'] as List?;
+    if (scores != null && scores.isNotEmpty) {
+      for (final score in scores) {
+        if (score is! Map<String, dynamic>) continue;
+        
+        // Look for the opponent's score (description usually "CURRENT" for final score)
+        final description = score['description']?.toString().toUpperCase() ?? '';
+        final scoreParticipantId = score['participant_id'] as int?;
+        
+        // We want the opponent's goals (not our team)
+        if (scoreParticipantId != null && scoreParticipantId != teamId) {
+          // Check for final/current score
+          if (description == 'CURRENT' || description == '2ND_HALF' || description.contains('FINAL')) {
+            final scoreData = score['score'] as Map<String, dynamic>?;
+            final opponentGoals = scoreData?['goals'] as int? ?? 
+                                  _parseIntSafe(score['goals']) ?? 
+                                  _parseIntSafe(scoreData?['participant']) ?? -1;
+            
+            if (opponentGoals >= 0) {
+              cleanSheet = opponentGoals == 0;
+              print('Fixture $fixtureId: Opponent goals = $opponentGoals, cleanSheet = $cleanSheet');
+            }
+            break;
           }
-          break;
+        }
+      }
+    }
+    
+    // Fallback: check participants meta if scores didn't work
+    if (!cleanSheet) {
+      final participants = fixture['participants'] as List?;
+      if (participants != null) {
+        for (final participant in participants) {
+          if (participant is! Map<String, dynamic>) continue;
+          final participantId = participant['id'] as int?;
+          if (participantId != null && participantId != teamId) {
+            final meta = participant['meta'] as Map<String, dynamic>?;
+            if (meta != null) {
+              final opponentGoals = _parseIntSafe(meta['goals']);
+              if (opponentGoals != null) {
+                cleanSheet = opponentGoals == 0;
+                print('Fixture $fixtureId: (from meta) Opponent goals = $opponentGoals, cleanSheet = $cleanSheet');
+              }
+            }
+            break;
+          }
         }
       }
     }

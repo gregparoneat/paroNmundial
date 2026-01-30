@@ -481,8 +481,13 @@ class AdvancedStatsDialog extends StatelessWidget {
       _StatItem('Blocks', advanced.blocks.toString(), isHighlight: advanced.blocks > 3),
       _StatItem('Dribbled Past', advanced.dribbledPast.toString()),
       _StatItem('Errors to Goal', advanced.errorLeadToGoal.toString(), isHighlight: advanced.errorLeadToGoal > 0),
+      // Goalkeeper stats
+      if (advanced.saves > 0)
+        _StatItem('Saves', advanced.saves.toString(), isHighlight: true),
       if (advanced.savesInsideBox > 0)
         _StatItem('Saves (Box)', advanced.savesInsideBox.toString(), isHighlight: true),
+      if (advanced.goalsConceeded > 0)
+        _StatItem('Goals Conceeded', advanced.goalsConceeded.toString()),
     ];
   }
   

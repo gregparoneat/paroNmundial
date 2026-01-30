@@ -191,7 +191,7 @@ class _CreateLeaguePageState extends State<CreateLeaguePage> {
                       label: 'Team Budget',
                       hint: '100',
                       icon: Icons.account_balance_wallet,
-                      suffix: 'credits',
+                      suffix: 'Million USD',
                     ),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     inputFormatters: [

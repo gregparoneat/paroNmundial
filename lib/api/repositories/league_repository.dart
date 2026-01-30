@@ -1086,7 +1086,7 @@ class LeagueRepository {
           playerName: data.$2,
           position: _stringToPosition(data.$3),
           teamName: data.$4,
-          credits: data.$5,
+          price: data.$5,
           points: points,
           predictedPoints: predictedPoints > 0 ? predictedPoints : 0.0,
         ));

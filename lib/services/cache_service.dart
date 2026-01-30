@@ -46,6 +46,11 @@ class CacheKeys {
   static String playerTournamentStats(int playerId, int stageId) => 'player_tourn_${playerId}_$stageId';
   static String playerTournamentTimestamp(int playerId, int stageId) => 'player_tourn_ts_${playerId}_$stageId';
   
+  // Player season stats cache (for pricing - per player)
+  static String playerSeasonStats(int playerId) => 'player_season_stats_$playerId';
+  static const String allPlayerSeasonStats = 'all_player_season_stats';
+  static const String playerSeasonStatsTimestamp = 'player_season_stats_timestamp';
+  
   // User preferences
   static const String favoriteTeamId = 'favorite_team_id';
   static const String favoriteTeamName = 'favorite_team_name';
@@ -287,6 +292,83 @@ class CacheService {
   Future<void> saveLigaMxTeams(List<Map<String, dynamic>> teams) async {
     await _teamsBox.put(CacheKeys.ligaMxTeams, json.encode(teams));
     debugPrint('Saved ${teams.length} Liga MX teams to Hive cache');
+  }
+
+  // ==================== PLAYER SEASON STATS CACHE ====================
+  
+  static const Duration _statsExpiry = Duration(days: 7); // Stats don't change often
+  
+  /// Get all cached player season stats (for pricing)
+  Map<int, Map<String, dynamic>>? getAllPlayerSeasonStats() {
+    // Check timestamp
+    final timestampStr = _playersBox.get(CacheKeys.playerSeasonStatsTimestamp);
+    if (timestampStr != null) {
+      try {
+        final timestamp = DateTime.parse(timestampStr);
+        if (DateTime.now().difference(timestamp) > _statsExpiry) {
+          debugPrint('Player season stats cache expired');
+          return null;
+        }
+      } catch (e) {
+        return null;
+      }
+    } else {
+      return null;
+    }
+    
+    final data = _playersBox.get(CacheKeys.allPlayerSeasonStats);
+    if (data == null) return null;
+    
+    try {
+      final Map<String, dynamic> decoded = json.decode(data);
+      final result = <int, Map<String, dynamic>>{};
+      decoded.forEach((key, value) {
+        final playerId = int.tryParse(key);
+        if (playerId != null && value is Map<String, dynamic>) {
+          result[playerId] = value;
+        }
+      });
+      debugPrint('Loaded season stats for ${result.length} players from cache');
+      return result;
+    } catch (e) {
+      debugPrint('Error decoding player season stats: $e');
+      return null;
+    }
+  }
+  
+  /// Get cached season stats for a single player
+  Map<String, dynamic>? getPlayerSeasonStats(int playerId) {
+    final data = _playersBox.get(CacheKeys.playerSeasonStats(playerId));
+    if (data == null) return null;
+    
+    try {
+      return json.decode(data) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+  
+  /// Save all player season stats to cache
+  Future<void> saveAllPlayerSeasonStats(Map<int, Map<String, dynamic>> stats) async {
+    final encoded = <String, dynamic>{};
+    stats.forEach((playerId, playerStats) {
+      encoded[playerId.toString()] = playerStats;
+    });
+    await _playersBox.put(CacheKeys.allPlayerSeasonStats, json.encode(encoded));
+    await _playersBox.put(CacheKeys.playerSeasonStatsTimestamp, DateTime.now().toIso8601String());
+    debugPrint('Saved season stats for ${stats.length} players to cache');
+  }
+  
+  /// Save season stats for a single player
+  Future<void> savePlayerSeasonStats(int playerId, Map<String, dynamic> stats) async {
+    await _playersBox.put(CacheKeys.playerSeasonStats(playerId), json.encode(stats));
+  }
+  
+  /// Clear all player season stats cache (force refresh)
+  Future<void> clearPlayerSeasonStats() async {
+    await _playersBox.delete(CacheKeys.allPlayerSeasonStats);
+    await _playersBox.delete(CacheKeys.playerSeasonStatsTimestamp);
+    debugPrint('Cleared player season stats cache');
   }
 
   // ==================== USER PREFERENCES ====================

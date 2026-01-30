@@ -308,7 +308,7 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
             children: [
               _buildTag(Icons.people, '${league.memberCount}/${league.maxMembers}'),
               const SizedBox(width: 12),
-              _buildTag(Icons.account_balance_wallet, '${league.budget.toInt()} credits'),
+              _buildTag(Icons.account_balance_wallet, '\$${league.budget.toInt()}M'),
             ],
           ),
         ],
