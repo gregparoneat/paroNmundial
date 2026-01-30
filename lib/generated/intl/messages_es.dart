@@ -381,5 +381,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "favoriteTeam": MessageLookupByLibrary.simpleMessage("Equipo Favorito"),
     "changeFavoriteTeam": MessageLookupByLibrary.simpleMessage("Cambiar Equipo Favorito"),
     "yourFavoriteTeam": MessageLookupByLibrary.simpleMessage("Tu Equipo Favorito"),
+    "loadingRecentStats": MessageLookupByLibrary.simpleMessage("Cargando forma reciente..."),
+    "noRecentStatsTitle": MessageLookupByLibrary.simpleMessage("Sin Estadísticas Recientes"),
+    "noRecentStatsMessage": MessageLookupByLibrary.simpleMessage("Este jugador no tiene estadísticas recientes en la liga mexicana en las últimas 6 semanas."),
+    "fixturesAnalyzedNote": (count) => "Basado en $count partidos analizados (algunos pueden haber sido omitidos)",
+    "playerLimitedPlaytime": MessageLookupByLibrary.simpleMessage("Tiempo de juego limitado recientemente - puede estar lesionado o en banca"),
   };
 }

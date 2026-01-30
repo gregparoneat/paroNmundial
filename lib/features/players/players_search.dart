@@ -522,28 +522,105 @@ class _PlayersSearchState extends State<PlayersSearch> {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              // Player image
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: bgColor,
-                  border: Border.all(
-                    color: positionColor.withValues(alpha: 0.5),
-                    width: 2,
+              // Player image with optional easter egg
+              Stack(
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: bgColor,
+                      border: Border.all(
+                        color: positionColor.withValues(alpha: 0.5),
+                        width: 2,
+                      ),
+                    ),
+                    child: ClipOval(
+                      child: player.imagePath != null && player.imagePath!.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: player.imagePath!,
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) => _buildPlayerInitials(player),
+                              errorWidget: (context, url, error) => _buildPlayerInitials(player),
+                            )
+                          : _buildPlayerInitials(player),
+                    ),
                   ),
-                ),
-                child: ClipOval(
-                  child: player.imagePath != null && player.imagePath!.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: player.imagePath!,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) => _buildPlayerInitials(player),
-                          errorWidget: (context, url, error) => _buildPlayerInitials(player),
-                        )
-                      : _buildPlayerInitials(player),
-                ),
+                  // Easter egg: deceased banner for player 253780 💀
+                  if (player.id == 253780)
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.85),
+                          borderRadius: const BorderRadius.only(
+                            bottomLeft: Radius.circular(28),
+                            bottomRight: Radius.circular(28),
+                          ),
+                        ),
+                        child: const Text(
+                          '💀 RIP',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  // Star player badge (good recent form) ⭐
+                  if (player.isStarPlayer && player.id != 253780)
+                    Positioned(
+                      top: -2,
+                      right: -2,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          color: player.isElitePlayer ? Colors.amber : Colors.orange,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.star,
+                          size: 12,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  // Cheeks badge (poor recent form) 🍑
+                  if (player.isCheeks && player.id != 253780)
+                    Positioned(
+                      top: -2,
+                      right: -2,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.brown.shade400,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: const Text(
+                          '🍑',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 12),
 
@@ -695,41 +772,71 @@ class _PlayersSearchState extends State<PlayersSearch> {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              // Player image
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: bgColor,
-                  border: Border.all(
-                    color: player.position?.color.withValues(alpha: 0.5) ?? 
-                           theme.primaryColor.withValues(alpha: 0.5),
-                    width: 2,
-                  ),
-                ),
-                child: ClipOval(
-                  child: player.hasRealImage
-                      ? CachedNetworkImage(
-                          imageUrl: player.imagePath!,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) => Icon(
-                            Icons.person,
-                            color: bgTextColor,
-                            size: 28,
-                          ),
-                          errorWidget: (context, url, error) => Icon(
-                            Icons.person,
-                            color: bgTextColor,
-                            size: 28,
-                          ),
+              // Player image with optional easter egg
+              Stack(
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: bgColor,
+                      border: Border.all(
+                        color: player.position?.color.withValues(alpha: 0.5) ?? 
+                               theme.primaryColor.withValues(alpha: 0.5),
+                        width: 2,
+                      ),
+                    ),
+                    child: ClipOval(
+                      child: player.hasRealImage
+                          ? CachedNetworkImage(
+                              imageUrl: player.imagePath!,
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) => Icon(
+                                Icons.person,
+                                color: bgTextColor,
+                                size: 28,
+                              ),
+                              errorWidget: (context, url, error) => Icon(
+                                Icons.person,
+                                color: bgTextColor,
+                                size: 28,
+                              ),
                         )
                       : Icon(
                           Icons.person,
                           color: bgTextColor,
                           size: 28,
                         ),
-                ),
+                    ),
+                  ),
+                  // Easter egg: deceased banner for player 253780 💀
+                  if (player.id == 253780)
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.85),
+                          borderRadius: const BorderRadius.only(
+                            bottomLeft: Radius.circular(28),
+                            bottomRight: Radius.circular(28),
+                          ),
+                        ),
+                        child: const Text(
+                          '💀 RIP',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 12),
 

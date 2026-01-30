@@ -1,5 +1,5 @@
 class AppConfig {
-  static const String appName = 'Fantasy 11';
+  static const String appName = 'paroNfantasyMx';
   static const String packageName = 'com.flutter.fantasy11';
   static const String languageDefault = "en";
   static const String defaultTheme = 'light';

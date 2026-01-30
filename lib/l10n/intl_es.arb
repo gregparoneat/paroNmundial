@@ -250,5 +250,20 @@
     "saving": "Guardando...",
     "favoriteTeam": "Equipo Favorito",
     "changeFavoriteTeam": "Cambiar Equipo Favorito",
-    "yourFavoriteTeam": "Tu Equipo Favorito"
+    "yourFavoriteTeam": "Tu Equipo Favorito",
+    
+    "loadingRecentStats": "Cargando forma reciente...",
+    "noRecentStatsTitle": "Sin Estadísticas Recientes",
+    "noRecentStatsMessage": "Este jugador no tiene estadísticas recientes en la liga mexicana en las últimas 6 semanas.",
+    "fixturesAnalyzedNote": "Basado en {count} partidos analizados (algunos pueden haber sido omitidos)",
+    "@fixturesAnalyzedNote": {
+      "placeholders": {
+        "count": {
+          "type": "int"
+        }
+      }
+    },
+    "playerLimitedPlaytime": "Tiempo de juego limitado recientemente - puede estar lesionado o en banca",
+    "viewAdvancedStats": "Ver Estadísticas Avanzadas",
+    "viewStatsDetails": "Ver Detalles de Estadísticas"
 }

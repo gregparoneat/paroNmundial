@@ -17,16 +17,50 @@ enum Formation {
   final List<int> lines; // DEF, MID, FWD
 
   const Formation(this.name, this.lines);
+  
+  /// Get the position type for a given slot position string
+  static PlayerPosition? getPositionType(String position) {
+    switch (position.toUpperCase()) {
+      case 'GK':
+        return PlayerPosition.goalkeeper;
+      case 'DEF':
+        return PlayerPosition.defender;
+      case 'MID':
+        return PlayerPosition.midfielder;
+      case 'FWD':
+        return PlayerPosition.attacker;
+      default:
+        return null;
+    }
+  }
+  
+  /// Check if a player can be placed in a position slot
+  static bool canPlayerFillSlot(FantasyTeamPlayer player, String slotPosition) {
+    final slotType = getPositionType(slotPosition);
+    if (slotType == null) return false;
+    
+    // Forward position accepts both forward and attacker
+    if (slotPosition.toUpperCase() == 'FWD') {
+      return player.position == PlayerPosition.forward || 
+             player.position == PlayerPosition.attacker;
+    }
+    
+    return player.position == slotType;
+  }
 }
 
-/// Soccer field widget to display team formation
-class SoccerFieldWidget extends StatelessWidget {
+/// Soccer field widget to display team formation with drag-and-drop support
+class SoccerFieldWidget extends StatefulWidget {
   final List<FantasyTeamPlayer> players;
   final Formation formation;
   final Function(String position, int slotIndex)? onSlotTap;
   final Function(FantasyTeamPlayer player)? onPlayerTap;
+  /// Called when players are swapped via drag-and-drop
+  /// Parameters: (draggedPlayer, targetPlayer or null, targetPosition, targetSlotIndex)
+  final Function(FantasyTeamPlayer draggedPlayer, FantasyTeamPlayer? targetPlayer, String targetPosition, int targetSlotIndex)? onPlayerSwap;
   final bool isEditable;
   final double? height;
+  final bool showPredictedPoints;
 
   const SoccerFieldWidget({
     super.key,
@@ -34,14 +68,24 @@ class SoccerFieldWidget extends StatelessWidget {
     this.formation = Formation.f433,
     this.onSlotTap,
     this.onPlayerTap,
+    this.onPlayerSwap,
     this.isEditable = false,
     this.height,
+    this.showPredictedPoints = false,
   });
+
+  @override
+  State<SoccerFieldWidget> createState() => _SoccerFieldWidgetState();
+}
+
+class _SoccerFieldWidgetState extends State<SoccerFieldWidget> {
+  FantasyTeamPlayer? _draggedPlayer;
+  String? _highlightedPosition;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: height ?? 450,
+      height: widget.height ?? 450,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -81,10 +125,10 @@ class SoccerFieldWidget extends StatelessWidget {
 
   Widget _buildFormationLayout(BuildContext context) {
     // Get players by position
-    final goalkeepers = players.where((p) => p.position == PlayerPosition.goalkeeper).toList();
-    final defenders = players.where((p) => p.position == PlayerPosition.defender).toList();
-    final midfielders = players.where((p) => p.position == PlayerPosition.midfielder).toList();
-    final forwards = players.where((p) => 
+    final goalkeepers = widget.players.where((p) => p.position == PlayerPosition.goalkeeper).toList();
+    final defenders = widget.players.where((p) => p.position == PlayerPosition.defender).toList();
+    final midfielders = widget.players.where((p) => p.position == PlayerPosition.midfielder).toList();
+    final forwards = widget.players.where((p) => 
         p.position == PlayerPosition.attacker || p.position == PlayerPosition.forward).toList();
 
     return Padding(
@@ -96,7 +140,7 @@ class SoccerFieldWidget extends StatelessWidget {
             flex: 2,
             child: _buildPositionRow(
               'FWD',
-              formation.lines[2],
+              widget.formation.lines[2],
               forwards,
             ),
           ),
@@ -106,7 +150,7 @@ class SoccerFieldWidget extends StatelessWidget {
             flex: 2,
             child: _buildPositionRow(
               'MID',
-              formation.lines[1],
+              widget.formation.lines[1],
               midfielders,
             ),
           ),
@@ -116,7 +160,7 @@ class SoccerFieldWidget extends StatelessWidget {
             flex: 2,
             child: _buildPositionRow(
               'DEF',
-              formation.lines[0],
+              widget.formation.lines[0],
               defenders,
             ),
           ),
@@ -147,18 +191,170 @@ class SoccerFieldWidget extends StatelessWidget {
 
   Widget _buildPlayerSlot(String position, int slotIndex, FantasyTeamPlayer? player) {
     final isEmpty = player == null;
+    final isHighlighted = _highlightedPosition == '$position-$slotIndex';
     
+    // Build the base slot content (never reassigned)
+    final baseSlotContent = _buildSlotContent(position, player, isEmpty, isHighlighted);
+    
+    // If not editable or no swap handler, just return the base content
+    if (!widget.isEditable || widget.onPlayerSwap == null) {
+      return baseSlotContent;
+    }
+    
+    // Build draggable content for non-empty slots
+    Widget draggableContent;
+    if (!isEmpty) {
+      draggableContent = Draggable<FantasyTeamPlayer>(
+        data: player,
+        onDragStarted: () {
+          setState(() => _draggedPlayer = player);
+        },
+        onDragEnd: (_) {
+          setState(() {
+            _draggedPlayer = null;
+            _highlightedPosition = null;
+          });
+        },
+        feedback: Material(
+          color: Colors.transparent,
+          child: Opacity(
+            opacity: 0.8,
+            child: _buildDragFeedback(player),
+          ),
+        ),
+        childWhenDragging: Opacity(
+          opacity: 0.3,
+          child: baseSlotContent,
+        ),
+        child: baseSlotContent,
+      );
+    } else {
+      draggableContent = baseSlotContent;
+    }
+    
+    // Wrap with drag target for drop functionality
+    return DragTarget<FantasyTeamPlayer>(
+      onWillAcceptWithDetails: (details) {
+        final canAccept = Formation.canPlayerFillSlot(details.data, position);
+        if (canAccept) {
+          setState(() => _highlightedPosition = '$position-$slotIndex');
+        }
+        return canAccept;
+      },
+      onLeave: (_) {
+        setState(() => _highlightedPosition = null);
+      },
+      onAcceptWithDetails: (details) {
+        setState(() {
+          _highlightedPosition = null;
+          _draggedPlayer = null;
+        });
+        // Swap the players
+        widget.onPlayerSwap!(details.data, player, position, slotIndex);
+      },
+      builder: (context, candidateData, rejectedData) {
+        final isValidTarget = candidateData.isNotEmpty;
+        return Transform.scale(
+          scale: isValidTarget ? 1.1 : 1.0,
+          child: draggableContent,
+        );
+      },
+    );
+  }
+  
+  Widget _buildDragFeedback(FantasyTeamPlayer player) {
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: _getPositionColor(_getPositionString(player.position)),
+        border: Border.all(color: Colors.white, width: 3),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black45,
+            blurRadius: 10,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: player.playerImageUrl != null && player.playerImageUrl!.isNotEmpty
+            ? Image.network(player.playerImageUrl!, fit: BoxFit.cover)
+            : Center(
+                child: Text(
+                  _getInitials(player.playerName),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+  
+  String _getPositionString(PlayerPosition position) {
+    switch (position) {
+      case PlayerPosition.goalkeeper:
+        return 'GK';
+      case PlayerPosition.defender:
+        return 'DEF';
+      case PlayerPosition.midfielder:
+        return 'MID';
+      case PlayerPosition.attacker:
+      case PlayerPosition.forward:
+        return 'FWD';
+    }
+  }
+  
+  String _getInitials(String name) {
+    final parts = name.split(' ');
+    if (parts.length >= 2) {
+      return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+  }
+
+  Widget _buildSlotContent(String position, FantasyTeamPlayer? player, bool isEmpty, bool isHighlighted) {
     return GestureDetector(
       onTap: () {
-        if (isEmpty && isEditable && onSlotTap != null) {
-          onSlotTap!(position, slotIndex);
-        } else if (!isEmpty && onPlayerTap != null) {
-          onPlayerTap!(player);
+        if (isEmpty && widget.isEditable && widget.onSlotTap != null) {
+          widget.onSlotTap!(position, 0);
+        } else if (!isEmpty && widget.onPlayerTap != null) {
+          widget.onPlayerTap!(player!);
         }
       },
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Predicted points badge (above player pic)
+          if (!isEmpty && widget.showPredictedPoints && player!.predictedPoints > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              margin: const EdgeInsets.only(bottom: 2),
+              decoration: BoxDecoration(
+                color: _getPredictedPointsColor(player.effectivePredictedPoints),
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black38,
+                    blurRadius: 2,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Text(
+                player.effectivePredictedPoints.toStringAsFixed(1),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          
           // Player avatar or empty slot
           Container(
             width: 50,
@@ -166,13 +362,13 @@ class SoccerFieldWidget extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: isEmpty 
-                  ? Colors.white24 
+                  ? (isHighlighted ? Colors.green.withValues(alpha: 0.5) : Colors.white24)
                   : _getPositionColor(position),
               border: Border.all(
-                color: isEmpty 
-                    ? Colors.white38 
-                    : Colors.white,
-                width: 2,
+                color: isHighlighted
+                    ? Colors.greenAccent
+                    : (isEmpty ? Colors.white38 : Colors.white),
+                width: isHighlighted ? 3 : 2,
               ),
               boxShadow: isEmpty ? null : [
                 BoxShadow(
@@ -184,8 +380,8 @@ class SoccerFieldWidget extends StatelessWidget {
             ),
             child: isEmpty
                 ? Icon(
-                    isEditable ? Icons.add : Icons.person_outline,
-                    color: Colors.white54,
+                    widget.isEditable ? Icons.add : Icons.person_outline,
+                    color: isHighlighted ? Colors.greenAccent : Colors.white54,
                     size: 24,
                   )
                 : ClipOval(
@@ -193,10 +389,10 @@ class SoccerFieldWidget extends StatelessWidget {
                         ? CachedNetworkImage(
                             imageUrl: player.playerImageUrl!,
                             fit: BoxFit.cover,
-                            placeholder: (_, __) => _buildInitials(player),
-                            errorWidget: (_, __, ___) => _buildInitials(player),
+                            placeholder: (_, __) => _buildInitialsWidget(player),
+                            errorWidget: (_, __, ___) => _buildInitialsWidget(player),
                           )
-                        : _buildInitials(player),
+                        : _buildInitialsWidget(player),
                   ),
           ),
           
@@ -245,8 +441,16 @@ class SoccerFieldWidget extends StatelessWidget {
       ),
     );
   }
+  
+  /// Get color based on predicted points (green for high, yellow for medium, red for low)
+  Color _getPredictedPointsColor(double points) {
+    if (points >= 8) return Colors.green.shade600;
+    if (points >= 5) return Colors.amber.shade700;
+    if (points >= 3) return Colors.orange.shade700;
+    return Colors.red.shade600;
+  }
 
-  Widget _buildInitials(FantasyTeamPlayer player) {
+  Widget _buildInitialsWidget(FantasyTeamPlayer player) {
     final initials = player.playerName
         .split(' ')
         .take(2)

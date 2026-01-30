@@ -68,7 +68,7 @@ class SportMonksClient {
 
     final uri = _buildUrl(endpoint, queryParams);
     
-    debugPrint('SportMonks API Request: $uri');
+    //debugPrint('SportMonks API Request: $uri');
 
     try {
       final response = await _httpClient.get(
@@ -78,7 +78,7 @@ class SportMonksClient {
         },
       );
 
-      debugPrint('SportMonks API Response Status: ${response.statusCode}');
+     // debugPrint('SportMonks API Response Status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body);
@@ -94,11 +94,11 @@ class SportMonksClient {
         // Debug: Check for subscription info or messages
         final subscription = jsonData['subscription'];
         if (subscription != null) {
-          debugPrint('Subscription info: $subscription');
+         // debugPrint('Subscription info: $subscription');
         }
         final message = jsonData['message'];
         if (message != null) {
-          debugPrint('API Message: $message');
+         // debugPrint('API Message: $message');
         }
         
         // Parse the data
@@ -246,10 +246,15 @@ class SportMonksClient {
     int fixtureId,
   ) async {
     final queryParams = <String, String>{
-      'include': 'events;statistics;timeline;sidelined;lineups;participants;scores;state',
+      // Combined includes:
+      // - lineups;lineups.player;lineups.details.type = player advanced stats
+      // - statistics;statistics.type = team stats
+      // - events;events.player = goals, assists, cards
+      // - participants;scores;state = match info needed for basic calculations
+      'include': 'lineups;lineups.player;lineups.details.type;statistics;statistics.type;events;events.player;participants;scores;state',
     };
     
-    debugPrint('SportMonks: Getting fixture $fixtureId with detailed stats');
+    debugPrint('SportMonks: Getting fixture $fixtureId with advanced player stats');
     
     return get<Map<String, dynamic>?>(
       '/fixtures/$fixtureId',
@@ -543,6 +548,118 @@ class SportMonksClient {
       parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
     );
   }
+
+  // ========== ADVANCED STATISTICS METHODS ==========
+
+  /// Get league with seasons to find current season
+  /// Liga MX league ID is 743
+  Future<SportMonksResponse<Map<String, dynamic>?>> getLeagueWithSeasons(
+    int leagueId,
+  ) async {
+    final queryParams = <String, String>{
+      'include': 'seasons',
+    };
+    
+    debugPrint('SportMonks: Getting league $leagueId with seasons');
+    
+    return get<Map<String, dynamic>?>(
+      '/leagues/$leagueId',
+      queryParams: queryParams,
+      parser: (data) => data as Map<String, dynamic>?,
+    );
+  }
+
+  /// Get season with all fixtures
+  /// Used to get fixture IDs for the season
+  Future<SportMonksResponse<Map<String, dynamic>?>> getSeasonWithFixtures(
+    int seasonId,
+  ) async {
+    final queryParams = <String, String>{
+      'include': 'fixtures',
+    };
+    
+    debugPrint('SportMonks: Getting season $seasonId with fixtures');
+    
+    return get<Map<String, dynamic>?>(
+      '/seasons/$seasonId',
+      queryParams: queryParams,
+      parser: (data) => data as Map<String, dynamic>?,
+    );
+  }
+
+  /// Get fixtures by season with advanced lineup statistics
+  /// This is the key method for getting advanced player stats
+  /// Uses filter=fixtureSeasons:{season_id} and includes lineups.details.type
+  Future<SportMonksResponse<List<Map<String, dynamic>>>> getFixturesBySeasonWithAdvancedStats(
+    int seasonId, {
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+      'filters': 'fixtureSeasons:$seasonId',
+      // Include lineups with player and details.type for advanced player stats
+      'include': 'lineups;lineups.player;lineups.details.type;participants;scores;state',
+    };
+    
+    debugPrint('SportMonks: Getting fixtures for season $seasonId with advanced stats (page $page)');
+    
+    return get<List<Map<String, dynamic>>>(
+      '/fixtures',
+      queryParams: queryParams,
+      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+    );
+  }
+
+  /// Get all fixtures for a season with pagination support
+  /// Fetches all pages automatically
+  Future<List<Map<String, dynamic>>> getAllFixturesForSeasonWithAdvancedStats(
+    int seasonId, {
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    final allFixtures = <Map<String, dynamic>>[];
+    int page = 1;
+    bool hasMore = true;
+    
+    while (hasMore) {
+      final response = await getFixturesBySeasonWithAdvancedStats(
+        seasonId,
+        page: page,
+        perPage: 100, // Max per page
+      );
+      
+      allFixtures.addAll(response.data);
+      hasMore = response.hasMore;
+      page++;
+      
+      // Safety limit to prevent infinite loops
+      if (page > 20) {
+        debugPrint('WARNING: Hit page limit of 20 when fetching fixtures');
+        break;
+      }
+    }
+    
+    // Filter by date range if provided
+    if (startDate != null || endDate != null) {
+      return allFixtures.where((fixture) {
+        final startingAt = fixture['starting_at'] as String?;
+        if (startingAt == null) return false;
+        
+        final fixtureDate = DateTime.tryParse(startingAt);
+        if (fixtureDate == null) return false;
+        
+        if (startDate != null && fixtureDate.isBefore(startDate)) return false;
+        if (endDate != null && fixtureDate.isAfter(endDate)) return false;
+        
+        return true;
+      }).toList();
+    }
+    
+    return allFixtures;
+  }
+
   /// Dispose the client
   void dispose() {
     _httpClient.close();

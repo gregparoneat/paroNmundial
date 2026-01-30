@@ -352,5 +352,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "favoriteTeam": MessageLookupByLibrary.simpleMessage("Favorite Team"),
     "changeFavoriteTeam": MessageLookupByLibrary.simpleMessage("Change Favorite Team"),
     "yourFavoriteTeam": MessageLookupByLibrary.simpleMessage("Your Favorite Team"),
+    "loadingRecentStats": MessageLookupByLibrary.simpleMessage("Loading recent form..."),
+    "noRecentStatsTitle": MessageLookupByLibrary.simpleMessage("No Recent Stats"),
+    "noRecentStatsMessage": MessageLookupByLibrary.simpleMessage("This player doesn\'t have recent stats in the Mexican league within the last 6 weeks."),
+    "fixturesAnalyzedNote": (count) => "Based on $count fixtures analyzed (some may have been skipped)",
+    "playerLimitedPlaytime": MessageLookupByLibrary.simpleMessage("Limited playtime recently - may be injured or benched"),
   };
 }

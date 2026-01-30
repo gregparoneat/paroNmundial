@@ -291,5 +291,20 @@
   "saving": "Saving...",
   "favoriteTeam": "Favorite Team",
   "changeFavoriteTeam": "Change Favorite Team",
-  "yourFavoriteTeam": "Your Favorite Team"
+  "yourFavoriteTeam": "Your Favorite Team",
+  
+  "loadingRecentStats": "Loading recent form...",
+  "noRecentStatsTitle": "No Recent Stats",
+  "noRecentStatsMessage": "This player doesn't have recent stats in the Mexican league within the last 6 weeks.",
+  "fixturesAnalyzedNote": "Based on {count} fixtures analyzed (some may have been skipped)",
+  "@fixturesAnalyzedNote": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playerLimitedPlaytime": "Limited playtime recently - may be injured or benched",
+  "viewAdvancedStats": "View Advanced Statistics",
+  "viewStatsDetails": "View Stats Details"
 }

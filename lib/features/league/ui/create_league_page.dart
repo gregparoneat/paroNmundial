@@ -20,7 +20,6 @@ class _CreateLeaguePageState extends State<CreateLeaguePage> {
   final _descriptionController = TextEditingController();
   final _maxMembersController = TextEditingController(text: '20');
   final _budgetController = TextEditingController(text: '100');
-  final _entryFeeController = TextEditingController(text: '0');
   
   LeagueType _leagueType = LeagueType.public;
   bool _isCreating = false;
@@ -31,7 +30,6 @@ class _CreateLeaguePageState extends State<CreateLeaguePage> {
     _descriptionController.dispose();
     _maxMembersController.dispose();
     _budgetController.dispose();
-    _entryFeeController.dispose();
     super.dispose();
   }
 
@@ -51,7 +49,6 @@ class _CreateLeaguePageState extends State<CreateLeaguePage> {
         type: _leagueType,
         maxMembers: int.tryParse(_maxMembersController.text) ?? 20,
         budget: double.tryParse(_budgetController.text) ?? 100.0,
-        entryFee: double.tryParse(_entryFeeController.text),
         matchName: 'TBD - Select Match',
         matchDateTime: DateTime.now().add(const Duration(days: 3)),
       );
@@ -212,28 +209,6 @@ class _CreateLeaguePageState extends State<CreateLeaguePage> {
               ],
             ),
             
-            const SizedBox(height: 16),
-            
-            // Entry Fee
-            TextFormField(
-              controller: _entryFeeController,
-              decoration: _buildInputDecoration(
-                label: 'Entry Fee (0 for free)',
-                hint: '0',
-                icon: Icons.attach_money,
-                prefix: '\$',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-              ],
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Prize Pool Info
-            _buildPrizePoolInfo(theme),
-            
             const SizedBox(height: 24),
             
             // Info Card
@@ -372,51 +347,6 @@ class _CreateLeaguePageState extends State<CreateLeaguePage> {
     );
   }
 
-  Widget _buildPrizePoolInfo(ThemeData theme) {
-    final entryFee = double.tryParse(_entryFeeController.text) ?? 0;
-    final maxMembers = int.tryParse(_maxMembersController.text) ?? 20;
-    final prizePool = entryFee * maxMembers * 0.9; // 10% platform fee
-    
-    if (entryFee <= 0) return const SizedBox.shrink();
-    
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.amber.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.amber.withValues(alpha: 0.3),
-        ),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.emoji_events, color: Colors.amber),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Estimated Prize Pool',
-                  style: TextStyle(
-                    color: Colors.amber,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  '\$${prizePool.toStringAsFixed(2)} (if full)',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: bgTextColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildInfoCard(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -443,7 +373,7 @@ class _CreateLeaguePageState extends State<CreateLeaguePage> {
           _buildInfoItem('Create your league and invite friends'),
           _buildInfoItem('Each member builds a team within the budget'),
           _buildInfoItem('Earn points based on real player performance'),
-          _buildInfoItem('Top scorers win the prize pool'),
+          _buildInfoItem('Compete for the top of the leaderboard!'),
           if (_leagueType == LeagueType.private)
             _buildInfoItem('Share the invite code with friends to join'),
         ],

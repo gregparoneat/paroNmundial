@@ -1708,6 +1708,44 @@ class S {
   String get yourFavoriteTeam {
     return Intl.message('Your Favorite Team', name: 'yourFavoriteTeam', desc: '', args: []);
   }
+
+  /// `Loading recent form...`
+  String get loadingRecentStats {
+    return Intl.message('Loading recent form...', name: 'loadingRecentStats', desc: '', args: []);
+  }
+
+  /// `No Recent Stats`
+  String get noRecentStatsTitle {
+    return Intl.message('No Recent Stats', name: 'noRecentStatsTitle', desc: '', args: []);
+  }
+
+  /// `This player doesn't have recent stats in the Mexican league within the last 6 weeks.`
+  String get noRecentStatsMessage {
+    return Intl.message('This player doesn\'t have recent stats in the Mexican league within the last 6 weeks.', name: 'noRecentStatsMessage', desc: '', args: []);
+  }
+
+  /// `Based on {count} fixtures analyzed (some may have been skipped)`
+  String fixturesAnalyzedNote(int count) {
+    return Intl.message(
+      'Based on $count fixtures analyzed (some may have been skipped)',
+      name: 'fixturesAnalyzedNote',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Limited playtime recently - may be injured or benched`
+  String get playerLimitedPlaytime {
+    return Intl.message('Limited playtime recently - may be injured or benched', name: 'playerLimitedPlaytime', desc: '', args: []);
+  }
+
+  String get viewAdvancedStats {
+    return Intl.message('View Advanced Statistics', name: 'viewAdvancedStats', desc: '', args: []);
+  }
+
+  String get viewStatsDetails {
+    return Intl.message('View Stats Details', name: 'viewStatsDetails', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

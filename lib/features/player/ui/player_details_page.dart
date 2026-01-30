@@ -2,11 +2,11 @@ import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fantacy11/api/repositories/fixtures_repository.dart';
 import 'package:fantacy11/api/repositories/players_repository.dart';
-import 'package:fantacy11/api/repositories/seasons_repository.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/fantasy/fantasy_points_predictor.dart';
 import 'package:fantacy11/features/match/models/match_info.dart';
 import 'package:fantacy11/features/player/models/player_info.dart';
+import 'package:fantacy11/features/player/ui/widgets/advanced_stats_dialog.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/services/cache_service.dart';
 import 'package:flutter/material.dart';
@@ -134,6 +134,15 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
     }
   }
 
+  /// Helper to safely parse ratings list from cache
+  List<double> _parseRatingsList(dynamic data) {
+    if (data == null) return [];
+    if (data is List) {
+      return data.map((e) => (e as num).toDouble()).toList();
+    }
+    return [];
+  }
+
   Future<void> _loadRecentForm() async {
     if (_player == null) {
       debugPrint('_loadRecentForm: Player is null, skipping');
@@ -156,8 +165,58 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
     try {
       // Step 1: Check Hive cache first
       final cachedStats = _cacheService.getPlayerFormStats(playerId);
-      if (cachedStats != null) {
-        debugPrint('_loadRecentForm: Found cached form stats for player $playerId');
+      final hasAdvancedInCache = cachedStats != null && cachedStats['advancedStats'] != null;
+      
+      debugPrint('_loadRecentForm: Cache check - found: ${cachedStats != null}, hasAdvanced: $hasAdvancedInCache');
+      
+      // If cache exists but doesn't have advanced stats, force refresh
+      if (cachedStats != null && !hasAdvancedInCache) {
+        debugPrint('_loadRecentForm: Cache exists but no advanced stats - forcing refresh');
+        // Don't use cache, fall through to API fetch
+      } else if (cachedStats != null) {
+        debugPrint('_loadRecentForm: Found cached form stats WITH advanced data for player $playerId');
+        
+        // Deserialize advanced stats if present
+        AdvancedStats? advancedStats;
+        final advancedData = cachedStats['advancedStats'] as Map<String, dynamic>?;
+        if (advancedData != null) {
+          advancedStats = AdvancedStats(
+            accuratePasses: advancedData['accuratePasses'] as int? ?? 0,
+            totalPasses: advancedData['totalPasses'] as int? ?? 0,
+            longBalls: advancedData['longBalls'] as int? ?? 0,
+            longBallsWon: advancedData['longBallsWon'] as int? ?? 0,
+            throughBalls: advancedData['throughBalls'] as int? ?? 0,
+            throughBallsWon: advancedData['throughBallsWon'] as int? ?? 0,
+            shotsTotal: advancedData['shotsTotal'] as int? ?? 0,
+            shotsOnTarget: advancedData['shotsOnTarget'] as int? ?? 0,
+            shotsOffTarget: advancedData['shotsOffTarget'] as int? ?? 0,
+            bigChancesCreated: advancedData['bigChancesCreated'] as int? ?? 0,
+            bigChancesMissed: advancedData['bigChancesMissed'] as int? ?? 0,
+            keyPasses: advancedData['keyPasses'] as int? ?? 0,
+            hitWoodwork: advancedData['hitWoodwork'] as int? ?? 0,
+            hattricks: advancedData['hattricks'] as int? ?? 0,
+            dispossessed: advancedData['dispossessed'] as int? ?? 0,
+            foulsDrawn: advancedData['foulsDrawn'] as int? ?? 0,
+            accurateCrosses: advancedData['accurateCrosses'] as int? ?? 0,
+            totalCrosses: advancedData['totalCrosses'] as int? ?? 0,
+            crossesBlocked: advancedData['crossesBlocked'] as int? ?? 0,
+            tackles: advancedData['tackles'] as int? ?? 0,
+            interceptions: advancedData['interceptions'] as int? ?? 0,
+            clearances: advancedData['clearances'] as int? ?? 0,
+            blocks: advancedData['blocks'] as int? ?? 0,
+            aerialsWon: advancedData['aerialsWon'] as int? ?? 0,
+            duelsWon: advancedData['duelsWon'] as int? ?? 0,
+            totalDuels: advancedData['totalDuels'] as int? ?? 0,
+            dribbledPast: advancedData['dribbledPast'] as int? ?? 0,
+            errorLeadToGoal: advancedData['errorLeadToGoal'] as int? ?? 0,
+            savesInsideBox: advancedData['savesInsideBox'] as int? ?? 0,
+            fouls: advancedData['fouls'] as int? ?? 0,
+            offsides: advancedData['offsides'] as int? ?? 0,
+            ratings: _parseRatingsList(advancedData['ratings']),
+          );
+          debugPrint('_loadRecentForm: Loaded cached advanced stats with ${advancedStats.keyPasses} key passes');
+        }
+        
         final recentStats = RecentMatchStats(
           matchesPlayed: cachedStats['matchesPlayed'] as int? ?? 0,
           goals: cachedStats['goals'] as int? ?? 0,
@@ -169,6 +228,7 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
           saves: cachedStats['saves'] as int? ?? 0,
           averageRating: cachedStats['averageRating'] as double?,
           fixturesAnalyzed: cachedStats['fixturesAnalyzed'] as int?,
+          advancedStats: advancedStats,
         );
         
         if (mounted) {
@@ -198,6 +258,47 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
         if (recentStats != null) {
           debugPrint('_loadRecentForm: Got stats from ${recentStats.matchesPlayed} matches');
           debugPrint('_loadRecentForm: Goals: ${recentStats.goals}, Assists: ${recentStats.assists}, Minutes: ${recentStats.minutesPlayed}');
+          debugPrint('_loadRecentForm: Has advanced stats: ${recentStats.hasAdvancedStats}');
+          
+          // Serialize advanced stats for caching
+          Map<String, dynamic>? advancedData;
+          if (recentStats.advancedStats != null) {
+            final adv = recentStats.advancedStats!;
+            advancedData = {
+              'accuratePasses': adv.accuratePasses,
+              'totalPasses': adv.totalPasses,
+              'longBalls': adv.longBalls,
+              'longBallsWon': adv.longBallsWon,
+              'throughBalls': adv.throughBalls,
+              'throughBallsWon': adv.throughBallsWon,
+              'shotsTotal': adv.shotsTotal,
+              'shotsOnTarget': adv.shotsOnTarget,
+              'shotsOffTarget': adv.shotsOffTarget,
+              'bigChancesCreated': adv.bigChancesCreated,
+              'bigChancesMissed': adv.bigChancesMissed,
+              'keyPasses': adv.keyPasses,
+              'hitWoodwork': adv.hitWoodwork,
+              'hattricks': adv.hattricks,
+              'dispossessed': adv.dispossessed,
+              'foulsDrawn': adv.foulsDrawn,
+              'accurateCrosses': adv.accurateCrosses,
+              'totalCrosses': adv.totalCrosses,
+              'crossesBlocked': adv.crossesBlocked,
+              'tackles': adv.tackles,
+              'interceptions': adv.interceptions,
+              'clearances': adv.clearances,
+              'blocks': adv.blocks,
+              'aerialsWon': adv.aerialsWon,
+              'duelsWon': adv.duelsWon,
+              'totalDuels': adv.totalDuels,
+              'dribbledPast': adv.dribbledPast,
+              'errorLeadToGoal': adv.errorLeadToGoal,
+              'savesInsideBox': adv.savesInsideBox,
+              'fouls': adv.fouls,
+              'offsides': adv.offsides,
+              'ratings': adv.ratings,
+            };
+          }
           
           // Save to cache
           await _cacheService.savePlayerFormStats(playerId, {
@@ -211,6 +312,7 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
             'saves': recentStats.saves,
             'averageRating': recentStats.averageRating,
             'fixturesAnalyzed': recentStats.fixturesAnalyzed,
+            'advancedStats': advancedData,
           });
         } else {
           debugPrint('_loadRecentForm: No recent stats available');
@@ -272,39 +374,31 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
 
 class _PlayerDetailsContent extends StatelessWidget {
   final Player player;
-  final bool isLoadingTeams;
   final bool isLoadingNextMatch;
   final bool isLoadingRecentForm;
-  final bool isLoadingTournamentStats;
   final MatchInfo? nextMatch;
   final OpponentInfo? opponentInfo;
   final RecentMatchStats? recentMatchStats;
-  final RecentMatchStats? tournamentStats;
-  final SeasonInfo? currentSeason;
 
   const _PlayerDetailsContent({
     required this.player,
-    this.isLoadingTeams = false,
     this.isLoadingNextMatch = false,
     this.isLoadingRecentForm = false,
-    this.isLoadingTournamentStats = false,
     this.nextMatch,
     this.opponentInfo,
     this.recentMatchStats,
-    this.tournamentStats,
-    this.currentSeason,
   });
-
-  /// Get the stats for the current season, with fallback to latest stats
-  /// Uses the player's most recent stats since we don't need to fetch season separately
-  PlayerStatistics? get currentSeasonStats {
-    // Use null to get the latest stats from the player's statistics
-    return player.getStatsForCurrentSeason(null);
-  }
 
   @override
   Widget build(BuildContext context) {
     var theme = Theme.of(context);
+    
+    // Calculate prediction once for use in both header badges and prediction card
+    final prediction = FantasyPointsPredictor.predict(
+      player,
+      recentForm: recentMatchStats,
+      opponent: opponentInfo,
+    );
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -328,7 +422,7 @@ class _PlayerDetailsContent extends StatelessWidget {
               onPressed: () => Navigator.pop(context),
             ),
             flexibleSpace: FlexibleSpaceBar(
-              background: _buildPlayerHeader(context),
+              background: _buildPlayerHeader(context, prediction),
             ),
           ),
 
@@ -344,7 +438,7 @@ class _PlayerDetailsContent extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Fantasy Points Prediction
-                    _buildFantasyPrediction(context),
+                    _buildFantasyPrediction(context, prediction),
                     const SizedBox(height: 20),
 
                     // Quick Stats
@@ -355,11 +449,9 @@ class _PlayerDetailsContent extends StatelessWidget {
                     _buildBioSection(context),
                     const SizedBox(height: 20),
 
-                    // Statistics Section (current tournament only)
-                    if (currentSeasonStats != null) ...[
-                      _buildStatisticsSection(context),
-                      const SizedBox(height: 20),
-                    ],
+                    // Recent Form Statistics Section
+                    _buildStatisticsSection(context),
+                    const SizedBox(height: 20),
 
                     // Career Section
                     if (player.transfers.isNotEmpty) ...[
@@ -376,8 +468,13 @@ class _PlayerDetailsContent extends StatelessWidget {
     );
   }
 
-  Widget _buildPlayerHeader(BuildContext context) {
+  Widget _buildPlayerHeader(BuildContext context, FantasyPrediction prediction) {
     var theme = Theme.of(context);
+    
+    // Determine if star or cheeks based on prediction score (0-10 scale)
+    final isStarPlayer = prediction.totalPoints >= 5.0; // Good predicted score
+    final isElitePlayer = prediction.totalPoints >= 7.0; // Elite predicted score
+    final isCheeks = prediction.totalPoints < 2.0; // Poor predicted score
 
     return Container(
       decoration: BoxDecoration(
@@ -444,6 +541,80 @@ class _PlayerDetailsContent extends StatelessWidget {
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                         fontSize: 14,
+                      ),
+                    ),
+                  ),
+                // Easter egg: deceased banner for player 253780 💀
+                if (player.id == 253780)
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.85),
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(60),
+                          bottomRight: Radius.circular(60),
+                        ),
+                      ),
+                      child: const Text(
+                        '💀 DECEASED 💀',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                // Star player badge (good predicted score >= 50) ⭐
+                if (isStarPlayer && player.id != 253780)
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: isElitePlayer ? Colors.amber : Colors.orange,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.4),
+                            blurRadius: 8,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.star,
+                        size: 20,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                // Cheeks badge (poor predicted score < 20) 🍑
+                if (isCheeks && player.id != 253780)
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.brown.shade400,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.4),
+                            blurRadius: 8,
+                          ),
+                        ],
+                      ),
+                      child: const Text(
+                        '🍑',
+                        style: TextStyle(fontSize: 18),
                       ),
                     ),
                   ),
@@ -555,14 +726,8 @@ class _PlayerDetailsContent extends StatelessWidget {
     );
   }
 
-  Widget _buildFantasyPrediction(BuildContext context) {
+  Widget _buildFantasyPrediction(BuildContext context, FantasyPrediction prediction) {
     var theme = Theme.of(context);
-    final prediction = FantasyPointsPredictor.predict(
-      player,
-      recentForm: recentMatchStats,
-      opponent: opponentInfo,
-      currentSeasonId: currentSeason?.id,
-    );
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -621,7 +786,7 @@ class _PlayerDetailsContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${prediction.totalPoints}',
+                prediction.totalPoints.toStringAsFixed(1),
                 style: theme.textTheme.displayMedium!.copyWith(
                   fontWeight: FontWeight.bold,
                   color: Color(prediction.tierColorValue),
@@ -631,7 +796,7 @@ class _PlayerDetailsContent extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 8, left: 4),
                 child: Text(
-                  '/ 100',
+                  '/ 10',
                   style: theme.textTheme.bodyLarge!.copyWith(
                     color: Colors.grey[500],
                   ),
@@ -687,7 +852,7 @@ class _PlayerDetailsContent extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
-              value: prediction.totalPoints / 100,
+              value: prediction.totalPoints / 10, // 0-10 scale
               backgroundColor: Colors.grey[800],
               valueColor: AlwaysStoppedAnimation<Color>(Color(prediction.tierColorValue)),
               minHeight: 8,
@@ -1090,21 +1255,21 @@ class _PlayerDetailsContent extends StatelessWidget {
         children: [
           _buildStatItem(context, S.of(context).age, '${player.age ?? "-"}', Icons.cake),
           _buildStatDivider(),
-          // Show goals if stats available, otherwise height
-          if (currentSeasonStats?.goals != null)
-            _buildStatItem(context, S.of(context).goals, '${currentSeasonStats!.goals}', Icons.sports_score)
+          // Show goals from recent form if available, otherwise height
+          if (recentMatchStats != null && recentMatchStats!.goals > 0)
+            _buildStatItem(context, S.of(context).goals, '${recentMatchStats!.goals}', Icons.sports_score)
           else
             _buildStatItem(context, S.of(context).height, player.formattedHeight, Icons.height),
           _buildStatDivider(),
-          // Show assists if stats available, otherwise weight
-          if (currentSeasonStats?.assists != null)
-            _buildStatItem(context, S.of(context).assists, '${currentSeasonStats!.assists}', Icons.handshake)
+          // Show assists from recent form if available, otherwise weight
+          if (recentMatchStats != null && recentMatchStats!.assists > 0)
+            _buildStatItem(context, S.of(context).assists, '${recentMatchStats!.assists}', Icons.handshake)
           else
             _buildStatItem(context, S.of(context).weight, player.formattedWeight, Icons.fitness_center),
           _buildStatDivider(),
-          // Show appearances if stats available, otherwise transfers
-          if (currentSeasonStats?.appearances != null)
-            _buildStatItem(context, S.of(context).apps, '${currentSeasonStats!.appearances}', Icons.sports_soccer)
+          // Show matches played from recent form if available, otherwise transfers
+          if (recentMatchStats != null && recentMatchStats!.matchesPlayed > 0)
+            _buildStatItem(context, S.of(context).games, '${recentMatchStats!.matchesPlayed}', Icons.sports_soccer)
           else
             _buildStatItem(context, S.of(context).transfers, '${player.transfers.length}', Icons.swap_horiz),
         ],
@@ -1210,99 +1375,117 @@ class _PlayerDetailsContent extends StatelessWidget {
 
   Widget _buildStatisticsSection(BuildContext context) {
     var theme = Theme.of(context);
-    final stats = currentSeasonStats;
+    
+    // Only show recent form stats - no more old season stats
+    final recentStats = recentMatchStats;
+    final hasRecentData = recentStats != null && recentStats.matchesPlayed > 0;
 
-    // Use tournament stats if available, otherwise fall back to recent form
-    final tournamentOrRecentStats = tournamentStats ?? recentMatchStats;
-    final hasTournamentData = tournamentOrRecentStats != null && tournamentOrRecentStats.matchesPlayed > 0;
+    // Show loading state
+    if (isLoadingRecentForm) {
+      return _buildLoadingRecentStats(context, theme);
+    }
 
-    if (stats == null && !hasTournamentData) return const SizedBox.shrink();
+    // Show "no recent stats" message if no data
+    if (!hasRecentData) {
+      return _buildNoRecentStatsMessage(context, theme);
+    }
 
-    // Get the current stage/tournament name if available
-    final currentStageName = currentSeason?.currentStage?.name;
+    // Show recent form stats
+    return _buildRecentFormStats(context, theme, recentStats);
+  }
 
-    return Column(
-      children: [
-        // Current Tournament Stats (from fixtures within tournament date range - most accurate)
-        if (hasTournamentData || isLoadingTournamentStats)
-          _buildCurrentTournamentStats(context, theme, currentStageName),
-        
-        if (hasTournamentData && stats != null)
-          const SizedBox(height: 16),
-        
-        // Full Season Stats (aggregated from both tournaments)
-        if (stats != null)
-          _buildSeasonStats(context, theme, stats),
-      ],
+  /// Builds loading state for recent stats
+  Widget _buildLoadingRecentStats(BuildContext context, ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.primaryColor.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.trending_up, color: theme.primaryColor, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                S.of(context).recentForm,
+                style: theme.textTheme.bodyMedium!.copyWith(
+                  color: bgTextColor,
+                  fontSize: 12,
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: theme.primaryColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: Text(
+              S.of(context).loadingRecentStats,
+              style: theme.textTheme.bodySmall!.copyWith(color: Colors.grey),
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
     );
   }
 
-  /// Builds the current tournament stats section using actual fixture data
-  Widget _buildCurrentTournamentStats(BuildContext context, ThemeData theme, String? stageName) {
-    // Use tournament stats if available, otherwise fall back to recent form
-    final stats = tournamentStats ?? recentMatchStats;
-    final isTournamentData = tournamentStats != null;
-    
-    // Show loading indicator while fetching
-    if (isLoadingTournamentStats && stats == null) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: theme.primaryColor.withValues(alpha: 0.3),
-            width: 1,
+  /// Builds message when no recent stats are available
+  Widget _buildNoRecentStatsMessage(BuildContext context, ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.grey.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.info_outline,
+            color: Colors.grey[400],
+            size: 40,
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.trending_up, color: theme.primaryColor, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  stageName != null ? S.of(context).stageStatistics(stageName) : S.of(context).tournamentStatistics,
-                  style: theme.textTheme.bodyMedium!.copyWith(
-                    color: bgTextColor,
-                    fontSize: 12,
-                  ),
-                ),
-                const Spacer(),
-                SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: theme.primaryColor,
-                  ),
-                ),
-              ],
+          const SizedBox(height: 12),
+          Text(
+            S.of(context).noRecentStatsTitle,
+            style: theme.textTheme.titleMedium!.copyWith(
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[600],
             ),
-            const SizedBox(height: 24),
-            Center(
-              child: Text(
-                S.of(context).loadingTournamentStats,
-                style: theme.textTheme.bodySmall!.copyWith(color: Colors.grey),
-              ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            S.of(context).noRecentStatsMessage,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall!.copyWith(
+              color: Colors.grey[500],
             ),
-            const SizedBox(height: 24),
-          ],
-        ),
-      );
-    }
-    
-    if (stats == null) return const SizedBox.shrink();
-    
-    // Determine the label based on whether we have actual tournament data or just recent form
-    final sectionTitle = isTournamentData && stageName != null 
-        ? S.of(context).stageStatistics(stageName) 
-        : S.of(context).recentForm;
-    final badgeText = isTournamentData 
-        ? S.of(context).nMatches(stats.matchesPlayed) 
-        : S.of(context).lastNMatches(stats.matchesPlayed);
-    
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Builds the recent form stats section from last 5 fixtures (within 6 weeks)
+  Widget _buildRecentFormStats(BuildContext context, ThemeData theme, RecentMatchStats stats) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1322,7 +1505,7 @@ class _PlayerDetailsContent extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  sectionTitle,
+                  S.of(context).recentForm,
                   style: theme.textTheme.bodyMedium!.copyWith(
                     color: bgTextColor,
                     fontSize: 12,
@@ -1336,7 +1519,7 @@ class _PlayerDetailsContent extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  badgeText,
+                  S.of(context).lastNMatches(stats.matchesPlayed),
                   style: theme.textTheme.bodySmall!.copyWith(
                     color: theme.primaryColor,
                     fontSize: 10,
@@ -1345,9 +1528,23 @@ class _PlayerDetailsContent extends StatelessWidget {
               ),
             ],
           ),
+          
+          // Show info about fixtures analyzed if different from matches played
+          if (stats.fixturesAnalyzed != null && stats.fixturesAnalyzed! > stats.matchesPlayed) ...[
+            const SizedBox(height: 4),
+            Text(
+              S.of(context).fixturesAnalyzedNote(stats.fixturesAnalyzed!),
+              style: theme.textTheme.bodySmall!.copyWith(
+                color: Colors.grey[500],
+                fontSize: 10,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+          
           const SizedBox(height: 16),
 
-          // Stats from tournament matches
+          // Stats from recent matches
           Row(
             children: [
               _buildStatBox(context, S.of(context).games, stats.matchesPlayed.toString(), Icons.sports_soccer),
@@ -1407,179 +1604,78 @@ class _PlayerDetailsContent extends StatelessWidget {
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  /// Builds the full season statistics section
-  Widget _buildSeasonStats(BuildContext context, ThemeData theme, PlayerStatistics stats) {
-    // Get the season name from the stats
-    final seasonDisplayName = stats.seasonName ?? currentSeason?.name;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.bar_chart, color: Colors.grey[600], size: 20),
-              const SizedBox(width: 8),
-              Text(
-                S.of(context).fullSeasonStatistics,
-                style: theme.textTheme.bodyMedium!.copyWith(
-                  color: bgTextColor,
-                  fontSize: 12,
-                ),
+          
+          // Warning if player likely injured or benched
+          if (stats.isLikelyInjuredOrBench) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
               ),
-              const Spacer(),
-              if (seasonDisplayName != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    seasonDisplayName,
-                    style: theme.textTheme.bodySmall!.copyWith(
-                      color: Colors.grey[600],
-                      fontSize: 10,
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber, color: Colors.orange, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      S.of(context).playerLimitedPlaytime,
+                      style: theme.textTheme.bodySmall!.copyWith(
+                        color: Colors.orange[700],
+                      ),
                     ),
                   ),
-                ),
-            ],
-          ),
-          // Note about full season data
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              S.of(context).includesAperturaClausura,
-              style: theme.textTheme.bodySmall!.copyWith(
-                color: Colors.grey[500],
-                fontSize: 10,
-                fontStyle: FontStyle.italic,
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-
-          // Main stats grid
-          Row(
-            children: [
-              _buildStatBox(context, S.of(context).appearances, stats.appearances?.toString() ?? '-', Icons.sports_soccer),
-              const SizedBox(width: 12),
-              _buildStatBox(context, S.of(context).goals, stats.goals?.toString() ?? '-', Icons.sports_score),
-              const SizedBox(width: 12),
-              _buildStatBox(context, S.of(context).assists, stats.assists?.toString() ?? '-', Icons.handshake),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _buildStatBox(context, S.of(context).minutes, stats.formattedMinutes, Icons.timer),
-              const SizedBox(width: 12),
-              _buildStatBox(context, S.of(context).yellow, stats.yellowCards?.toString() ?? '-', Icons.square, color: Colors.amber),
-              const SizedBox(width: 12),
-              _buildStatBox(context, S.of(context).red, stats.redCards?.toString() ?? '-', Icons.square, color: Colors.red),
-            ],
-          ),
-
-          // Goalkeeper-specific stats (only show for goalkeepers)
-          if (player.isGoalkeeper && (stats.cleanSheets != null || stats.saves != null)) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                if (stats.cleanSheets != null)
-                  Expanded(child: _buildStatBox(context, S.of(context).cleanSheets, stats.cleanSheets.toString(), Icons.shield)),
-                if (stats.cleanSheets != null && stats.saves != null)
-                  const SizedBox(width: 12),
-                if (stats.saves != null)
-                  Expanded(child: _buildStatBox(context, S.of(context).saves, stats.saves.toString(), Icons.sports_handball)),
-                // Placeholder to maintain grid
-                if (stats.cleanSheets != null && stats.saves == null)
-                  const Spacer(),
-                if (stats.cleanSheets == null && stats.saves != null)
-                  const Spacer(),
-              ],
-            ),
           ],
-
-          // Rating if available
-          if (stats.rating != null) ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
+          
+          // View Advanced Stats button
+          const SizedBox(height: 16),
+          InkWell(
+            onTap: () {
+              AdvancedStatsDialog.show(
+                context,
+                stats: stats,
+                playerName: player.displayName,
+                positionCode: player.position?.code,
+              );
+            },
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    theme.primaryColor.withValues(alpha: 0.2),
-                    theme.primaryColor.withValues(alpha: 0.1),
+                    theme.primaryColor.withValues(alpha: 0.15),
+                    theme.primaryColor.withValues(alpha: 0.05),
                   ],
                 ),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.star, color: Colors.amber, size: 20),
+                  Icon(Icons.analytics_outlined, color: theme.primaryColor, size: 18),
                   const SizedBox(width: 8),
                   Text(
-                    S.of(context).averageRating,
+                    stats.hasAdvancedStats 
+                        ? S.of(context).viewAdvancedStats
+                        : S.of(context).viewStatsDetails,
                     style: theme.textTheme.bodyMedium!.copyWith(
-                      color: Colors.white70,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    stats.rating!.toStringAsFixed(2),
-                    style: theme.textTheme.headlineSmall!.copyWith(
-                      fontWeight: FontWeight.bold,
                       color: theme.primaryColor,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
+                  const Spacer(),
+                  Icon(Icons.arrow_forward_ios, color: theme.primaryColor, size: 14),
                 ],
               ),
             ),
-          ],
-
-          // Career totals
-          if (player.statistics.length > 1) ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    S.of(context).careerTotals,
-                    style: theme.textTheme.bodySmall!.copyWith(
-                      color: bgTextColor,
-                      fontSize: 10,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildCareerStat(context, S.of(context).apps, player.careerAppearances.toString()),
-                      _buildCareerStat(context, S.of(context).goals, player.careerGoals.toString()),
-                      _buildCareerStat(context, S.of(context).assists, player.careerAssists.toString()),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+          ),
         ],
       ),
     );
@@ -1626,27 +1722,6 @@ class _PlayerDetailsContent extends StatelessWidget {
     );
   }
 
-  Widget _buildCareerStat(BuildContext context, String label, String value) {
-    var theme = Theme.of(context);
-    return Column(
-      children: [
-        Text(
-          value,
-          style: theme.textTheme.titleMedium!.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Text(
-          label,
-          style: theme.textTheme.bodySmall!.copyWith(
-            color: bgTextColor,
-            fontSize: 10,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildCareerSection(BuildContext context) {
     var theme = Theme.of(context);
 
@@ -1679,17 +1754,6 @@ class _PlayerDetailsContent extends StatelessWidget {
                   fontSize: 12,
                 ),
               ),
-              if (isLoadingTeams) ...[
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: theme.primaryColor,
-                  ),
-                ),
-              ],
             ],
           ),
           const SizedBox(height: 16),

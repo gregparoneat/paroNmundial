@@ -187,17 +187,17 @@ class League {
   }
 
   /// Create invite link
-  String get inviteLink => 'fantasy11://league/join/$inviteCode';
+  String get inviteLink => 'paronfantasymx://league/join/$inviteCode';
 
   /// Create share text
   String get shareText {
     return '''
-🏆 Join my Fantasy League!
+🏆 Join my paroNfantasyMx League!
 
 League: $name
 ${description != null ? 'Description: $description\n' : ''}Match: ${matchName ?? 'TBD'}
 Budget: $budget credits
-Entry: ${entryFee != null ? '\$${entryFee!.toStringAsFixed(2)}' : 'Free'}
+FREE to play!
 
 Join with code: $inviteCode
 Or click: $inviteLink
@@ -395,10 +395,11 @@ class FantasyTeamPlayer {
   final int playerId;
   final String playerName;
   final String? playerImageUrl;
-  final PlayerPosition position;
   final String? teamName;
+  final PlayerPosition position;
   final double credits; // Cost in credits
   final double points; // Points earned (calculated after match)
+  final double predictedPoints; // Predicted points for next fixture
   final bool isCaptain;
   final bool isViceCaptain;
 
@@ -406,10 +407,11 @@ class FantasyTeamPlayer {
     required this.playerId,
     required this.playerName,
     this.playerImageUrl,
-    required this.position,
     this.teamName,
+    required this.position,
     required this.credits,
     this.points = 0,
+    this.predictedPoints = 0,
     this.isCaptain = false,
     this.isViceCaptain = false,
   });
@@ -421,6 +423,13 @@ class FantasyTeamPlayer {
     return points;
   }
 
+  /// Predicted points with captain/VC multipliers
+  double get effectivePredictedPoints {
+    if (isCaptain) return predictedPoints * 2;
+    if (isViceCaptain) return predictedPoints * 1.5;
+    return predictedPoints;
+  }
+
   FantasyTeamPlayer copyWith({
     int? playerId,
     String? playerName,
@@ -429,6 +438,7 @@ class FantasyTeamPlayer {
     String? teamName,
     double? credits,
     double? points,
+    double? predictedPoints,
     bool? isCaptain,
     bool? isViceCaptain,
   }) {
@@ -437,9 +447,9 @@ class FantasyTeamPlayer {
       playerName: playerName ?? this.playerName,
       playerImageUrl: playerImageUrl ?? this.playerImageUrl,
       position: position ?? this.position,
-      teamName: teamName ?? this.teamName,
       credits: credits ?? this.credits,
       points: points ?? this.points,
+      predictedPoints: predictedPoints ?? this.predictedPoints,
       isCaptain: isCaptain ?? this.isCaptain,
       isViceCaptain: isViceCaptain ?? this.isViceCaptain,
     );
@@ -454,6 +464,7 @@ class FantasyTeamPlayer {
       'teamName': teamName,
       'credits': credits,
       'points': points,
+      'predictedPoints': predictedPoints,
       'isCaptain': isCaptain,
       'isViceCaptain': isViceCaptain,
     };
@@ -468,9 +479,9 @@ class FantasyTeamPlayer {
         (e) => e.name == json['position'],
         orElse: () => PlayerPosition.midfielder,
       ),
-      teamName: json['teamName'] as String?,
       credits: (json['credits'] as num).toDouble(),
       points: (json['points'] as num?)?.toDouble() ?? 0,
+      predictedPoints: (json['predictedPoints'] as num?)?.toDouble() ?? 0,
       isCaptain: json['isCaptain'] as bool? ?? false,
       isViceCaptain: json['isViceCaptain'] as bool? ?? false,
     );
@@ -518,6 +529,7 @@ class FantasyTeam {
   final String leagueId;
   final String userId;
   final String userName;
+  final String teamName;
   final List<FantasyTeamPlayer> players;
   final double totalCredits;
   final double budgetRemaining;
@@ -531,6 +543,7 @@ class FantasyTeam {
     required this.leagueId,
     required this.userId,
     required this.userName,
+    required this.teamName,
     required this.players,
     required this.totalCredits,
     required this.budgetRemaining,
@@ -547,6 +560,11 @@ class FantasyTeam {
   /// Get vice-captain
   FantasyTeamPlayer? get viceCaptain => 
       players.where((p) => p.isViceCaptain).firstOrNull;
+
+  /// Get total predicted points for all players (with captain/VC multipliers)
+  double get totalPredictedPoints {
+    return players.fold(0.0, (sum, p) => sum + p.effectivePredictedPoints);
+  }
 
   /// Get players by position
   List<FantasyTeamPlayer> getPlayersByPosition(PlayerPosition position) {
@@ -615,6 +633,7 @@ class FantasyTeam {
     String? leagueId,
     String? userId,
     String? userName,
+    String? teamName,
     List<FantasyTeamPlayer>? players,
     double? totalCredits,
     double? budgetRemaining,
@@ -628,6 +647,7 @@ class FantasyTeam {
       leagueId: leagueId ?? this.leagueId,
       userId: userId ?? this.userId,
       userName: userName ?? this.userName,
+      teamName: teamName ?? this.teamName,
       players: players ?? this.players,
       totalCredits: totalCredits ?? this.totalCredits,
       budgetRemaining: budgetRemaining ?? this.budgetRemaining,
@@ -644,6 +664,7 @@ class FantasyTeam {
       'leagueId': leagueId,
       'userId': userId,
       'userName': userName,
+      'teamName': teamName,
       'players': players.map((p) => p.toJson()).toList(),
       'totalCredits': totalCredits,
       'budgetRemaining': budgetRemaining,
@@ -660,6 +681,7 @@ class FantasyTeam {
       leagueId: json['leagueId'] as String,
       userId: json['userId'] as String,
       userName: json['userName'] as String,
+      teamName: json['teamName'] as String? ?? json['userName'] as String,
       players: (json['players'] as List<dynamic>)
           .map((p) => FantasyTeamPlayer.fromJson(p as Map<String, dynamic>))
           .toList(),
@@ -680,6 +702,7 @@ class FantasyTeam {
     required String leagueId,
     required String userId,
     required String userName,
+    required String teamName,
     required double budget,
   }) {
     return FantasyTeam(
@@ -687,6 +710,7 @@ class FantasyTeam {
       leagueId: leagueId,
       userId: userId,
       userName: userName,
+      teamName: teamName,
       players: [],
       totalCredits: budget,
       budgetRemaining: budget,

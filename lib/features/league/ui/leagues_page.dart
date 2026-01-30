@@ -108,7 +108,7 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Fantasy Leagues'),
+        title: const Text('paroNfantasyMx Leagues'),
         centerTitle: false,
         elevation: 0,
         actions: [
@@ -336,45 +336,25 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
                     ),
                   ),
                   
-                  // Entry fee badge
-                  if (league.entryFee != null && league.entryFee! > 0)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: theme.primaryColor.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '\$${league.entryFee!.toStringAsFixed(0)}',
-                        style: TextStyle(
-                          color: theme.primaryColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                    )
-                  else
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Text(
-                        'FREE',
-                        style: TextStyle(
-                          color: Colors.green,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
+                  // Free badge (all leagues are free now)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'FREE',
+                      style: TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
                       ),
                     ),
+                  ),
                 ],
               ),
               
@@ -426,20 +406,13 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
               
               const SizedBox(height: 8),
               
-              // Budget and prize pool row
+              // Budget row
               Row(
                 children: [
                   _buildInfoChip(
                     icon: Icons.account_balance_wallet,
                     label: '${league.budget.toInt()} credits',
                   ),
-                  const SizedBox(width: 12),
-                  if (league.prizePool != null && league.prizePool! > 0)
-                    _buildInfoChip(
-                      icon: Icons.emoji_events,
-                      label: '\$${league.prizePool!.toStringAsFixed(0)} prize',
-                      color: Colors.amber,
-                    ),
                   const Spacer(),
                   if (league.isJoined)
                     TextButton(

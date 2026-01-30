@@ -331,6 +331,9 @@ class FixturesRepository {
       double totalRating = 0;
       int ratingCount = 0;
       
+      // Advanced stats accumulator
+      AdvancedStats aggregatedAdvanced = const AdvancedStats();
+      
       // Step 2: Process each fixture until we have enough data
       // Fixtures come in order - first one is the most recent
       for (final fixtureRef in latestFixtures) {
@@ -413,6 +416,13 @@ class FixturesRepository {
               ratingCount++;
             }
             
+            // Extract advanced stats from lineup details
+            final advancedFromFixture = _extractAdvancedStatsFromLineup(fixture, playerId);
+            if (advancedFromFixture != null) {
+              aggregatedAdvanced = aggregatedAdvanced.mergeWith(advancedFromFixture);
+              print('Fixture $fixtureId: Extracted advanced stats for player');
+            }
+            
             print('Fixture $fixtureId: Player played ${playerStats['minutes']} mins, ${playerStats['goals']} goals, ${playerStats['assists']} assists');
           } else {
             print('Fixture $fixtureId: Player did not participate (sidelined/bench)');
@@ -433,6 +443,14 @@ class FixturesRepository {
       }
       
       print('Player $playerId form stats: $goals goals, $assists assists, $minutesPlayed mins in $matchesPlayed matches');
+      print('Player $playerId advanced stats: ${aggregatedAdvanced.keyPasses} key passes, ${aggregatedAdvanced.tackles} tackles, ${aggregatedAdvanced.shotsTotal} shots');
+      
+      // Check if we actually got any advanced stats (at least some non-zero values)
+      final hasRealAdvancedStats = aggregatedAdvanced.keyPasses > 0 ||
+          aggregatedAdvanced.tackles > 0 ||
+          aggregatedAdvanced.shotsTotal > 0 ||
+          aggregatedAdvanced.totalPasses > 0 ||
+          aggregatedAdvanced.duelsWon > 0;
       
       return RecentMatchStats(
         matchesPlayed: matchesPlayed,
@@ -445,6 +463,7 @@ class FixturesRepository {
         saves: saves,
         averageRating: ratingCount > 0 ? totalRating / ratingCount : null,
         fixturesAnalyzed: matchesAnalyzed,
+        advancedStats: hasRealAdvancedStats ? aggregatedAdvanced : null,
       );
     } on SportMonksException catch (e) {
       print('SportMonks API Error fetching recent stats: $e');
@@ -456,6 +475,71 @@ class FixturesRepository {
     }
   }
   
+  /// Extract advanced stats from lineup details for a specific player
+  /// 
+  /// The lineup details contain per-player stats like key passes, tackles, etc.
+  /// Format: lineups[].details[].type.developer_name -> stat type, details[].data.value -> stat value
+  AdvancedStats? _extractAdvancedStatsFromLineup(
+    Map<String, dynamic> fixture,
+    int playerId,
+  ) {
+    // Debug: Show what keys are in the fixture
+    print('DEBUG _extractAdvancedStats: Fixture keys: ${fixture.keys.toList()}');
+    
+    final lineups = fixture['lineups'] as List?;
+    print('DEBUG _extractAdvancedStats: lineups is ${lineups == null ? "NULL" : "List with ${lineups.length} entries"}');
+    
+    if (lineups == null || lineups.isEmpty) {
+      print('DEBUG _extractAdvancedStats: No lineups array in fixture or it is empty');
+      return null;
+    }
+    
+    print('DEBUG: Fixture has ${lineups.length} lineup entries, looking for player $playerId');
+    
+    // Find the lineup entry for this player
+    for (final lineup in lineups) {
+      if (lineup is! Map<String, dynamic>) {
+        print('DEBUG: Lineup entry is not a Map: ${lineup.runtimeType}');
+        continue;
+      }
+      
+      final lineupPlayerId = lineup['player_id'] as int?;
+      if (lineupPlayerId != playerId) continue;
+      
+      print('DEBUG: Found player $playerId in lineup!');
+      print('DEBUG: Lineup keys: ${lineup.keys.toList()}');
+      
+      // Found player's lineup entry - extract details
+      final details = lineup['details'] as List?;
+      if (details == null || details.isEmpty) {
+        print('DEBUG: Player $playerId found in lineup but no details array (details: ${lineup['details']})');
+        return null;
+      }
+      
+      print('DEBUG: Extracting advanced stats from ${details.length} detail entries for player $playerId');
+      
+      // Debug first detail entry structure
+      if (details.isNotEmpty) {
+        final firstDetail = details.first;
+        print('DEBUG: First detail structure: ${firstDetail.runtimeType}');
+        if (firstDetail is Map) {
+          print('DEBUG: First detail keys: ${firstDetail.keys.toList()}');
+          print('DEBUG: First detail type: ${firstDetail['type']}');
+          print('DEBUG: First detail type_id: ${firstDetail['type_id']}');
+          print('DEBUG: First detail value: ${firstDetail['value']}');
+        }
+      }
+      
+      // Use the AdvancedStats factory to parse the details
+      final stats = AdvancedStats.fromLineupDetails(details);
+      print('DEBUG: Parsed advanced stats - keyPasses: ${stats.keyPasses}, tackles: ${stats.tackles}, shots: ${stats.shotsTotal}');
+      return stats;
+    }
+    
+    print('DEBUG: Player $playerId NOT found in any lineup entry');
+    return null;
+  }
+
   /// Create zero form stats for players with no recent activity
   RecentMatchStats _createZeroFormStats() {
     return RecentMatchStats(
@@ -1004,6 +1088,263 @@ class FixturesRepository {
     if (value is int) return value.toDouble();
     if (value is String) return double.tryParse(value);
     return null;
+  }
+
+  // ========== ADVANCED STATISTICS METHODS ==========
+  
+  /// Liga MX league ID
+  static const int ligaMxLeagueId = 743;
+  
+  /// Cache for current season ID
+  int? _currentSeasonId;
+  
+  /// Cache for fixtures with advanced stats (player_id -> list of fixture stats)
+  final Map<int, List<Map<String, dynamic>>> _playerFixtureStatsCache = {};
+  
+  /// Get the current Liga MX season ID
+  Future<int?> getCurrentSeasonId() async {
+    if (_currentSeasonId != null) return _currentSeasonId;
+    
+    try {
+      final response = await _client.getLeagueWithSeasons(ligaMxLeagueId);
+      final leagueData = response.data;
+      
+      if (leagueData == null) return null;
+      
+      final seasons = leagueData['seasons'] as List?;
+      if (seasons == null || seasons.isEmpty) return null;
+      
+      // Find the current season
+      for (final season in seasons) {
+        if (season is Map<String, dynamic> && season['is_current'] == true) {
+          _currentSeasonId = season['id'] as int?;
+          print('Found current Liga MX season: $_currentSeasonId');
+          return _currentSeasonId;
+        }
+      }
+      
+      return null;
+    } catch (e) {
+      print('Error getting current season: $e');
+      return null;
+    }
+  }
+  
+  /// Get player advanced stats from the last 6 weeks of fixtures
+  /// This uses the new advanced statistics from lineup details
+  Future<RecentMatchStats> getPlayerAdvancedStats(int playerId, int teamId) async {
+    // Check cache first
+    if (_playerFixtureStatsCache.containsKey(playerId)) {
+      return _aggregatePlayerStats(playerId, _playerFixtureStatsCache[playerId]!);
+    }
+    
+    try {
+      // Get current season
+      final seasonId = await getCurrentSeasonId();
+      if (seasonId == null) {
+        print('Could not get current season ID');
+        return const RecentMatchStats(matchesPlayed: 0);
+      }
+      
+      // Calculate date range (last 6 weeks)
+      final endDate = DateTime.now();
+      final startDate = endDate.subtract(const Duration(days: 42)); // 6 weeks
+      
+      // Fetch all fixtures for the season
+      final fixtures = await _client.getAllFixturesForSeasonWithAdvancedStats(
+        seasonId,
+        startDate: startDate,
+        endDate: endDate,
+      );
+      
+      print('Fetched ${fixtures.length} fixtures from last 6 weeks');
+      
+      // Process fixtures to extract player stats
+      final playerStats = <Map<String, dynamic>>[];
+      
+      for (final fixture in fixtures) {
+        final fixtureId = fixture['id'] as int?;
+        final lineups = fixture['lineups'] as List?;
+        
+        if (lineups == null || fixtureId == null) continue;
+        
+        // Find player in lineups
+        for (final lineup in lineups) {
+          if (lineup is! Map<String, dynamic>) continue;
+          
+          final lineupPlayerId = lineup['player_id'] as int?;
+          if (lineupPlayerId != playerId) continue;
+          
+          // Found player in this fixture
+          final details = lineup['details'] as List?;
+          if (details == null || details.isEmpty) continue;
+          
+          // Parse advanced stats from details
+          final advancedStats = AdvancedStats.fromLineupDetails(details);
+          
+          // Extract basic stats from the fixture/lineup
+          final fixtureStats = _extractBasicStatsFromLineup(fixture, lineup, details);
+          fixtureStats['advancedStats'] = advancedStats;
+          fixtureStats['fixtureId'] = fixtureId;
+          
+          playerStats.add(fixtureStats);
+          break; // Player found, move to next fixture
+        }
+      }
+      
+      // Cache the results
+      _playerFixtureStatsCache[playerId] = playerStats;
+      
+      return _aggregatePlayerStats(playerId, playerStats);
+    } catch (e) {
+      print('Error fetching advanced stats for player $playerId: $e');
+      return const RecentMatchStats(matchesPlayed: 0);
+    }
+  }
+  
+  /// Extract basic stats from lineup data
+  Map<String, dynamic> _extractBasicStatsFromLineup(
+    Map<String, dynamic> fixture,
+    Map<String, dynamic> lineup,
+    List<dynamic> details,
+  ) {
+    int goals = 0, assists = 0, minutes = 0, saves = 0;
+    int yellowCards = 0, redCards = 0;
+    bool cleanSheet = false;
+    double? rating;
+    
+    // Extract from details
+    for (final detail in details) {
+      if (detail is! Map<String, dynamic>) continue;
+      
+      final type = detail['type'] as Map<String, dynamic>?;
+      final code = type?['code']?.toString().toUpperCase() ?? '';
+      final value = detail['value'];
+      
+      switch (code) {
+        case 'GOALS':
+          goals = _parseIntSafe(value) ?? 0;
+          break;
+        case 'ASSISTS':
+          assists = _parseIntSafe(value) ?? 0;
+          break;
+        case 'MINUTES':
+        case 'MINUTES_PLAYED':
+          minutes = _parseIntSafe(value) ?? 0;
+          break;
+        case 'SAVES':
+          saves = _parseIntSafe(value) ?? 0;
+          break;
+        case 'YELLOWCARDS':
+        case 'YELLOW_CARDS':
+          yellowCards = _parseIntSafe(value) ?? 0;
+          break;
+        case 'REDCARDS':
+        case 'RED_CARDS':
+          redCards = _parseIntSafe(value) ?? 0;
+          break;
+        case 'RATING':
+          rating = _parseDoubleSafe(value);
+          break;
+      }
+    }
+    
+    // If minutes not found in details, estimate from type_id
+    if (minutes == 0) {
+      final typeId = lineup['type_id'] as int?;
+      // type_id 11 = starter, type_id 12 = substitute
+      if (typeId == 11) {
+        minutes = 90; // Assume full match for starters
+      }
+    }
+    
+    // Check for clean sheet from fixture scores
+    final participantId = lineup['team_id'] as int?;
+    final scores = fixture['scores'] as List?;
+    if (scores != null && participantId != null) {
+      for (final score in scores) {
+        if (score is! Map<String, dynamic>) continue;
+        final scoreParticipant = score['participant_id'] as int?;
+        if (scoreParticipant != participantId) {
+          final scoreData = score['score'] as Map<String, dynamic>?;
+          final goalsAgainst = scoreData?['goals'] as int? ?? 0;
+          cleanSheet = goalsAgainst == 0;
+          break;
+        }
+      }
+    }
+    
+    return {
+      'goals': goals,
+      'assists': assists,
+      'minutes': minutes,
+      'saves': saves,
+      'yellowCards': yellowCards,
+      'redCards': redCards,
+      'cleanSheet': cleanSheet,
+      'rating': rating,
+    };
+  }
+  
+  /// Aggregate player stats from multiple fixtures into RecentMatchStats
+  RecentMatchStats _aggregatePlayerStats(int playerId, List<Map<String, dynamic>> fixtureStats) {
+    if (fixtureStats.isEmpty) {
+      return const RecentMatchStats(matchesPlayed: 0);
+    }
+    
+    int totalGoals = 0, totalAssists = 0, totalMinutes = 0;
+    int totalSaves = 0, totalYellowCards = 0, totalRedCards = 0;
+    int cleanSheets = 0;
+    final ratings = <double>[];
+    AdvancedStats aggregatedAdvanced = const AdvancedStats();
+    
+    for (final stats in fixtureStats) {
+      totalGoals += stats['goals'] as int? ?? 0;
+      totalAssists += stats['assists'] as int? ?? 0;
+      totalMinutes += stats['minutes'] as int? ?? 0;
+      totalSaves += stats['saves'] as int? ?? 0;
+      totalYellowCards += stats['yellowCards'] as int? ?? 0;
+      totalRedCards += stats['redCards'] as int? ?? 0;
+      if (stats['cleanSheet'] == true) cleanSheets++;
+      
+      final rating = stats['rating'] as double?;
+      if (rating != null && rating > 0) ratings.add(rating);
+      
+      final advanced = stats['advancedStats'] as AdvancedStats?;
+      if (advanced != null) {
+        aggregatedAdvanced = aggregatedAdvanced.mergeWith(advanced);
+      }
+    }
+    
+    // Calculate average rating
+    double? avgRating;
+    if (ratings.isNotEmpty) {
+      avgRating = ratings.reduce((a, b) => a + b) / ratings.length;
+    }
+    
+    print('Player $playerId advanced stats: ${fixtureStats.length} matches, '
+          '$totalGoals goals, $totalAssists assists, $totalMinutes mins, '
+          'rating: ${avgRating?.toStringAsFixed(2)}');
+    
+    return RecentMatchStats(
+      matchesPlayed: fixtureStats.length,
+      goals: totalGoals,
+      assists: totalAssists,
+      minutesPlayed: totalMinutes,
+      cleanSheets: cleanSheets,
+      yellowCards: totalYellowCards,
+      redCards: totalRedCards,
+      saves: totalSaves,
+      averageRating: avgRating,
+      fixturesAnalyzed: fixtureStats.length,
+      advancedStats: aggregatedAdvanced,
+    );
+  }
+  
+  /// Clear advanced stats cache (call when refreshing data)
+  void clearAdvancedStatsCache() {
+    _playerFixtureStatsCache.clear();
+    _currentSeasonId = null;
   }
 
   /// Dispose resources

@@ -309,10 +309,6 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
               _buildTag(Icons.people, '${league.memberCount}/${league.maxMembers}'),
               const SizedBox(width: 12),
               _buildTag(Icons.account_balance_wallet, '${league.budget.toInt()} credits'),
-              if (league.entryFee != null && league.entryFee! > 0) ...[
-                const SizedBox(width: 12),
-                _buildTag(Icons.attach_money, '\$${league.entryFee!.toStringAsFixed(0)}'),
-              ],
             ],
           ),
         ],

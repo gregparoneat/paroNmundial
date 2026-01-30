@@ -55,10 +55,9 @@ class TeamBuilderPage extends StatefulWidget {
 // Squad configuration constants
 const int kTotalSquadSize = 15;  // 11 starters + 4 subs
 const int kStartingXI = 11;
-const int kMaxGK = 2;   // 1 starter + 1 sub
-const int kMaxDEF = 5;  // Up to 5 defenders
-const int kMaxMID = 5;  // Up to 5 midfielders  
-const int kMaxFWD = 3;  // Up to 3 forwards
+const int kBenchSize = 4;
+// No strict position limits - user can have any combination as long as
+// they can fill 11 players according to their chosen formation
 
 class _TeamBuilderPageState extends State<TeamBuilderPage> {
   final LeagueRepository _leagueRepository = LeagueRepository();
@@ -106,13 +105,20 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     // Load existing team if any
     if (widget.existingTeam != null) {
       _selectedPlayers = List.from(widget.existingTeam!.players);
-      _budgetRemaining = widget.existingTeam!.budgetRemaining;
+      // Recalculate budget based on actual player credits (don't trust stored value)
+      _budgetRemaining = _recalculateBudget();
     }
     
     // Setup scroll listener for infinite scroll
     _scrollController.addListener(_onScroll);
     
     _loadInitialData();
+  }
+  
+  /// Recalculate the budget remaining based on selected players
+  double _recalculateBudget() {
+    final usedCredits = _selectedPlayers.fold(0.0, (sum, p) => sum + p.credits);
+    return _budget - usedCredits;
   }
 
   @override
@@ -326,25 +332,6 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
         
         // Convert position code to PlayerPosition
         final position = _positionCodeToEnum(rosterPlayer.positionCode);
-        final posCount = _selectedPlayers.where((p) => p.position == position).length;
-        
-        // Squad limits: 2 GK, 5 DEF, 5 MID, 3 FWD = 15 total
-        if (position == PlayerPosition.goalkeeper && posCount >= kMaxGK) {
-          _showError('Maximum $kMaxGK goalkeepers allowed');
-          return;
-        }
-        if (position == PlayerPosition.defender && posCount >= kMaxDEF) {
-          _showError('Maximum $kMaxDEF defenders allowed');
-          return;
-        }
-        if (position == PlayerPosition.midfielder && posCount >= kMaxMID) {
-          _showError('Maximum $kMaxMID midfielders allowed');
-          return;
-        }
-        if ((position == PlayerPosition.attacker || position == PlayerPosition.forward) && posCount >= kMaxFWD) {
-          _showError('Maximum $kMaxFWD forwards allowed');
-          return;
-        }
         
         // Check team limit (max 4 from one team - more realistic)
         final teamCount = _selectedPlayers.where((p) => p.teamName == rosterPlayer.teamName).length;
@@ -353,7 +340,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           return;
         }
         
-        // Add player
+        // Add player - no strict position limits, just total squad size
         final teamPlayer = FantasyTeamPlayer(
           playerId: rosterPlayer.id,
           playerName: rosterPlayer.displayName,
@@ -412,6 +399,46 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     });
   }
 
+  /// Handle player swap via drag-and-drop on the soccer field
+  void _handlePlayerSwap(
+    FantasyTeamPlayer draggedPlayer,
+    FantasyTeamPlayer? targetPlayer,
+    String targetPosition,
+    int targetSlotIndex,
+  ) {
+    setState(() {
+      if (targetPlayer != null) {
+        // Swap the two players in the list
+        final draggedIndex = _selectedPlayers.indexWhere((p) => p.playerId == draggedPlayer.playerId);
+        final targetIndex = _selectedPlayers.indexWhere((p) => p.playerId == targetPlayer.playerId);
+        
+        if (draggedIndex >= 0 && targetIndex >= 0) {
+          final temp = _selectedPlayers[draggedIndex];
+          _selectedPlayers[draggedIndex] = _selectedPlayers[targetIndex];
+          _selectedPlayers[targetIndex] = temp;
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Swapped ${draggedPlayer.playerName} with ${targetPlayer.playerName}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 1),
+            ),
+          );
+        }
+      } else {
+        // Dropping onto an empty slot - this should only happen for positions
+        // that the player can fill. The validation is done in the drag target.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${draggedPlayer.playerName} moved to $targetPosition position'),
+            backgroundColor: Colors.blue,
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    });
+  }
+
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -420,6 +447,52 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
         duration: const Duration(seconds: 2),
       ),
     );
+  }
+
+  /// Validate if the current squad can fill the selected formation
+  /// Returns error message if invalid, null if valid
+  String? _validateFormation() {
+    // Count players by position
+    final gkCount = _selectedPlayers.where((p) => p.position == PlayerPosition.goalkeeper).length;
+    final defCount = _selectedPlayers.where((p) => p.position == PlayerPosition.defender).length;
+    final midCount = _selectedPlayers.where((p) => p.position == PlayerPosition.midfielder).length;
+    final fwdCount = _selectedPlayers.where((p) => 
+        p.position == PlayerPosition.attacker || p.position == PlayerPosition.forward).length;
+    
+    // Formation requires: 1 GK + DEF + MID + FWD according to formation.lines
+    final requiredDef = _selectedFormation.lines[0];
+    final requiredMid = _selectedFormation.lines[1];
+    final requiredFwd = _selectedFormation.lines[2];
+    
+    // Need at least 1 GK for lineup
+    if (gkCount < 1) {
+      return 'You need at least 1 goalkeeper';
+    }
+    
+    // Check formation requirements
+    if (defCount < requiredDef) {
+      return 'Formation ${_selectedFormation.name} requires $requiredDef defenders, you have $defCount';
+    }
+    if (midCount < requiredMid) {
+      return 'Formation ${_selectedFormation.name} requires $requiredMid midfielders, you have $midCount';
+    }
+    if (fwdCount < requiredFwd) {
+      return 'Formation ${_selectedFormation.name} requires $requiredFwd forwards, you have $fwdCount';
+    }
+    
+    return null; // Valid!
+  }
+  
+  /// Get formation suggestions based on current squad
+  List<Formation> _getSuggestedFormations() {
+    final defCount = _selectedPlayers.where((p) => p.position == PlayerPosition.defender).length;
+    final midCount = _selectedPlayers.where((p) => p.position == PlayerPosition.midfielder).length;
+    final fwdCount = _selectedPlayers.where((p) => 
+        p.position == PlayerPosition.attacker || p.position == PlayerPosition.forward).length;
+    
+    return Formation.values.where((f) {
+      return defCount >= f.lines[0] && midCount >= f.lines[1] && fwdCount >= f.lines[2];
+    }).toList();
   }
 
   /// Navigate to full player profile
@@ -491,27 +564,10 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
       return;
     }
     
-    // Validate squad composition
-    final gkCount = _selectedPlayers.where((p) => p.position == PlayerPosition.goalkeeper).length;
-    final defCount = _selectedPlayers.where((p) => p.position == PlayerPosition.defender).length;
-    final midCount = _selectedPlayers.where((p) => p.position == PlayerPosition.midfielder).length;
-    final fwdCount = _selectedPlayers.where((p) => 
-        p.position == PlayerPosition.attacker || p.position == PlayerPosition.forward).length;
-    
-    if (gkCount != kMaxGK) {
-      _showError('You need exactly $kMaxGK goalkeepers');
-      return;
-    }
-    if (defCount != kMaxDEF) {
-      _showError('You need exactly $kMaxDEF defenders');
-      return;
-    }
-    if (midCount != kMaxMID) {
-      _showError('You need exactly $kMaxMID midfielders');
-      return;
-    }
-    if (fwdCount != kMaxFWD) {
-      _showError('You need exactly $kMaxFWD forwards');
+    // Validate formation can be filled
+    final validationError = _validateFormation();
+    if (validationError != null) {
+      _showError(validationError);
       return;
     }
     
@@ -533,6 +589,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
         leagueId: widget.league.id,
         userId: currentUser.oderId,
         userName: currentUser.userName,
+        teamName: currentUser.userName,
         players: _selectedPlayers,
         totalCredits: _budget,
         budgetRemaining: _budgetRemaining,
@@ -824,7 +881,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
             ),
           ),
           
-          // Soccer field - main area
+          // Soccer field - main area with drag-and-drop support
           Padding(
             padding: const EdgeInsets.all(12),
             child: SoccerFieldWidget(
@@ -834,6 +891,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
               height: 320,
               onPlayerTap: (player) => _showSubstitutionDialog(player),
               onSlotTap: (position, index) => _showPlayerSelectionSheet(_positionFromString(position)),
+              onPlayerSwap: _handlePlayerSwap,
             ),
           ),
           
@@ -1154,7 +1212,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
               ),
             ),
             
-            // Soccer field - compact height
+            // Soccer field - compact height with drag-and-drop support
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: SoccerFieldWidget(
@@ -1164,6 +1222,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                 height: 200,
                 onPlayerTap: (player) => _showSubstitutionDialog(player),
                 onSlotTap: (position, index) => _scrollToPosition(position),
+                onPlayerSwap: _handlePlayerSwap,
               ),
             ),
             
@@ -1925,28 +1984,105 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              // Player image
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: bgColor,
-                  border: Border.all(
-                    color: posColor.withValues(alpha: 0.5),
-                    width: 2,
+              // Player image with optional deceased banner
+              Stack(
+                children: [
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: bgColor,
+                      border: Border.all(
+                        color: posColor.withValues(alpha: 0.5),
+                        width: 2,
+                      ),
+                    ),
+                    child: ClipOval(
+                      child: player.imagePath != null && player.imagePath!.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: player.imagePath!,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) => _buildPlayerInitials(player),
+                              errorWidget: (_, __, ___) => _buildPlayerInitials(player),
+                            )
+                          : _buildPlayerInitials(player),
+                    ),
                   ),
-                ),
-                child: ClipOval(
-                  child: player.imagePath != null && player.imagePath!.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: player.imagePath!,
-                          fit: BoxFit.cover,
-                          placeholder: (_, __) => _buildPlayerInitials(player),
-                          errorWidget: (_, __, ___) => _buildPlayerInitials(player),
-                        )
-                      : _buildPlayerInitials(player),
-                ),
+                  // Easter egg: deceased banner for player 253780
+                  if (player.id == 253780)
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.8),
+                          borderRadius: const BorderRadius.only(
+                            bottomLeft: Radius.circular(25),
+                            bottomRight: Radius.circular(25),
+                          ),
+                        ),
+                        child: const Text(
+                          '💀 RIP',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  // Star player badge (good recent form)
+                  if (player.isStarPlayer && player.id != 253780)
+                    Positioned(
+                      top: -2,
+                      right: -2,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          color: player.isElitePlayer ? Colors.amber : Colors.orange,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.star,
+                          size: 12,
+                          color: player.isElitePlayer ? Colors.white : Colors.white,
+                        ),
+                      ),
+                    ),
+                  // Cheeks badge (poor recent form) 🍑
+                  if (player.isCheeks && player.id != 253780)
+                    Positioned(
+                      top: -2,
+                      right: -2,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.brown.shade400,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: const Text(
+                          '🍑',
+                          style: TextStyle(fontSize: 10),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               
               const SizedBox(width: 12),
@@ -3450,24 +3586,126 @@ class _PlayerSelectionSheetState extends State<_PlayerSelectionSheet> {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              // Position badge
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: posColor,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Center(
-                  child: Text(
-                    player.positionCode,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
+              // Player image with position indicator
+              Stack(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: bgColor,
+                      border: Border.all(
+                        color: posColor.withValues(alpha: 0.5),
+                        width: 2,
+                      ),
+                    ),
+                    child: ClipOval(
+                      child: player.imagePath != null && player.imagePath!.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: player.imagePath!,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) => _buildPlayerInitials(player),
+                              errorWidget: (_, __, ___) => _buildPlayerInitials(player),
+                            )
+                          : _buildPlayerInitials(player),
                     ),
                   ),
-                ),
+                  // Position badge overlay
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: posColor,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: bgColor, width: 1),
+                      ),
+                      child: Text(
+                        player.positionCode,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 8,
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Easter egg: deceased banner for player 253780 😂
+                  if (player.id == 253780)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.85),
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(24),
+                            topRight: Radius.circular(24),
+                          ),
+                        ),
+                        child: const Text(
+                          '💀 RIP',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 7,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  // Star player badge (good recent form) ⭐
+                  if (player.isStarPlayer && player.id != 253780)
+                    Positioned(
+                      top: -2,
+                      left: -2,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: player.isElitePlayer ? Colors.amber : Colors.orange,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 3,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.star,
+                          size: 10,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  // Cheeks badge (poor recent form) 🍑
+                  if (player.isCheeks && player.id != 253780)
+                    Positioned(
+                      top: -2,
+                      left: -2,
+                      child: Container(
+                        padding: const EdgeInsets.all(1),
+                        decoration: BoxDecoration(
+                          color: Colors.brown.shade400,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 3,
+                            ),
+                          ],
+                        ),
+                        child: const Text(
+                          '🍑',
+                          style: TextStyle(fontSize: 9),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 12),
               
@@ -3480,9 +3718,27 @@ class _PlayerSelectionSheetState extends State<_PlayerSelectionSheet> {
                       player.name,
                       style: const TextStyle(fontWeight: FontWeight.w500),
                     ),
-                    Text(
-                      player.teamName,
-                      style: TextStyle(color: bgTextColor, fontSize: 12),
+                    Row(
+                      children: [
+                        if (player.teamLogo != null && player.teamLogo!.isNotEmpty) ...[
+                          CachedNetworkImage(
+                            imageUrl: player.teamLogo!,
+                            width: 14,
+                            height: 14,
+                            placeholder: (_, __) => const SizedBox.shrink(),
+                            errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        Expanded(
+                          child: Text(
+                            player.teamName,
+                            style: TextStyle(color: bgTextColor, fontSize: 12),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -3529,6 +3785,26 @@ class _PlayerSelectionSheetState extends State<_PlayerSelectionSheet> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildPlayerInitials(RosterPlayer player) {
+    final initials = player.displayName
+        .split(' ')
+        .take(2)
+        .map((s) => s.isNotEmpty ? s[0] : '')
+        .join()
+        .toUpperCase();
+    
+    return Center(
+      child: Text(
+        initials,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
         ),
       ),
     );

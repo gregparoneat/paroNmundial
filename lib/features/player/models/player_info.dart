@@ -595,27 +595,19 @@ class Player {
   /// [currentSeasonId] - The ID of the current tournament (e.g., Clausura 2026)
   PlayerStatistics? getStatsForCurrentSeason(int? currentSeasonId) {
     if (statistics.isEmpty) {
-      print('getStatsForCurrentSeason: No statistics available');
       return null;
     }
-    
-    print('getStatsForCurrentSeason: Looking for season $currentSeasonId');
-    print('getStatsForCurrentSeason: Player has ${statistics.length} stat entries');
     
     // If we have a current season ID, try to find stats for that season
     if (currentSeasonId != null) {
       final seasonStats = getStatsForSeason(currentSeasonId);
       if (seasonStats != null) {
-        print('getStatsForCurrentSeason: Found matching stats for season $currentSeasonId');
         return seasonStats;
       }
-      print('getStatsForCurrentSeason: No match, falling back to latest stats');
     }
     
     // Fallback to latest stats
-    final latest = latestStats;
-    print('getStatsForCurrentSeason: Using latest stats - Season: ${latest?.seasonName}, ID: ${latest?.seasonId}');
-    return latest;
+    return latestStats;
   }
 
   /// Get all available season IDs from statistics

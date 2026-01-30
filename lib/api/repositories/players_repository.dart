@@ -40,6 +40,16 @@ class RosterPlayer {
     this.selectedByPercent = 0,
     this.stats,
   });
+  
+  /// Star player: projected points > 7.5 (indicates good recent form)
+  bool get isStarPlayer => projectedPoints > 7.5;
+  
+  /// Elite player: projected points > 10 (indicates excellent form)
+  bool get isElitePlayer => projectedPoints > 10.0;
+  
+  /// Cheeks player: projected points < 2.0 (indicates very poor form) 🍑
+  /// Note: This uses the RosterPlayer scale (2-15), not the full prediction scale (0-100)
+  bool get isCheeks => projectedPoints < 2.0;
 
   Map<String, dynamic> toJson() => {
     'id': id,
