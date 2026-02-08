@@ -6,6 +6,8 @@ import 'package:fantacy11/features/account/ui/privacy_policy.dart';
 import 'package:fantacy11/features/account/ui/profile.dart';
 import 'package:fantacy11/features/account/ui/support.dart';
 import 'package:fantacy11/features/app_navigation/app_navigation.dart';
+import 'package:fantacy11/features/fixtures/ui/match_details_page.dart';
+import 'package:fantacy11/features/fixtures/ui/past_fixtures_page.dart';
 import 'package:fantacy11/features/home/choose_captain_and_vice_captain.dart';
 import 'package:fantacy11/features/home/contests.dart';
 import 'package:fantacy11/features/home/create_new_team.dart';
@@ -41,6 +43,8 @@ class PageRoutes {
   static const String support = "support";
   static const String wallet = "wallet";
   static const String playerDetails = "playerDetails";
+  static const String pastFixtures = "pastFixtures";
+  static const String matchDetails = "matchDetails";
 }
 
 class AppNavigator extends StatelessWidget {
@@ -123,6 +127,15 @@ class AppNavigator extends StatelessWidget {
               builder = (c, a1, a2) {
                 final player = settings.arguments as Player?;
                 return PlayerDetailsPage(player: player);
+              };
+              break;
+            case PageRoutes.pastFixtures:
+              builder = (c, a1, a2) => const PastFixturesPage();
+              break;
+            case PageRoutes.matchDetails:
+              builder = (c, a1, a2) {
+                final fixtureId = settings.arguments as int;
+                return MatchDetailsPage(fixtureId: fixtureId);
               };
               break;
           }

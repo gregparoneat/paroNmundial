@@ -9,7 +9,24 @@ import 'package:fantacy11/features/player/models/player_info.dart';
 import 'package:fantacy11/features/player/ui/widgets/advanced_stats_dialog.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/services/cache_service.dart';
+import 'package:fantacy11/services/player_form_service.dart';
 import 'package:flutter/material.dart';
+
+/// Helper to convert position icon name to IconData
+IconData _getPositionIcon(String iconName) {
+  switch (iconName) {
+    case 'sports_handball':
+      return Icons.sports_handball;
+    case 'shield':
+      return Icons.shield;
+    case 'swap_horiz':
+      return Icons.swap_horiz;
+    case 'sports_soccer':
+      return Icons.sports_soccer;
+    default:
+      return Icons.person;
+  }
+}
 
 class PlayerDetailsPage extends StatefulWidget {
   final Player? player;
@@ -24,6 +41,7 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
   final PlayersRepository _repository = PlayersRepository();
   final FixturesRepository _fixturesRepository = FixturesRepository();
   final CacheService _cacheService = CacheService();
+  final PlayerFormService _playerFormService = PlayerFormService();
   Player? _player;
   bool _isLoading = true;
   bool _isLoadingNextMatch = false;
@@ -163,11 +181,26 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
     });
 
     try {
-      // Step 1: Check Hive cache first
+      // Step 1: Try to get pre-calculated form from Firestore/Hive cache (instant!)
+      // This data is updated by batch jobs running Mon/Fri
+      final preCalculatedForm = await _playerFormService.getPlayerForm(playerId);
+      
+      if (preCalculatedForm != null) {
+        debugPrint('_loadRecentForm: Using pre-calculated form from Firestore/cache for player $playerId');
+        if (mounted) {
+          setState(() {
+            _recentMatchStats = preCalculatedForm;
+            _isLoadingRecentForm = false;
+          });
+        }
+        return;
+      }
+      
+      // Step 2: Fall back to legacy Hive cache (for backward compatibility)
       final cachedStats = _cacheService.getPlayerFormStats(playerId);
       final hasAdvancedInCache = cachedStats != null && cachedStats['advancedStats'] != null;
       
-      debugPrint('_loadRecentForm: Cache check - found: ${cachedStats != null}, hasAdvanced: $hasAdvancedInCache');
+      debugPrint('_loadRecentForm: Firestore cache miss, checking legacy cache - found: ${cachedStats != null}, hasAdvanced: $hasAdvancedInCache');
       
       // If cache exists but doesn't have advanced stats, force refresh
       if (cachedStats != null && !hasAdvancedInCache) {
@@ -240,8 +273,8 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
         return;
       }
 
-      // Step 2: Fetch from API if not cached
-      debugPrint('_loadRecentForm: No cache, fetching from API for player $playerId on team $teamId');
+      // Step 3: Calculate on-demand from SportMonks API (slowest, 2-3 seconds)
+      debugPrint('_loadRecentForm: No cache available, calculating from API for player $playerId on team $teamId');
       final recentStats = await _fixturesRepository.getPlayerRecentStats(
         playerId,
         teamId,
@@ -332,6 +365,7 @@ class _PlayerDetailsPageState extends State<PlayerDetailsPage> {
   void dispose() {
     _repository.dispose();
     _fixturesRepository.dispose();
+    _playerFormService.dispose();
     super.dispose();
   }
 
@@ -422,7 +456,7 @@ class _PlayerDetailsContent extends StatelessWidget {
               onPressed: () => Navigator.pop(context),
             ),
             flexibleSpace: FlexibleSpaceBar(
-              background: _buildPlayerHeader(context, prediction),
+              background: _buildPlayerHeader(context, prediction, isLoadingRecentForm),
             ),
           ),
 
@@ -438,7 +472,7 @@ class _PlayerDetailsContent extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Fantasy Points Prediction
-                    _buildFantasyPrediction(context, prediction),
+                    _buildFantasyPrediction(context, prediction, isLoadingRecentForm),
                     const SizedBox(height: 20),
 
                     // Quick Stats
@@ -453,11 +487,7 @@ class _PlayerDetailsContent extends StatelessWidget {
                     _buildStatisticsSection(context),
                     const SizedBox(height: 20),
 
-                    // Career Section
-                    if (player.transfers.isNotEmpty) ...[
-                      _buildCareerSection(context),
-                      const SizedBox(height: 20),
-                    ],
+                    // Transfer history removed - not needed for fantasy app
                   ],
                 ),
               ),
@@ -468,13 +498,14 @@ class _PlayerDetailsContent extends StatelessWidget {
     );
   }
 
-  Widget _buildPlayerHeader(BuildContext context, FantasyPrediction prediction) {
+  Widget _buildPlayerHeader(BuildContext context, FantasyPrediction prediction, bool isLoadingForm) {
     var theme = Theme.of(context);
     
-    // Determine if star or cheeks based on prediction score (0-10 scale)
-    final isStarPlayer = prediction.totalPoints >= 5.0; // Good predicted score
-    final isElitePlayer = prediction.totalPoints >= 7.0; // Elite predicted score
-    final isCheeks = prediction.totalPoints < 2.0; // Poor predicted score
+    // Don't show performance badges while form is still loading
+    // This prevents misleading badges that would change after form loads
+    final isStarPlayer = !isLoadingForm && prediction.totalPoints >= 5.0; // Good predicted score
+    final isElitePlayer = !isLoadingForm && prediction.totalPoints >= 7.0; // Elite predicted score
+    final isCheeks = !isLoadingForm && prediction.totalPoints < 2.0; // Poor predicted score
 
     return Container(
       decoration: BoxDecoration(
@@ -482,7 +513,9 @@ class _PlayerDetailsContent extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            player.position?.color.withValues(alpha: 0.8) ?? theme.primaryColor,
+            player.position != null 
+                ? Color(player.position!.colorValue).withValues(alpha: 0.8) 
+                : theme.primaryColor,
             theme.colorScheme.surface,
           ],
         ),
@@ -638,8 +671,8 @@ class _PlayerDetailsContent extends StatelessWidget {
               children: [
                 if (player.position != null) ...[
                   Icon(
-                    player.position!.icon,
-                    color: player.position!.color,
+                    _getPositionIcon(player.position!.iconName),
+                    color: Color(player.position!.colorValue),
                     size: 18,
                   ),
                   const SizedBox(width: 6),
@@ -726,8 +759,80 @@ class _PlayerDetailsContent extends StatelessWidget {
     );
   }
 
-  Widget _buildFantasyPrediction(BuildContext context, FantasyPrediction prediction) {
+  Widget _buildFantasyPrediction(BuildContext context, FantasyPrediction prediction, bool isLoadingForm) {
     var theme = Theme.of(context);
+
+    // Show loading state while calculating recent form
+    if (isLoadingForm) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.grey.withValues(alpha: 0.2),
+              theme.colorScheme.surface,
+            ],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.grey.withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                Icon(Icons.auto_graph, color: Colors.grey, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  S.of(context).fantasyPointsPrediction,
+                  style: theme.textTheme.bodyMedium!.copyWith(
+                    color: bgTextColor,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Loading indicator
+            Row(
+              children: [
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Calculating prediction...',
+                        style: theme.textTheme.bodyMedium!.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        'Analyzing recent form & fixtures',
+                        style: theme.textTheme.bodySmall!.copyWith(
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1544,37 +1649,47 @@ class _PlayerDetailsContent extends StatelessWidget {
           
           const SizedBox(height: 16),
 
-          // Stats from recent matches
-          Row(
-            children: [
-              _buildStatBox(context, S.of(context).games, stats.matchesPlayed.toString(), Icons.sports_soccer),
-              const SizedBox(width: 12),
-              _buildStatBox(context, S.of(context).goals, stats.goals.toString(), Icons.sports_score),
-              const SizedBox(width: 12),
-              _buildStatBox(context, S.of(context).assists, stats.assists.toString(), Icons.handshake),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _buildStatBox(context, S.of(context).minutes, _formatMinutes(stats.minutesPlayed), Icons.timer),
-              const SizedBox(width: 12),
-              _buildStatBox(context, S.of(context).yellow, stats.yellowCards.toString(), Icons.square, color: Colors.amber),
-              const SizedBox(width: 12),
-              _buildStatBox(context, S.of(context).red, stats.redCards.toString(), Icons.square, color: Colors.red),
-            ],
-          ),
-
-          // Goalkeeper-specific stats
-          if (player.isGoalkeeper && (stats.cleanSheets > 0 || stats.saves > 0)) ...[
+          // Stats from recent matches - different layout for goalkeepers vs outfield players
+          if (player.isGoalkeeper) ...[
+            // Goalkeeper stats: Games, Clean Sheets, Saves
+            Row(
+              children: [
+                _buildStatBox(context, S.of(context).games, stats.matchesPlayed.toString(), Icons.sports_soccer),
+                const SizedBox(width: 12),
+                _buildStatBox(context, S.of(context).cleanSheets, stats.cleanSheets.toString(), Icons.shield),
+                const SizedBox(width: 12),
+                _buildStatBox(context, S.of(context).saves, stats.saves.toString(), Icons.sports_handball),
+              ],
+            ),
             const SizedBox(height: 12),
             Row(
               children: [
-                Expanded(child: _buildStatBox(context, S.of(context).cleanSheets, stats.cleanSheets.toString(), Icons.shield)),
+                _buildStatBox(context, S.of(context).minutes, _formatMinutes(stats.minutesPlayed), Icons.timer),
                 const SizedBox(width: 12),
-                Expanded(child: _buildStatBox(context, S.of(context).saves, stats.saves.toString(), Icons.sports_handball)),
+                _buildStatBox(context, S.of(context).yellow, stats.yellowCards.toString(), Icons.square, color: Colors.amber),
                 const SizedBox(width: 12),
-                const Expanded(child: SizedBox()), // Placeholder
+                _buildStatBox(context, S.of(context).red, stats.redCards.toString(), Icons.square, color: Colors.red),
+              ],
+            ),
+          ] else ...[
+            // Outfield player stats: Games, Goals, Assists
+            Row(
+              children: [
+                _buildStatBox(context, S.of(context).games, stats.matchesPlayed.toString(), Icons.sports_soccer),
+                const SizedBox(width: 12),
+                _buildStatBox(context, S.of(context).goals, stats.goals.toString(), Icons.sports_score),
+                const SizedBox(width: 12),
+                _buildStatBox(context, S.of(context).assists, stats.assists.toString(), Icons.handshake),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _buildStatBox(context, S.of(context).minutes, _formatMinutes(stats.minutesPlayed), Icons.timer),
+                const SizedBox(width: 12),
+                _buildStatBox(context, S.of(context).yellow, stats.yellowCards.toString(), Icons.square, color: Colors.amber),
+                const SizedBox(width: 12),
+                _buildStatBox(context, S.of(context).red, stats.redCards.toString(), Icons.square, color: Colors.red),
               ],
             ),
           ],

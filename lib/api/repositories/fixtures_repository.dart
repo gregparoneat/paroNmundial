@@ -1,6 +1,5 @@
 import 'dart:convert';
-import 'dart:ui';
-import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:fantacy11/api/sportmonks_client.dart';
 import 'package:fantacy11/api/sportmonks_config.dart';
 import 'package:fantacy11/features/fantasy/fantasy_points_predictor.dart';
@@ -9,9 +8,23 @@ import 'package:fantacy11/features/match/models/match_info.dart';
 /// Repository for fetching fixture/match data
 class FixturesRepository {
   final SportMonksClient _client;
+  final int? _seasonId;
   
-  FixturesRepository({SportMonksClient? client}) 
-      : _client = client ?? SportMonksClient();
+  /// Create a FixturesRepository
+  /// 
+  /// Optional parameters for batch jobs or scripts:
+  /// - [apiToken]: Custom API token to use instead of SportMonksConfig
+  /// - [seasonId]: Season ID to use for queries (Liga MX current season)
+  /// - [client]: Custom SportMonksClient instance
+  FixturesRepository({
+    SportMonksClient? client,
+    String? apiToken,
+    int? seasonId,
+  }) : _client = client ?? SportMonksClient(apiToken: apiToken),
+       _seasonId = seasonId;
+  
+  /// Get the season ID (from constructor or default)
+  int? get seasonId => _seasonId;
 
   /// Get fixtures for today, or upcoming if none today
   Future<List<MatchInfo>> getTodayFixtures() async {
@@ -221,8 +234,8 @@ class FixturesRepository {
       '',
       'assets/TeamLogo/Vector Smart Object-2.png',
       'assets/TeamLogo/Vector Smart Object-5.png',
-      const Color(0xFFFFD700),
-      const Color(0xFFCD2027),
+      MatchColors.gold,  // 0xFFFFD700
+      MatchColors.crimson,  // 0xFFCD2027
       startingAtTimestamp: timestamp,
       venue: const VenueInfo(
         name: 'Estadio Azteca',
@@ -248,24 +261,12 @@ class FixturesRepository {
     );
   }
 
-  /// Load mock fixtures from assets (fallback)
+  /// Load mock fixtures - returns empty list in pure Dart context
+  /// For Flutter apps, use the FixturesRepositoryFlutter extension
   Future<List<MatchInfo>> _loadMockFixtures() async {
-    try {
-      final jsonString = await rootBundle.loadString(
-        'assets/MockResponses/dayFixtures.json',
-      );
-      final jsonData = json.decode(jsonString);
-      final data = jsonData['data'] as List?;
-      
-      if (data != null) {
-        return data
-            .map((json) => MatchInfo.fromJson(json as Map<String, dynamic>))
-            .toList();
-      }
-    } catch (e) {
-      print('Error loading mock fixtures: $e');
-    }
-    
+    // Mock data loading requires Flutter's rootBundle, which is not available in pure Dart
+    // Return empty list - batch jobs shouldn't need mock data anyway
+    print('Note: Mock fixtures not available in pure Dart context');
     return [];
   }
 
@@ -1409,6 +1410,154 @@ class FixturesRepository {
   void clearAdvancedStatsCache() {
     _playerFixtureStatsCache.clear();
     _currentSeasonId = null;
+  }
+
+  // ========== PAST FIXTURES METHODS ==========
+  
+  /// Get past/completed fixtures for Liga MX
+  /// Returns fixtures from the last [daysBack] days
+  /// Uses /fixtures/between endpoint for efficient date range fetching
+  Future<List<Map<String, dynamic>>> getPastFixtures({
+    int daysBack = 30,
+    int? teamId,
+  }) async {
+    debugPrint('>>> getPastFixtures called with daysBack=$daysBack <<<');
+    
+    if (!SportMonksConfig.isConfigured) {
+      return [];
+    }
+
+    try {
+      final end = DateTime.now();
+      final start = end.subtract(Duration(days: daysBack));
+      debugPrint('>>> Calling /fixtures/between/${_formatDate(start)}/${_formatDate(end)} <<<');
+      
+      List<Map<String, dynamic>> fixtures;
+      
+      // Detailed includes for rich fixture data
+      const detailedIncludes = [
+        'participants',
+        'scores',
+        'state',
+        'league',
+        'venue',
+        'lineups',
+        'lineups.player',
+        'lineups.details.type',
+        'statistics',
+        'statistics.type',
+        'coaches',
+        'timeline',
+        'sidelined',
+        'sidelined.sideline',
+        'weatherReport',
+        'formations', // Team formations for proper lineup display
+      ];
+      
+      if (teamId != null && teamId > 0) {
+        final response = await _client.getFixturesByTeam(
+          teamId,
+          startDate: start,
+          endDate: end,
+          includes: detailedIncludes,
+        );
+        fixtures = response.data;
+      } else {
+        final response = await _client.getFixturesBetweenDates(
+          start,
+          end,
+          includes: detailedIncludes,
+        );
+        fixtures = response.data;
+        debugPrint('>>> API returned ${fixtures.length} fixtures <<<');
+      }
+      
+      // Log all fixture states for debugging
+      for (final f in fixtures) {
+        final state = f['state'] as Map<String, dynamic>?;
+        final participants = f['participants'] as List?;
+        final homeTeam = participants?.firstWhere((p) => p['meta']?['location'] == 'home', orElse: () => null);
+        final awayTeam = participants?.firstWhere((p) => p['meta']?['location'] == 'away', orElse: () => null);
+        debugPrint('>>> Fixture: ${homeTeam?['name']} vs ${awayTeam?['name']}, state_id=${state?['id']}, state=${state?['name'] ?? state?['short_name']} <<<');
+      }
+      
+      // Filter to only completed matches
+      // State IDs: 5 = FT (Full Time), 3 = FT_PEN, 10 = AET, 11 = AWARDED
+      final completedFixtures = fixtures.where((f) {
+        final state = f['state'] as Map<String, dynamic>?;
+        if (state == null) return false;
+        
+        final stateId = state['id'] as int?;
+        final stateName = (state['name'] ?? state['short_name'] ?? '').toString().toUpperCase();
+        
+        final isCompletedById = stateId == 5 || stateId == 3 || stateId == 10 || stateId == 11;
+        final isCompletedByName = stateName.contains('FT') || 
+                                   stateName.contains('FINISHED') ||
+                                   stateName.contains('ENDED') ||
+                                   stateName.contains('AET');
+        
+        return isCompletedById || isCompletedByName;
+      }).toList();
+      
+      debugPrint('>>> After filtering: ${completedFixtures.length} completed fixtures <<<');
+      
+      // Sort by date (newest first)
+      completedFixtures.sort((a, b) {
+        final aTimestamp = a['starting_at_timestamp'] as int? ?? 0;
+        final bTimestamp = b['starting_at_timestamp'] as int? ?? 0;
+        return bTimestamp.compareTo(aTimestamp);
+      });
+      
+      return completedFixtures;
+    } on SportMonksException {
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+  
+  /// Get detailed fixture data with lineups for a completed match
+  /// This fetches all the data needed for the match details page
+  Future<Map<String, dynamic>?> getCompletedMatchDetails(int fixtureId) async {
+    if (!SportMonksConfig.isConfigured) {
+      print('API not configured for match details');
+      return null;
+    }
+
+    try {
+      print('Fetching completed match details for fixture $fixtureId');
+      
+      final response = await _client.getFixtureWithDetailedStats(fixtureId);
+      final fixture = response.data;
+      
+      if (fixture == null) {
+        print('Fixture $fixtureId not found');
+        return null;
+      }
+      
+      // Verify it's a completed match
+      final state = fixture['state'] as Map<String, dynamic>?;
+      final stateId = state?['id'] as int?;
+      
+      if (stateId != 5 && stateId != 3 && stateId != 11) {
+        print('Fixture $fixtureId is not completed (state: $stateId)');
+        // Still return it, but caller can check state
+      }
+      
+      print('Loaded fixture $fixtureId with lineups: ${fixture['lineups'] != null}');
+      return fixture;
+    } on SportMonksException catch (e) {
+      print('SportMonks API Error fetching match details: $e');
+      return null;
+    } catch (e) {
+      print('Error fetching match details: $e');
+      return null;
+    }
+  }
+  
+  /// Helper to format date
+  String _formatDate(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
   /// Dispose resources

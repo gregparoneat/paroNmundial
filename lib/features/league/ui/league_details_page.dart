@@ -2,6 +2,7 @@ import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:fantacy11/api/repositories/league_repository.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/league/models/league_models.dart';
+import 'package:fantacy11/features/league/models/league_models_ui.dart';
 import 'package:fantacy11/features/league/ui/team_builder_page.dart';
 import 'package:fantacy11/features/league/ui/widgets/soccer_field_widget.dart';
 import 'package:flutter/material.dart';
@@ -909,9 +910,23 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
     }
     
     // Has team - show soccer field visualization
-    final players = _myTeam!.players;
-    final starters = _getStartingXI(players);
-    final subs = _getSubstitutes(players);
+    // Use the team's actual starting XI and bench (first 11 are starters, rest are bench)
+    final starters = _myTeam!.startingXI;
+    final subs = _myTeam!.benchPlayers;
+    
+    // Load formation from saved team if available
+    if (_myTeam!.formation != null && _selectedFormation.name != _myTeam!.formation) {
+      final savedFormation = Formation.values.firstWhere(
+        (f) => f.name == _myTeam!.formation,
+        orElse: () => Formation.f433,
+      );
+      // Update formation without setState to avoid infinite loop
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _selectedFormation != savedFormation) {
+          setState(() => _selectedFormation = savedFormation);
+        }
+      });
+    }
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -940,7 +955,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                           ),
                         ),
                         Text(
-                          '${players.length}/15 players • \$${_myTeam!.budgetRemaining.toStringAsFixed(1)}M left',
+                          '${_myTeam!.players.length}/15 players • \$${_myTeam!.budgetRemaining.toStringAsFixed(1)}M left',
                           style: TextStyle(color: bgTextColor, fontSize: 12),
                         ),
                       ],
@@ -1017,8 +1032,8 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
             ),
           ),
         
-        // Team validation status
-        if (!_myTeam!.isValid)
+        // Team validation status - only show if there are actual issues
+        if (!_myTeam!.isValid && _myTeam!.validationErrors.isNotEmpty)
           Container(
             margin: const EdgeInsets.all(16),
             padding: const EdgeInsets.all(12),
@@ -1033,7 +1048,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Team incomplete - you need ${15 - players.length} more players',
+                    _myTeam!.validationErrors.first,
                     style: const TextStyle(color: Colors.orange, fontSize: 13),
                   ),
                 ),

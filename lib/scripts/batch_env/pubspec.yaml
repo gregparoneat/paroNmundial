@@ -1,0 +1,15 @@
+# your_flutter_project/scripts/batch_env/pubspec.yaml
+name: batch_env
+description: Dependencies for the player form update batch job.
+version: 1.0.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0' # Match your Flutter project's Dart SDK version
+
+dependencies:
+  firebase_core: any # Use 'any' or specific version that your Flutter project uses
+  cloud_firestore: any # Use 'any' or specific version that your Flutter project uses
+  # Your Fantacy11 project's own libraries (relative paths)
+  fantacy11: # This is how you reference your own project's code
+    path: ../../ # Adjust path relative to scripts/batch_env/pubspec.yaml
+    # ../../ refers to your_flutter_project/

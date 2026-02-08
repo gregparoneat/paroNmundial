@@ -1,5 +1,21 @@
-import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
+// Pure Dart file - no Flutter imports
+// Colors are stored as int values (ARGB format)
+
+/// Common color constants as int values (ARGB format)
+class MatchColors {
+  static const int red = 0xFFF44336;
+  static const int green = 0xFF4CAF50;
+  static const int blue = 0xFF2196F3;
+  static const int deepPurple = 0xFF673AB7;
+  static const int purpleAccent = 0xFFE040FB;
+  static const int grey = 0xFF9E9E9E;
+  static const int gold = 0xFFFFD700;
+  static const int crimson = 0xFFCD2027;
+  static const int brown = 0xFF875E12;
+  static const int olive = 0xFF847313;
+}
 
 /// Venue information for a match
 class VenueInfo {
@@ -124,8 +140,10 @@ class MatchInfo {
   final String rightText;
   final String team1Logo;
   final String team2Logo;
-  final Color team1Color;
-  final Color team2Color;
+  /// Team 1 color as ARGB int value
+  final int team1ColorValue;
+  /// Team 2 color as ARGB int value  
+  final int team2ColorValue;
   final int? startingAtTimestamp;
   
   // New fields for fixture details
@@ -145,8 +163,8 @@ class MatchInfo {
     this.rightText,
     this.team1Logo,
     this.team2Logo,
-    this.team1Color,
-    this.team2Color, {
+    this.team1ColorValue,
+    this.team2ColorValue, {
     this.startingAtTimestamp,
     this.venue,
     this.coaches = const [],
@@ -242,8 +260,8 @@ class MatchInfo {
       ' ',
       'assets/TeamLogo/Vector Smart Object-2.png',
       'assets/TeamLogo/Layer 3093.png',
-      Colors.red,
-      Colors.green,
+      MatchColors.red,
+      MatchColors.green,
     ),
     MatchInfo(
       'WOLVES UNITED',
@@ -256,8 +274,8 @@ class MatchInfo {
       'Lineup Announced',
       'assets/TeamLogo/Vector Smart Object-6.png',
       'assets/TeamLogo/Vector Smart Object-5.png',
-      Colors.blue,
-      Colors.deepPurple,
+      MatchColors.blue,
+      MatchColors.deepPurple,
     ),
     MatchInfo(
         'MEXICAN TIGERS',
@@ -270,8 +288,8 @@ class MatchInfo {
         ' ',
         'assets/TeamLogo/Vector Smart Object-4.png',
         'assets/TeamLogo/Vector Smart Object-3.png',
-        const Color(0xff875E12),
-        Colors.blue),
+        MatchColors.brown,
+        MatchColors.blue),
     MatchInfo(
         'BLAZER BULLS',
         'POWER PANDAS',
@@ -283,8 +301,8 @@ class MatchInfo {
         ' ',
         'assets/TeamLogo/Vector Smart Object-2.png',
         'assets/TeamLogo/Layer 3093.png',
-        Colors.red,
-        Colors.blue),
+        MatchColors.red,
+        MatchColors.blue),
     MatchInfo(
       'WOLVES UNITED',
       'GREAT GORILLAS',
@@ -296,13 +314,13 @@ class MatchInfo {
       ' ',
       'assets/TeamLogo/Vector Smart Object-1.png',
       'assets/TeamLogo/Vector Smart Object.png',
-      const Color(0xff847313),
-      Colors.purpleAccent,
+      MatchColors.olive,
+      MatchColors.purpleAccent,
     ),
   ];
 
   factory MatchInfo.fromJson(Map<String, dynamic> json) {
-    debugPrint('in fromJson method');
+    print('MatchInfo.fromJson: parsing match data');
     String team1 = '';
     String team2 = '';
     String team1Name = '';
@@ -403,10 +421,10 @@ class MatchInfo {
           .toList();
     }
 
-    final team1Color = colorFromHex(
-        json['team1Color'] ?? json['team1_color'], fallback: Colors.blue);
-    final team2Color = colorFromHex(
-        json['team2Color'] ?? json['team2_color'], fallback: Colors.red);
+    final team1ColorValue = colorValueFromHex(
+        json['team1Color'] ?? json['team1_color'], fallback: MatchColors.blue);
+    final team2ColorValue = colorValueFromHex(
+        json['team2Color'] ?? json['team2_color'], fallback: MatchColors.red);
 
     return MatchInfo(
       team1,
@@ -419,8 +437,8 @@ class MatchInfo {
       rightText,
       team1Logo,
       team2Logo,
-      team1Color,
-      team2Color,
+      team1ColorValue,
+      team2ColorValue,
       startingAtTimestamp: startingAtTimestamp,
       venue: venue,
       coaches: coaches,
@@ -429,27 +447,32 @@ class MatchInfo {
     );
   }
 
-  static Color colorFromHex(String? hex, {Color fallback = Colors.grey}) {
+  /// Parse hex color string to int value (pure Dart - no Flutter dependency)
+  static int colorValueFromHex(String? hex, {int fallback = MatchColors.grey}) {
     if (hex == null || hex.isEmpty) return fallback;
     var h = hex.replaceAll('#', '').trim();
     if (h.length == 6) h = 'FF$h';
     if (h.length != 8) return fallback;
     try {
-      return Color(int.parse(h, radix: 16));
+      return int.parse(h, radix: 16);
     } catch (err) {
       return fallback;
     }
   }
 
   static List<MatchInfo> fromJsonList(List list) {
-    debugPrint('in fromJsonList');
-    // synchronous parsing wrapped in Future; or remove async and return Future.value(...)
+    print('MatchInfo.fromJsonList: parsing ${list.length} matches');
     final parsed = list
         .map((e) => MatchInfo.fromJson(e as Map<String, dynamic>))
         .toList();
-    debugPrint('after parsing json list');
-    debugPrint(parsed.first.team1Logo);
+    print('MatchInfo.fromJsonList: parsed ${parsed.length} matches');
+    if (parsed.isNotEmpty) {
+      print('First match team1Logo: ${parsed.first.team1Logo}');
+    }
     return parsed;
   }
-
 }
+
+// Extension for Flutter UI code to convert int color values to Color objects
+// This should be imported in Flutter files that need to display colors
+// Example: import 'package:fantacy11/features/match/models/match_info_ui.dart';

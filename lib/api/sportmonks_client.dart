@@ -3,6 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'sportmonks_config.dart';
 
+// Use debugPrint for Flutter visibility
+void _log(String message) => debugPrint(message);
+
 /// Exception thrown when API request fails
 class SportMonksException implements Exception {
   final String message;
@@ -38,15 +41,26 @@ class SportMonksResponse<T> {
 /// HTTP Client for SportMonks API
 class SportMonksClient {
   final http.Client _httpClient;
+  final String? _apiToken;
+  final String? _timezone;
   
-  SportMonksClient({http.Client? httpClient}) 
-      : _httpClient = httpClient ?? http.Client();
+  /// Create a SportMonksClient
+  /// 
+  /// If [apiToken] is provided, it will be used instead of SportMonksConfig.apiToken
+  /// This is useful for batch jobs or scripts that need to pass their own token
+  SportMonksClient({
+    http.Client? httpClient,
+    String? apiToken,
+    String? timezone,
+  }) : _httpClient = httpClient ?? http.Client(),
+       _apiToken = apiToken,
+       _timezone = timezone;
 
   /// Build the full URL with query parameters
   Uri _buildUrl(String endpoint, Map<String, String>? queryParams) {
     final params = <String, String>{
-      'api_token': SportMonksConfig.apiToken,
-      'timezone': SportMonksConfig.timezone,
+      'api_token': _apiToken ?? SportMonksConfig.apiToken,
+      'timezone': _timezone ?? SportMonksConfig.timezone,
       ...?queryParams,
     };
     
@@ -60,15 +74,17 @@ class SportMonksClient {
     Map<String, String>? queryParams,
     required T Function(dynamic json) parser,
   }) async {
-    if (!SportMonksConfig.isConfigured) {
+    // Check if we have a valid API token (either custom or from config)
+    final hasToken = _apiToken != null || SportMonksConfig.isConfigured;
+    if (!hasToken) {
       throw SportMonksException(
-        'API not configured. Please set your API token in SportMonksConfig.',
+        'API not configured. Please set your API token in SportMonksConfig or provide it to SportMonksClient.',
       );
     }
 
     final uri = _buildUrl(endpoint, queryParams);
     
-    //debugPrint('SportMonks API Request: $uri');
+    //_log('SportMonks API Request: $uri');
 
     try {
       final response = await _httpClient.get(
@@ -78,7 +94,7 @@ class SportMonksClient {
         },
       );
 
-     // debugPrint('SportMonks API Response Status: ${response.statusCode}');
+     // _log('SportMonks API Response Status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body);
@@ -86,7 +102,7 @@ class SportMonksClient {
         // Debug: Print raw pagination info
         final pagination = jsonData['pagination'] as Map<String, dynamic>?;
         if (pagination != null) {
-          debugPrint('Pagination: total=${pagination['total']}, count=${pagination['count']}, '
+          _log('Pagination: total=${pagination['total']}, count=${pagination['count']}, '
               'per_page=${pagination['per_page']}, current_page=${pagination['current_page']}, '
               'total_pages=${pagination['total_pages']}, has_more=${pagination['has_more']}');
         }
@@ -94,11 +110,11 @@ class SportMonksClient {
         // Debug: Check for subscription info or messages
         final subscription = jsonData['subscription'];
         if (subscription != null) {
-         // debugPrint('Subscription info: $subscription');
+         // _log('Subscription info: $subscription');
         }
         final message = jsonData['message'];
         if (message != null) {
-         // debugPrint('API Message: $message');
+         // _log('API Message: $message');
         }
         
         // Parse the data
@@ -152,6 +168,33 @@ class SportMonksClient {
       queryParams: queryParams,
       parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
     );
+  }
+
+  /// Get fixtures between two dates (inclusive)
+  /// Uses endpoint: /fixtures/between/{startDate}/{endDate}
+  Future<SportMonksResponse<List<Map<String, dynamic>>>> getFixturesBetweenDates(
+    DateTime startDate,
+    DateTime endDate, {
+    List<String>? includes,
+  }) async {
+    final startStr = _formatDate(startDate);
+    final endStr = _formatDate(endDate);
+    
+    debugPrint('>>> getFixturesBetweenDates: /fixtures/between/$startStr/$endStr <<<');
+    
+    final queryParams = <String, String>{};
+    if (includes != null && includes.isNotEmpty) {
+      queryParams['include'] = SportMonksConfig.buildIncludes(includes);
+    }
+    
+    final response = await get<List<Map<String, dynamic>>>(
+      '/fixtures/between/$startStr/$endStr',
+      queryParams: queryParams,
+      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+    );
+    
+    debugPrint('>>> getFixturesBetweenDates returned ${response.data.length} fixtures <<<');
+    return response;
   }
 
   /// Get live fixtures
@@ -231,7 +274,7 @@ class SportMonksClient {
       'include': 'latest',
     };
     
-    debugPrint('SportMonks: Getting player $playerId with latest fixtures');
+    _log('SportMonks: Getting player $playerId with latest fixtures');
     
     return get<Map<String, dynamic>>(
       '/players/$playerId',
@@ -251,10 +294,11 @@ class SportMonksClient {
       // - statistics;statistics.type = team stats
       // - events;events.player = goals, assists, cards
       // - participants;scores;state = match info needed for basic calculations
-      'include': 'lineups;lineups.player;lineups.details.type;statistics;statistics.type;events;events.player;participants;scores;state',
+      // - formations = team formations for proper lineup display
+      'include': 'lineups;lineups.player;lineups.details.type;statistics;statistics.type;events;events.player;participants;scores;state;formations',
     };
     
-    debugPrint('SportMonks: Getting fixture $fixtureId with advanced player stats');
+    _log('SportMonks: Getting fixture $fixtureId with advanced player stats');
     
     return get<Map<String, dynamic>?>(
       '/fixtures/$fixtureId',
@@ -429,7 +473,7 @@ class SportMonksClient {
       'include': 'players',  // Simple include to get player list with basic info
     };
     
-    debugPrint('Fetching teams with players - page: $page, perPage: $perPage');
+    _log('Fetching teams with players - page: $page, perPage: $perPage');
     
     final response = await get<List<Map<String, dynamic>>>(
       '/teams',
@@ -437,18 +481,18 @@ class SportMonksClient {
       parser: (data) {
         if (data == null) return [];
         final teams = (data as List).cast<Map<String, dynamic>>();
-        debugPrint('Raw teams response: ${teams.length} teams');
+        _log('Raw teams response: ${teams.length} teams');
         for (final team in teams) {
           final name = team['name'];
           final id = team['id'];
           final players = team['players'];
-          debugPrint('  Team: $name (ID: $id), players: ${players is List ? players.length : "none"}');
+          _log('  Team: $name (ID: $id), players: ${players is List ? players.length : "none"}');
         }
         return teams;
       },
     );
     
-    debugPrint('getAllTeamsWithPlayers - hasMore: ${response.hasMore}');
+    _log('getAllTeamsWithPlayers - hasMore: ${response.hasMore}');
     return response;
   }
 
@@ -560,7 +604,7 @@ class SportMonksClient {
       'include': 'seasons',
     };
     
-    debugPrint('SportMonks: Getting league $leagueId with seasons');
+    _log('SportMonks: Getting league $leagueId with seasons');
     
     return get<Map<String, dynamic>?>(
       '/leagues/$leagueId',
@@ -578,7 +622,7 @@ class SportMonksClient {
       'include': 'fixtures',
     };
     
-    debugPrint('SportMonks: Getting season $seasonId with fixtures');
+    _log('SportMonks: Getting season $seasonId with fixtures');
     
     return get<Map<String, dynamic>?>(
       '/seasons/$seasonId',
@@ -603,7 +647,7 @@ class SportMonksClient {
       'include': 'lineups;lineups.player;lineups.details.type;participants;scores;state',
     };
     
-    debugPrint('SportMonks: Getting fixtures for season $seasonId with advanced stats (page $page)');
+    _log('SportMonks: Getting fixtures for season $seasonId with advanced stats (page $page)');
     
     return get<List<Map<String, dynamic>>>(
       '/fixtures',
@@ -636,7 +680,7 @@ class SportMonksClient {
       
       // Safety limit to prevent infinite loops
       if (page > 20) {
-        debugPrint('WARNING: Hit page limit of 20 when fetching fixtures');
+        _log('WARNING: Hit page limit of 20 when fetching fixtures');
         break;
       }
     }
@@ -658,6 +702,35 @@ class SportMonksClient {
     }
     
     return allFixtures;
+  }
+
+  /// Get fixtures for a season with date range filtering
+  /// This is useful for getting past fixtures for a specific league/season
+  Future<SportMonksResponse<List<Map<String, dynamic>>>> getFixturesBySeason(
+    int seasonId, {
+    DateTime? startDate,
+    DateTime? endDate,
+    List<String>? includes,
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'per_page': perPage.toString(),
+      'filters': 'fixtureSeasons:$seasonId',
+    };
+    
+    if (includes != null && includes.isNotEmpty) {
+      queryParams['include'] = SportMonksConfig.buildIncludes(includes);
+    }
+    
+    _log('SportMonks: Getting fixtures for season $seasonId (page $page)');
+    
+    return get<List<Map<String, dynamic>>>(
+      '/fixtures',
+      queryParams: queryParams,
+      parser: (data) => data == null ? [] : (data as List).cast<Map<String, dynamic>>(),
+    );
   }
 
   /// Dispose the client

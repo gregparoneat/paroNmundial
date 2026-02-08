@@ -2,6 +2,7 @@ import 'package:carousel_slider/carousel_slider.dart';
 import 'package:fantacy11/api/repositories/league_repository.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/league/models/league_models.dart';
+import 'package:fantacy11/features/league/models/league_models_ui.dart';
 import 'package:fantacy11/features/league/ui/league_details_page.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';

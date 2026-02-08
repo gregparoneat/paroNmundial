@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../app_config/colors.dart';
@@ -6,6 +5,7 @@ import '../../generated/l10n.dart';
 import '../../routes/routes.dart';
 import '../components/custom_scaffold.dart';
 import '../match/ui/match_list.dart';
+import 'ui/past_fixtures_page.dart';
 
 class Fixtures extends StatelessWidget {
   const Fixtures({super.key});
@@ -81,16 +81,8 @@ class Fixtures extends StatelessWidget {
           ),
           itemCount: 2,
         ),
-        MatchList.vertical(
-          locale.completed,
-          'You\'ve earned \$50',
-          (matchInfo) => Navigator.pushNamed(
-            context,
-            PageRoutes.matchCompleted,
-            arguments: matchInfo,
-          ),
-          itemCount: 4,
-        ),
+        // Past/Completed fixtures with real results and lineups
+        const PastFixturesPage(embedded: true),
       ],
       centerTitle: false,
       tabBarHeight: 92,

@@ -6,6 +6,7 @@ import 'package:fantacy11/api/repositories/league_repository.dart';
 import 'package:fantacy11/api/repositories/players_repository.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/league/models/league_models.dart';
+import 'package:fantacy11/features/league/models/league_models_ui.dart';
 import 'package:fantacy11/features/league/ui/widgets/soccer_field_widget.dart';
 import 'package:fantacy11/routes/routes.dart';
 import 'package:flutter/material.dart';
@@ -107,6 +108,14 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
       _selectedPlayers = List.from(widget.existingTeam!.players);
       // Recalculate budget based on actual player prices (don't trust stored value)
       _budgetRemaining = _recalculateBudget();
+      
+      // Load saved formation
+      if (widget.existingTeam!.formation != null) {
+        _selectedFormation = Formation.values.firstWhere(
+          (f) => f.name == widget.existingTeam!.formation,
+          orElse: () => Formation.f433,
+        );
+      }
     }
     
     // Setup scroll listener for infinite scroll
@@ -346,6 +355,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           position: position,
           teamName: rosterPlayer.teamName,
           price: rosterPlayer.price,
+          predictedPoints: rosterPlayer.projectedPoints,
         );
         _selectedPlayers.add(teamPlayer);
         _budgetRemaining -= rosterPlayer.price;
@@ -405,9 +415,11 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     int targetSlotIndex,
   ) {
     setState(() {
+      final draggedIndex = _selectedPlayers.indexWhere((p) => p.playerId == draggedPlayer.playerId);
+      final isFromBench = draggedIndex >= 11;
+      
       if (targetPlayer != null) {
         // Swap the two players in the list
-        final draggedIndex = _selectedPlayers.indexWhere((p) => p.playerId == draggedPlayer.playerId);
         final targetIndex = _selectedPlayers.indexWhere((p) => p.playerId == targetPlayer.playerId);
         
         if (draggedIndex >= 0 && targetIndex >= 0) {
@@ -423,9 +435,50 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
             ),
           );
         }
+      } else if (isFromBench && draggedIndex >= 0) {
+        // Moving from bench to an empty lineup slot
+        // Remove from bench position and insert at lineup position
+        _selectedPlayers.removeAt(draggedIndex);
+        
+        // Calculate where to insert in lineup based on position type
+        // Insert at the appropriate position in the first 11
+        int insertIndex = 0;
+        final startingXI = _selectedPlayers.take(11).toList();
+        
+        // Find the right position based on formation and target position
+        if (targetPosition == 'GK') {
+          insertIndex = 0;
+        } else if (targetPosition == 'DEF') {
+          // After GK
+          insertIndex = 1 + startingXI.where((p) => p.position == PlayerPosition.goalkeeper).length;
+        } else if (targetPosition == 'MID') {
+          // After defenders
+          insertIndex = startingXI.where((p) => 
+            p.position == PlayerPosition.goalkeeper || 
+            p.position == PlayerPosition.defender
+          ).length;
+        } else if (targetPosition == 'FWD') {
+          // After midfielders (at the end of lineup positions)
+          insertIndex = startingXI.where((p) => 
+            p.position == PlayerPosition.goalkeeper || 
+            p.position == PlayerPosition.defender ||
+            p.position == PlayerPosition.midfielder
+          ).length;
+        }
+        
+        // Ensure we don't go past 11 players in lineup
+        insertIndex = insertIndex.clamp(0, _selectedPlayers.length.clamp(0, 10));
+        _selectedPlayers.insert(insertIndex, draggedPlayer);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${draggedPlayer.playerName} moved to starting lineup'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 1),
+          ),
+        );
       } else {
-        // Dropping onto an empty slot - this should only happen for positions
-        // that the player can fill. The validation is done in the drag target.
+        // Just repositioning within lineup to an empty slot (shouldn't normally happen)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('${draggedPlayer.playerName} moved to $targetPosition position'),
@@ -491,6 +544,190 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     return Formation.values.where((f) {
       return defCount >= f.lines[0] && midCount >= f.lines[1] && fwdCount >= f.lines[2];
     }).toList();
+  }
+
+  /// Handle formation change - simply change the formation without reorganizing players
+  /// The display will show players based on their position, and validation will
+  /// inform the user if their squad doesn't meet the formation requirements
+  void _handleFormationChange(Formation newFormation) {
+    if (newFormation == _selectedFormation) return;
+    
+    // Simply change the formation - don't reorganize players
+    // This prevents unexpected player movements
+    setState(() {
+      _selectedFormation = newFormation;
+    });
+    
+    // Check if current squad can fill the new formation
+    final validationError = _validateFormation();
+    if (validationError != null && _selectedPlayers.length >= 11) {
+      // Show warning but don't block the change
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Note: $validationError'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 3),
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.white,
+            onPressed: () {},
+          ),
+        ),
+      );
+    }
+  }
+  
+  /// Show dialog when formation change would lose players
+  void _showFormationChangeDialog(Formation newFormation, int excessPlayers, int availableSlots) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Formation Change'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Switching to ${newFormation.name} will move $excessPlayers player(s) out of the starting XI.',
+            ),
+            const SizedBox(height: 12),
+            if (availableSlots < excessPlayers) ...[
+              Text(
+                'Your bench only has $availableSlots available slot(s). '
+                '${excessPlayers - availableSlots} player(s) will be removed from your squad.',
+                style: const TextStyle(color: Colors.orange),
+              ),
+              const SizedBox(height: 8),
+            ],
+            const Text('Do you want to proceed?'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _forceFormationChange(newFormation);
+            },
+            child: const Text('Proceed'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Force formation change, removing excess players from squad if needed
+  void _forceFormationChange(Formation newFormation) {
+    final requiredDef = newFormation.lines[0];
+    final requiredMid = newFormation.lines[1];
+    final requiredFwd = newFormation.lines[2];
+    
+    // Separate starting XI and bench
+    final startingXI = _selectedPlayers.take(11).toList();
+    final bench = _selectedPlayers.skip(11).toList();
+    
+    // Categorize starting XI by position
+    final gkInXI = startingXI.where((p) => p.position == PlayerPosition.goalkeeper).toList();
+    final defInXI = startingXI.where((p) => p.position == PlayerPosition.defender).toList();
+    final midInXI = startingXI.where((p) => p.position == PlayerPosition.midfielder).toList();
+    final fwdInXI = startingXI.where((p) => 
+        p.position == PlayerPosition.attacker || p.position == PlayerPosition.forward).toList();
+    
+    // Keep only required players in XI, move excess to overflow
+    final newXI = <FantasyTeamPlayer>[];
+    final overflow = <FantasyTeamPlayer>[];
+    
+    // Keep 1 GK
+    if (gkInXI.isNotEmpty) newXI.add(gkInXI.first);
+    if (gkInXI.length > 1) overflow.addAll(gkInXI.skip(1));
+    
+    // Keep required defenders
+    newXI.addAll(defInXI.take(requiredDef));
+    if (defInXI.length > requiredDef) overflow.addAll(defInXI.skip(requiredDef));
+    
+    // Keep required midfielders
+    newXI.addAll(midInXI.take(requiredMid));
+    if (midInXI.length > requiredMid) overflow.addAll(midInXI.skip(requiredMid));
+    
+    // Keep required forwards
+    newXI.addAll(fwdInXI.take(requiredFwd));
+    if (fwdInXI.length > requiredFwd) overflow.addAll(fwdInXI.skip(requiredFwd));
+    
+    // Combine bench with overflow (up to max bench size)
+    final newBench = [...bench, ...overflow].take(kBenchSize).toList();
+    
+    // Players that couldn't fit get removed - refund their price
+    final removedPlayers = overflow.skip(kBenchSize - bench.length).toList();
+    for (final removed in removedPlayers) {
+      _budgetRemaining += removed.price;
+    }
+    
+    setState(() {
+      _selectedPlayers = [...newXI, ...newBench];
+      _selectedFormation = newFormation;
+    });
+    
+    if (removedPlayers.isNotEmpty) {
+      _showError('${removedPlayers.length} player(s) removed from squad (budget refunded)');
+    }
+  }
+  
+  /// Auto-move excess players to bench when there's room
+  void _autoMoveExcessToBench(Formation newFormation, int excessDef, int excessMid, int excessFwd) {
+    final requiredDef = newFormation.lines[0];
+    final requiredMid = newFormation.lines[1];
+    final requiredFwd = newFormation.lines[2];
+    
+    // Separate starting XI and bench
+    final startingXI = _selectedPlayers.take(11).toList();
+    final bench = _selectedPlayers.skip(11).toList();
+    
+    // Categorize starting XI by position
+    final gkInXI = startingXI.where((p) => p.position == PlayerPosition.goalkeeper).toList();
+    final defInXI = startingXI.where((p) => p.position == PlayerPosition.defender).toList();
+    final midInXI = startingXI.where((p) => p.position == PlayerPosition.midfielder).toList();
+    final fwdInXI = startingXI.where((p) => 
+        p.position == PlayerPosition.attacker || p.position == PlayerPosition.forward).toList();
+    
+    // Build new XI with correct number of players
+    final newXI = <FantasyTeamPlayer>[];
+    final movedToBench = <FantasyTeamPlayer>[];
+    
+    // Keep 1 GK
+    if (gkInXI.isNotEmpty) newXI.add(gkInXI.first);
+    if (gkInXI.length > 1) movedToBench.addAll(gkInXI.skip(1));
+    
+    // Keep required defenders
+    newXI.addAll(defInXI.take(requiredDef));
+    if (defInXI.length > requiredDef) movedToBench.addAll(defInXI.skip(requiredDef));
+    
+    // Keep required midfielders
+    newXI.addAll(midInXI.take(requiredMid));
+    if (midInXI.length > requiredMid) movedToBench.addAll(midInXI.skip(requiredMid));
+    
+    // Keep required forwards
+    newXI.addAll(fwdInXI.take(requiredFwd));
+    if (fwdInXI.length > requiredFwd) movedToBench.addAll(fwdInXI.skip(requiredFwd));
+    
+    // New bench is old bench + moved players
+    final newBench = [...bench, ...movedToBench];
+    
+    setState(() {
+      _selectedPlayers = [...newXI, ...newBench];
+      _selectedFormation = newFormation;
+    });
+    
+    if (movedToBench.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${movedToBench.length} player(s) moved to bench'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   /// Navigate to full player profile
@@ -593,6 +830,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
         budgetRemaining: _budgetRemaining,
         createdAt: widget.existingTeam?.createdAt ?? DateTime.now(),
         updatedAt: DateTime.now(),
+        formation: _selectedFormation.name, // Save the formation!
       );
       
       await _leagueRepository.saveFantasyTeam(team);
@@ -618,18 +856,19 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (context) => _CaptainSelectionSheet(
+      isScrollControlled: true,
+      builder: (sheetContext) => _CaptainSelectionSheet(
         players: _selectedPlayers,
         onCaptainSelected: (playerId) {
           _setCaptain(playerId);
-          Navigator.pop(context);
+          // Don't pop - let user continue to select vice-captain
         },
         onViceCaptainSelected: (playerId) {
           _setViceCaptain(playerId);
-          Navigator.pop(context);
+          // Don't pop - let user click confirm button
         },
         onConfirm: () {
-          Navigator.pop(context);
+          Navigator.pop(sheetContext);
           _saveTeam();
         },
       ),
@@ -872,7 +1111,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                       color: isSelected ? Colors.white : bgTextColor,
                       fontSize: 12,
                     ),
-                    onSelected: (_) => setState(() => _selectedFormation = formation),
+                    onSelected: (_) => _handleFormationChange(formation),
                   ),
                 );
               }).toList(),
@@ -918,6 +1157,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   }
   
   /// Build bench section with 4 slots
+  /// Players are displayed in their actual order (not sorted by position)
+  /// Each player shows their position badge for clarity
   Widget _buildBenchSection(ThemeData theme, List<FantasyTeamPlayer> bench) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -945,8 +1186,11 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           const SizedBox(height: 12),
           Row(
             children: List.generate(4, (index) {
+              // Display players in order without position-based slot assignment
               final player = index < bench.length ? bench[index] : null;
               return Expanded(
+                // Use unique key based on player ID or slot index to force proper rebuilding
+                key: ValueKey(player?.playerId ?? 'bench_slot_$index'),
                 child: Padding(
                   padding: EdgeInsets.only(right: index < 3 ? 8 : 0),
                   child: _buildBenchSlot(theme, player, index),
@@ -959,33 +1203,208 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     );
   }
   
-  /// Build individual bench slot
+  /// Build individual bench slot - draggable if player exists, tap to add if empty
   Widget _buildBenchSlot(ThemeData theme, FantasyTeamPlayer? player, int index) {
     final positionNeeded = _getBenchPositionNeeded(index);
     
-    return GestureDetector(
-      onTap: player != null 
-          ? () => _showSubstitutionDialog(player)
-          : () => _showPlayerSelectionSheet(positionNeeded),
-      child: Container(
-        height: 70,
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: player != null 
-                ? _getPositionColor(player.position) 
-                : bgTextColor.withValues(alpha: 0.3),
-          ),
+    final slotContent = Container(
+      height: 70,
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: player != null 
+              ? _getPositionColor(player.position) 
+              : bgTextColor.withValues(alpha: 0.3),
         ),
-        child: player != null
-            ? _buildFilledBenchSlot(theme, player)
-            : _buildEmptyBenchSlot(theme, positionNeeded),
       ),
+      child: player != null
+          ? _buildFilledBenchSlotContent(theme, player)
+          : _buildEmptyBenchSlot(theme, positionNeeded),
+    );
+    
+    // If player exists, make it draggable and also a drop target
+    if (player != null) {
+      return DragTarget<FantasyTeamPlayer>(
+        onWillAcceptWithDetails: (details) {
+          // Accept players from lineup for swapping
+          return details.data.playerId != player.playerId;
+        },
+        onAcceptWithDetails: (details) {
+          // Swap bench player with dragged player
+          _swapBenchWithLineup(player, details.data);
+        },
+        builder: (context, candidateData, rejectedData) {
+          final isValidTarget = candidateData.isNotEmpty;
+          return Draggable<FantasyTeamPlayer>(
+            data: player,
+            feedback: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 60,
+                height: 70,
+                decoration: BoxDecoration(
+                  color: _getPositionColor(player.position).withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.sports_soccer, color: Colors.white, size: 20),
+                      Text(
+                        player.playerName.split(' ').last,
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            childWhenDragging: Container(
+              height: 70,
+              decoration: BoxDecoration(
+                color: bgColor.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: bgTextColor.withValues(alpha: 0.3)),
+              ),
+              child: const Center(
+                child: Icon(Icons.drag_indicator, color: Colors.grey),
+              ),
+            ),
+            child: GestureDetector(
+              onTap: () => _showSubstitutionDialog(player),
+              child: Transform.scale(
+                scale: isValidTarget ? 1.05 : 1.0,
+                child: Container(
+                  decoration: isValidTarget ? BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.green.withValues(alpha: 0.5),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ) : null,
+                  child: slotContent,
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    }
+    
+    // Empty slot - just tap to add, but also a drop target for lineup players
+    return DragTarget<FantasyTeamPlayer>(
+      onWillAcceptWithDetails: (details) {
+        // Accept any player being dragged to bench
+        return _selectedPlayers.take(11).any((p) => p.playerId == details.data.playerId);
+      },
+      onAcceptWithDetails: (details) {
+        // Move player from lineup to this bench slot
+        _movePlayerToBench(details.data, index);
+      },
+      builder: (context, candidateData, rejectedData) {
+        final isValidTarget = candidateData.isNotEmpty;
+        return GestureDetector(
+          onTap: () => _showPlayerSelectionSheet(positionNeeded),
+          child: Transform.scale(
+            scale: isValidTarget ? 1.05 : 1.0,
+            child: Container(
+              decoration: isValidTarget ? BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.green.withValues(alpha: 0.5),
+                    blurRadius: 8,
+                  ),
+                ],
+              ) : null,
+              child: slotContent,
+            ),
+          ),
+        );
+      },
     );
   }
   
-  Widget _buildFilledBenchSlot(ThemeData theme, FantasyTeamPlayer player) {
+  /// Swap a bench player with a lineup player
+  void _swapBenchWithLineup(FantasyTeamPlayer benchPlayer, FantasyTeamPlayer lineupPlayer) {
+    setState(() {
+      // Find indices
+      final benchIndex = _selectedPlayers.indexWhere((p) => p.playerId == benchPlayer.playerId);
+      final lineupIndex = _selectedPlayers.indexWhere((p) => p.playerId == lineupPlayer.playerId);
+      
+      if (benchIndex >= 0 && lineupIndex >= 0) {
+        // Swap the players
+        _selectedPlayers[benchIndex] = lineupPlayer;
+        _selectedPlayers[lineupIndex] = benchPlayer;
+      }
+    });
+  }
+  
+  /// Move a player from lineup to a specific bench slot
+  /// This properly swaps positions to maintain 11+4 structure
+  void _movePlayerToBench(FantasyTeamPlayer player, int benchSlotIndex) {
+    setState(() {
+      final playerIndex = _selectedPlayers.indexWhere((p) => p.playerId == player.playerId);
+      if (playerIndex < 0 || playerIndex >= 11) return; // Only move from starting XI
+      
+      final currentBench = _selectedPlayers.skip(11).toList();
+      
+      // If target bench slot has a player, swap them
+      if (benchSlotIndex < currentBench.length) {
+        final benchPlayer = currentBench[benchSlotIndex];
+        final benchPlayerIndex = 11 + benchSlotIndex;
+        
+        // Swap the two players
+        _selectedPlayers[playerIndex] = benchPlayer;
+        _selectedPlayers[benchPlayerIndex] = player;
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Swapped ${player.playerName} with ${benchPlayer.playerName}'),
+            backgroundColor: Colors.blue,
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      } else {
+        // Empty bench slot - just move to bench if there's room
+        if (currentBench.length < 4) {
+          _selectedPlayers.removeAt(playerIndex);
+          _selectedPlayers.add(player); // Add to end (bench)
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${player.playerName} moved to bench'),
+              backgroundColor: Colors.blue,
+              duration: const Duration(seconds: 1),
+            ),
+          );
+        } else {
+          // Bench is full, can't move without swap
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bench is full. Drop on a bench player to swap.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    });
+  }
+  
+  Widget _buildFilledBenchSlotContent(ThemeData theme, FantasyTeamPlayer player) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -1055,19 +1474,10 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   }
   
   PlayerPosition? _getBenchPositionNeeded(int index) {
-    // Bench should have: 1 GK, 1 DEF, 1 MID, 1 FWD
-    switch (index) {
-      case 0:
-        return PlayerPosition.goalkeeper;
-      case 1:
-        return PlayerPosition.defender;
-      case 2:
-        return PlayerPosition.midfielder;
-      case 3:
-        return PlayerPosition.forward;
-      default:
-        return null;
-    }
+    // Bench slots don't require specific positions
+    // Players are displayed with their actual position badge
+    // The formation validation ensures the team has correct positions overall
+    return null;
   }
   
   PlayerPosition? _positionFromString(String position) {
@@ -1203,7 +1613,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                         color: isSelected ? Colors.white : bgTextColor,
                         fontSize: 12,
                       ),
-                      onSelected: (_) => setState(() => _selectedFormation = formation),
+                      onSelected: (_) => _handleFormationChange(formation),
                     ),
                   );
                 }).toList(),
@@ -3019,11 +3429,11 @@ class _TeamPreviewSheet extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: player.position.color.withValues(alpha: 0.2),
+          backgroundColor: Color(player.position.colorValue).withValues(alpha: 0.2),
           child: Text(
             player.position.abbreviation,
             style: TextStyle(
-              color: player.position.color,
+              color: Color(player.position.colorValue),
               fontWeight: FontWeight.bold,
               fontSize: 12,
             ),
@@ -3134,7 +3544,7 @@ class _TeamPreviewSheet extends StatelessWidget {
 
 // ==================== CAPTAIN SELECTION SHEET ====================
 
-class _CaptainSelectionSheet extends StatelessWidget {
+class _CaptainSelectionSheet extends StatefulWidget {
   final List<FantasyTeamPlayer> players;
   final Function(int) onCaptainSelected;
   final Function(int) onViceCaptainSelected;
@@ -3148,10 +3558,26 @@ class _CaptainSelectionSheet extends StatelessWidget {
   });
 
   @override
+  State<_CaptainSelectionSheet> createState() => _CaptainSelectionSheetState();
+}
+
+class _CaptainSelectionSheetState extends State<_CaptainSelectionSheet> {
+  int? _selectedCaptainId;
+  int? _selectedViceCaptainId;
+  
+  @override
+  void initState() {
+    super.initState();
+    // Initialize with current captain/vice-captain if any
+    final currentCaptain = widget.players.where((p) => p.isCaptain).firstOrNull;
+    final currentViceCaptain = widget.players.where((p) => p.isViceCaptain).firstOrNull;
+    _selectedCaptainId = currentCaptain?.playerId;
+    _selectedViceCaptainId = currentViceCaptain?.playerId;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final captain = players.where((p) => p.isCaptain).firstOrNull;
-    final viceCaptain = players.where((p) => p.isViceCaptain).firstOrNull;
     
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -3173,10 +3599,10 @@ class _CaptainSelectionSheet extends StatelessWidget {
           const SizedBox(height: 16),
           
           // Captain selection
-          Text('Captain', style: TextStyle(color: bgTextColor, fontSize: 12)),
+          Text('Captain (2x points)', style: TextStyle(color: bgTextColor, fontSize: 12)),
           const SizedBox(height: 8),
           DropdownButtonFormField<int>(
-            initialValue: captain?.playerId,
+            value: _selectedCaptainId,
             decoration: InputDecoration(
               filled: true,
               fillColor: bgColor,
@@ -3186,24 +3612,34 @@ class _CaptainSelectionSheet extends StatelessWidget {
               ),
               prefixIcon: const Icon(Icons.star, color: Colors.amber),
             ),
-            items: players.map((p) {
+            hint: const Text('Select captain...'),
+            items: widget.players.map((p) {
               return DropdownMenuItem(
                 value: p.playerId,
                 child: Text(p.playerName),
               );
             }).toList(),
             onChanged: (value) {
-              if (value != null) onCaptainSelected(value);
+              if (value != null) {
+                setState(() {
+                  _selectedCaptainId = value;
+                  // If same player was vice-captain, clear it
+                  if (_selectedViceCaptainId == value) {
+                    _selectedViceCaptainId = null;
+                  }
+                });
+                widget.onCaptainSelected(value);
+              }
             },
           ),
           
           const SizedBox(height: 16),
           
           // Vice-Captain selection
-          Text('Vice-Captain', style: TextStyle(color: bgTextColor, fontSize: 12)),
+          Text('Vice-Captain (1.5x points)', style: TextStyle(color: bgTextColor, fontSize: 12)),
           const SizedBox(height: 8),
           DropdownButtonFormField<int>(
-            initialValue: viceCaptain?.playerId,
+            value: _selectedViceCaptainId,
             decoration: InputDecoration(
               filled: true,
               fillColor: bgColor,
@@ -3213,14 +3649,19 @@ class _CaptainSelectionSheet extends StatelessWidget {
               ),
               prefixIcon: const Icon(Icons.star_half, color: Colors.grey),
             ),
-            items: players.where((p) => !p.isCaptain).map((p) {
+            hint: const Text('Select vice-captain...'),
+            // Exclude the captain from vice-captain options
+            items: widget.players.where((p) => p.playerId != _selectedCaptainId).map((p) {
               return DropdownMenuItem(
                 value: p.playerId,
                 child: Text(p.playerName),
               );
             }).toList(),
             onChanged: (value) {
-              if (value != null) onViceCaptainSelected(value);
+              if (value != null) {
+                setState(() => _selectedViceCaptainId = value);
+                widget.onViceCaptainSelected(value);
+              }
             },
           ),
           
@@ -3229,13 +3670,15 @@ class _CaptainSelectionSheet extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: captain != null && viceCaptain != null ? onConfirm : null,
+              onPressed: _selectedCaptainId != null && _selectedViceCaptainId != null 
+                  ? widget.onConfirm 
+                  : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: theme.primaryColor,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
-              child: const Text('Confirm & Save'),
+              child: const Text('Confirm & Save Team'),
             ),
           ),
           
@@ -3416,7 +3859,7 @@ class _PlayerSelectionSheetState extends State<_PlayerSelectionSheet> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        '${widget.budgetRemaining.toStringAsFixed(1)} left',
+                        '\$${widget.budgetRemaining.toStringAsFixed(1)}M left',
                         style: TextStyle(
                           color: widget.budgetRemaining > 0 ? Colors.green : Colors.red,
                           fontWeight: FontWeight.bold,

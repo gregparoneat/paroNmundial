@@ -2,6 +2,7 @@ import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/match/models/match_info.dart';
+import 'package:fantacy11/features/match/models/match_info_ui.dart';
 import 'package:flutter/material.dart';
 
 class SingleTeamContainer extends StatelessWidget {

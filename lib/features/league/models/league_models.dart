@@ -1,5 +1,14 @@
-import 'package:flutter/material.dart';
-import 'package:fantacy11/features/player/models/player_info.dart' show Player;
+// Pure Dart file - no Flutter imports
+// Colors are stored as int values (ARGB format), icons as string names
+import 'package:fantacy11/features/player/models/player_info.dart' show Player, PositionColors;
+
+/// League color constants as int values (ARGB format)
+class LeagueColors {
+  static const int orange = 0xFFFF9800;
+  static const int green = 0xFF4CAF50;
+  static const int blue = 0xFF2196F3;
+  static const int red = 0xFFF44336;
+}
 
 /// Player position enum for fantasy team building
 enum PlayerPosition {
@@ -39,33 +48,35 @@ enum PlayerPosition {
     }
   }
 
-  Color get color {
+  /// Get color value as ARGB int
+  int get colorValue {
     switch (this) {
       case PlayerPosition.goalkeeper:
-        return Colors.orange;
+        return PositionColors.goalkeeper;
       case PlayerPosition.defender:
-        return Colors.blue;
+        return PositionColors.defender;
       case PlayerPosition.midfielder:
-        return Colors.green;
+        return PositionColors.midfielder;
       case PlayerPosition.attacker:
-        return Colors.red;
+        return PositionColors.attacker;
       case PlayerPosition.forward:
-        return Colors.red;
+        return PositionColors.attacker;
     }
   }
 
-  IconData get icon {
+  /// Get icon name for Flutter Icons
+  String get iconName {
     switch (this) {
       case PlayerPosition.goalkeeper:
-        return Icons.sports_handball;
+        return 'sports_handball';
       case PlayerPosition.defender:
-        return Icons.shield;
+        return 'shield';
       case PlayerPosition.midfielder:
-        return Icons.swap_horiz;
+        return 'swap_horiz';
       case PlayerPosition.attacker:
-        return Icons.sports_soccer;
+        return 'sports_soccer';
       case PlayerPosition.forward:
-        return Icons.sports_soccer;
+        return 'sports_soccer';
     }
   }
 }
@@ -84,12 +95,13 @@ enum LeagueType {
     }
   }
 
-  IconData get icon {
+  /// Get icon name for Flutter Icons
+  String get iconName {
     switch (this) {
       case LeagueType.public:
-        return Icons.public;
+        return 'public';
       case LeagueType.private:
-        return Icons.lock;
+        return 'lock';
     }
   }
 }
@@ -114,16 +126,17 @@ enum LeagueStatus {
     }
   }
 
-  Color get color {
+  /// Get color value as ARGB int
+  int get colorValue {
     switch (this) {
       case LeagueStatus.draft:
-        return Colors.orange;
+        return LeagueColors.orange;
       case LeagueStatus.active:
-        return Colors.green;
+        return LeagueColors.green;
       case LeagueStatus.completed:
-        return Colors.blue;
+        return LeagueColors.blue;
       case LeagueStatus.cancelled:
-        return Colors.red;
+        return LeagueColors.red;
     }
   }
 }
@@ -548,6 +561,7 @@ class FantasyTeam {
   final DateTime createdAt;
   final DateTime? updatedAt;
   final bool isLocked; // Locked when match starts
+  final String? formation; // Formation code like "4-3-3", "4-4-2", etc.
 
   FantasyTeam({
     required this.id,
@@ -562,6 +576,7 @@ class FantasyTeam {
     required this.createdAt,
     this.updatedAt,
     this.isLocked = false,
+    this.formation,
   });
 
   /// Get captain
@@ -587,32 +602,50 @@ class FantasyTeam {
     return players.where((p) => p.position == position).length;
   }
 
-  /// Check if team is valid (11 players, valid formation, captain/VC selected)
+  /// Check if team is valid (15 players total: 11 starters + 4 bench, captain/VC selected)
   bool get isValid {
-    if (players.length != 11) return false;
+    // Full squad = 15 players (11 starting + 4 bench)
+    if (players.length != 15) return false;
     if (captain == null || viceCaptain == null) return false;
     
-    // Check formation constraints
+    // Check position constraints - flexible for different formations
     final gk = countByPosition(PlayerPosition.goalkeeper);
     final def = countByPosition(PlayerPosition.defender);
     final mid = countByPosition(PlayerPosition.midfielder);
     final fwd = countByPosition(PlayerPosition.attacker) + 
                 countByPosition(PlayerPosition.forward);
     
-    if (gk != 1) return false;
-    if (def < 3 || def > 5) return false;
-    if (mid < 3 || mid > 5) return false;
-    if (fwd < 1 || fwd > 3) return false;
+    // Minimum constraints for any formation:
+    // At least 2 GK (1 starter + 1 sub)
+    // At least 3-6 DEF, 3-6 MID, 1-4 FWD (flexible for different formations)
+    if (gk < 2) return false;
+    if (def < 3 || def > 6) return false;
+    if (mid < 3 || mid > 6) return false;
+    if (fwd < 1 || fwd > 4) return false;
+    
+    // Total should be 15
+    if (gk + def + mid + fwd != 15) return false;
     
     return true;
   }
+  
+  /// Check if team has minimum required players to be saved (can be incomplete)
+  bool get hasMinimumPlayers {
+    return players.length >= 11 && captain != null && viceCaptain != null;
+  }
+  
+  /// Get starting XI (first 11 players)
+  List<FantasyTeamPlayer> get startingXI => players.take(11).toList();
+  
+  /// Get bench players (players after first 11)
+  List<FantasyTeamPlayer> get benchPlayers => players.skip(11).toList();
 
   /// Get validation errors
   List<String> get validationErrors {
     final errors = <String>[];
     
-    if (players.length != 11) {
-      errors.add('Team must have exactly 11 players (currently ${players.length})');
+    if (players.length != 15) {
+      errors.add('Team must have exactly 15 players (currently ${players.length})');
     }
     
     if (captain == null) errors.add('Select a captain');
@@ -624,13 +657,10 @@ class FantasyTeam {
     final fwd = countByPosition(PlayerPosition.attacker) + 
                 countByPosition(PlayerPosition.forward);
     
-    if (gk != 1) errors.add('Must have exactly 1 goalkeeper (currently $gk)');
-    if (def < 3) errors.add('Must have at least 3 defenders (currently $def)');
-    if (def > 5) errors.add('Cannot have more than 5 defenders (currently $def)');
-    if (mid < 3) errors.add('Must have at least 3 midfielders (currently $mid)');
-    if (mid > 5) errors.add('Cannot have more than 5 midfielders (currently $mid)');
-    if (fwd < 1) errors.add('Must have at least 1 forward (currently $fwd)');
-    if (fwd > 3) errors.add('Cannot have more than 3 forwards (currently $fwd)');
+    if (gk < 2) errors.add('Need at least 2 goalkeepers (currently $gk)');
+    if (def < 3) errors.add('Need at least 3 defenders (currently $def)');
+    if (mid < 3) errors.add('Need at least 3 midfielders (currently $mid)');
+    if (fwd < 1) errors.add('Need at least 1 forward (currently $fwd)');
     
     if (budgetRemaining < 0) {
       errors.add('Over budget by \$${(-budgetRemaining).toStringAsFixed(1)}M');
@@ -652,6 +682,7 @@ class FantasyTeam {
     DateTime? createdAt,
     DateTime? updatedAt,
     bool? isLocked,
+    String? formation,
   }) {
     return FantasyTeam(
       id: id ?? this.id,
@@ -666,6 +697,7 @@ class FantasyTeam {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       isLocked: isLocked ?? this.isLocked,
+      formation: formation ?? this.formation,
     );
   }
 
@@ -683,6 +715,7 @@ class FantasyTeam {
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
       'isLocked': isLocked,
+      'formation': formation,
     };
   }
 
@@ -704,6 +737,7 @@ class FantasyTeam {
           ? DateTime.parse(json['updatedAt'] as String)
           : null,
       isLocked: json['isLocked'] as bool? ?? false,
+      formation: json['formation'] as String?,
     );
   }
 

@@ -1,4 +1,14 @@
-import 'package:flutter/material.dart';
+// Pure Dart file - no Flutter imports
+// Colors are stored as int values (ARGB format)
+
+/// Position color constants as int values (ARGB format)
+class PositionColors {
+  static const int goalkeeper = 0xFFFF9800; // Colors.orange
+  static const int defender = 0xFF2196F3;   // Colors.blue
+  static const int midfielder = 0xFF4CAF50; // Colors.green
+  static const int attacker = 0xFFF44336;   // Colors.red
+  static const int unknown = 0xFF9E9E9E;    // Colors.grey
+}
 
 /// Nationality information
 class NationalityInfo {
@@ -47,35 +57,36 @@ class PositionInfo {
     );
   }
 
-  /// Get icon for position
-  IconData get icon {
+  /// Get icon name for position (for use with Flutter Icons)
+  /// Returns the icon identifier string (e.g., 'sports_handball')
+  String get iconName {
     switch (code.toLowerCase()) {
       case 'goalkeeper':
-        return Icons.sports_handball;
+        return 'sports_handball';
       case 'defender':
-        return Icons.shield;
+        return 'shield';
       case 'midfielder':
-        return Icons.swap_horiz;
+        return 'swap_horiz';
       case 'attacker':
-        return Icons.sports_soccer;
+        return 'sports_soccer';
       default:
-        return Icons.person;
+        return 'person';
     }
   }
 
-  /// Get color for position
-  Color get color {
+  /// Get color value for position as ARGB int
+  int get colorValue {
     switch (code.toLowerCase()) {
       case 'goalkeeper':
-        return Colors.orange;
+        return PositionColors.goalkeeper;
       case 'defender':
-        return Colors.blue;
+        return PositionColors.defender;
       case 'midfielder':
-        return Colors.green;
+        return PositionColors.midfielder;
       case 'attacker':
-        return Colors.red;
+        return PositionColors.attacker;
       default:
-        return Colors.grey;
+        return PositionColors.unknown;
     }
   }
 }

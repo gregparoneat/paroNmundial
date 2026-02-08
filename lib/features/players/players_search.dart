@@ -7,6 +7,22 @@ import 'package:fantacy11/routes/routes.dart';
 import 'package:fantacy11/services/cache_service.dart';
 import 'package:flutter/material.dart';
 
+/// Helper to convert position icon name to IconData
+IconData _getPositionIcon(String iconName) {
+  switch (iconName) {
+    case 'sports_handball':
+      return Icons.sports_handball;
+    case 'shield':
+      return Icons.shield;
+    case 'swap_horiz':
+      return Icons.swap_horiz;
+    case 'sports_soccer':
+      return Icons.sports_soccer;
+    default:
+      return Icons.person;
+  }
+}
+
 /// Players search screen with local caching
 /// Searches active Liga MX players from cached team rosters
 class PlayersSearch extends StatefulWidget {
@@ -14,6 +30,15 @@ class PlayersSearch extends StatefulWidget {
 
   @override
   State<PlayersSearch> createState() => _PlayersSearchState();
+}
+
+// Sort options enum
+enum PlayerSortOption {
+  pointsHighToLow,
+  pointsLowToHigh,
+  priceHighToLow,
+  priceLowToHigh,
+  nameAZ,
 }
 
 class _PlayersSearchState extends State<PlayersSearch> {
@@ -30,7 +55,18 @@ class _PlayersSearchState extends State<PlayersSearch> {
   // Active Liga MX players from cached team rosters
   List<RosterPlayer> _cachedPlayers = [];
   List<RosterPlayer> _searchResults = [];
+  List<RosterPlayer> _filteredPlayers = [];
   bool _isLoadingInitial = true;
+  
+  // Filters
+  String? _selectedTeam;
+  String? _selectedPosition;
+  PlayerSortOption _sortOption = PlayerSortOption.pointsHighToLow;
+  bool _showFilters = false;
+  
+  // Available filter options (populated from data)
+  List<String> _availableTeams = [];
+  final List<String> _availablePositions = ['GK', 'DEF', 'MID', 'FWD'];
 
   @override
   void initState() {
@@ -63,6 +99,12 @@ class _PlayersSearchState extends State<PlayersSearch> {
         }
       }
       
+      // Extract unique teams for filter
+      _extractAvailableTeams();
+      
+      // Apply initial filters
+      _applyFilters();
+      
       if (mounted) {
         setState(() => _isLoadingInitial = false);
       }
@@ -73,6 +115,84 @@ class _PlayersSearchState extends State<PlayersSearch> {
       }
     }
   }
+  
+  /// Extract unique teams from cached players
+  void _extractAvailableTeams() {
+    final teams = _cachedPlayers
+        .map((p) => p.teamName)
+        .where((t) => t.isNotEmpty)
+        .toSet()
+        .toList();
+    teams.sort();
+    _availableTeams = teams;
+  }
+  
+  /// Apply filters and sorting to players
+  void _applyFilters() {
+    List<RosterPlayer> result = List.from(_cachedPlayers);
+    
+    // Filter by team
+    if (_selectedTeam != null) {
+      result = result.where((p) => p.teamName == _selectedTeam).toList();
+    }
+    
+    // Filter by position
+    if (_selectedPosition != null) {
+      result = result.where((p) => 
+        p.positionCode.toUpperCase() == _selectedPosition
+      ).toList();
+    }
+    
+    // Apply text search if active
+    if (_lastQuery.isNotEmpty && _lastQuery.length >= 2) {
+      final normalizedQuery = _normalizeString(_lastQuery);
+      result = result.where((p) {
+        return _normalizeString(p.name).contains(normalizedQuery) ||
+               _normalizeString(p.displayName).contains(normalizedQuery) ||
+               _normalizeString(p.teamName).contains(normalizedQuery);
+      }).toList();
+    }
+    
+    // Apply sorting
+    switch (_sortOption) {
+      case PlayerSortOption.pointsHighToLow:
+        result.sort((a, b) => b.projectedPoints.compareTo(a.projectedPoints));
+        break;
+      case PlayerSortOption.pointsLowToHigh:
+        result.sort((a, b) => a.projectedPoints.compareTo(b.projectedPoints));
+        break;
+      case PlayerSortOption.priceHighToLow:
+        result.sort((a, b) => b.price.compareTo(a.price));
+        break;
+      case PlayerSortOption.priceLowToHigh:
+        result.sort((a, b) => a.price.compareTo(b.price));
+        break;
+      case PlayerSortOption.nameAZ:
+        result.sort((a, b) => a.displayName.compareTo(b.displayName));
+        break;
+    }
+    
+    _filteredPlayers = result;
+    if (_lastQuery.isNotEmpty) {
+      _searchResults = result.take(50).toList();
+    }
+  }
+  
+  /// Clear all filters
+  void _clearFilters() {
+    setState(() {
+      _selectedTeam = null;
+      _selectedPosition = null;
+      _sortOption = PlayerSortOption.pointsHighToLow;
+      _applyFilters();
+    });
+  }
+  
+  /// Check if any filters are active
+  bool get _hasActiveFilters => 
+      _selectedTeam != null || 
+      _selectedPosition != null || 
+      _sortOption != PlayerSortOption.pointsHighToLow;
 
   @override
   void dispose() {
@@ -127,6 +247,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
         _searchResults = [];
         _lastQuery = '';
         _error = null;
+        _applyFilters();
       });
       return;
     }
@@ -140,26 +261,10 @@ class _PlayersSearchState extends State<PlayersSearch> {
 
   /// Search from cached active Liga MX players
   void _performSearch(String query) {
-    final normalizedQuery = _normalizeString(query);
-    
-    final results = _cachedPlayers.where((p) {
-      return _normalizeString(p.name).contains(normalizedQuery) ||
-             _normalizeString(p.displayName).contains(normalizedQuery) ||
-             _normalizeString(p.teamName).contains(normalizedQuery);
-    }).toList();
-    
-    // Sort by relevance (exact matches first, then by projected points)
-    results.sort((a, b) {
-      final aStartsWith = _normalizeString(a.displayName).startsWith(normalizedQuery) ? 0 : 1;
-      final bStartsWith = _normalizeString(b.displayName).startsWith(normalizedQuery) ? 0 : 1;
-      if (aStartsWith != bStartsWith) return aStartsWith.compareTo(bStartsWith);
-      return b.projectedPoints.compareTo(a.projectedPoints);
-    });
-    
     setState(() {
-      _searchResults = results.take(50).toList();
       _lastQuery = query;
       _error = null;
+      _applyFilters();
     });
   }
   
@@ -219,6 +324,22 @@ class _PlayersSearchState extends State<PlayersSearch> {
         title: Text(S.of(context).players),
         centerTitle: false,
         elevation: 0,
+        actions: [
+          // Filter toggle button
+          IconButton(
+            icon: Badge(
+              isLabelVisible: _hasActiveFilters,
+              backgroundColor: Colors.red,
+              child: Icon(
+                _showFilters ? Icons.filter_list_off : Icons.filter_list,
+                color: _showFilters ? theme.primaryColor : Colors.white,
+              ),
+            ),
+            onPressed: () => setState(() => _showFilters = !_showFilters),
+            tooltip: 'Filters',
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Column(
         children: [
@@ -254,29 +375,256 @@ class _PlayersSearchState extends State<PlayersSearch> {
             ),
           ),
 
-          // Player count info
+          // Filters section (collapsible)
+          if (_showFilters) _buildFiltersSection(theme),
+
+          // Player count info with active filter indicator
           if (_cachedPlayers.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: Row(
                 children: [
                   Icon(Icons.sports_soccer, size: 14, color: bgTextColor),
                   const SizedBox(width: 6),
                   Text(
-                    '${_cachedPlayers.length} players available',
+                    _hasActiveFilters 
+                        ? '${_filteredPlayers.length} of ${_cachedPlayers.length} players'
+                        : '${_cachedPlayers.length} players available',
                     style: TextStyle(fontSize: 12, color: bgTextColor),
                   ),
+                  if (_hasActiveFilters) ...[
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: _clearFilters,
+                      icon: const Icon(Icons.clear, size: 14),
+                      label: const Text('Clear filters'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: theme.primaryColor,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        textStyle: const TextStyle(fontSize: 11),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
 
           // Content
           Expanded(
             child: _buildContent(theme),
           ),
         ],
+      ),
+    );
+  }
+  
+  /// Build the filters section
+  Widget _buildFiltersSection(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.5),
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.withValues(alpha: 0.2)),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Position filter chips
+          Text(
+            'Position',
+            style: TextStyle(fontSize: 11, color: bgTextColor, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 6),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildPositionChip(null, 'All', theme),
+                ..._availablePositions.map((pos) => _buildPositionChip(pos, pos, theme)),
+              ],
+            ),
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Team dropdown
+          Text(
+            'Team',
+            style: TextStyle(fontSize: 11, color: bgTextColor, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+            ),
+            child: DropdownButton<String?>(
+              value: _selectedTeam,
+              hint: const Text('All Teams', style: TextStyle(fontSize: 13)),
+              isExpanded: true,
+              underline: const SizedBox.shrink(),
+              dropdownColor: theme.colorScheme.surface,
+              style: TextStyle(color: Colors.white, fontSize: 13),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('All Teams'),
+                ),
+                ..._availableTeams.map((team) => DropdownMenuItem<String?>(
+                  value: team,
+                  child: Text(team, overflow: TextOverflow.ellipsis),
+                )),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedTeam = value;
+                  _applyFilters();
+                });
+              },
+            ),
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Sort dropdown
+          Text(
+            'Sort by',
+            style: TextStyle(fontSize: 11, color: bgTextColor, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+            ),
+            child: DropdownButton<PlayerSortOption>(
+              value: _sortOption,
+              isExpanded: true,
+              underline: const SizedBox.shrink(),
+              dropdownColor: theme.colorScheme.surface,
+              style: TextStyle(color: Colors.white, fontSize: 13),
+              items: const [
+                DropdownMenuItem(
+                  value: PlayerSortOption.pointsHighToLow,
+                  child: Row(
+                    children: [
+                      Icon(Icons.trending_up, size: 16, color: Colors.green),
+                      SizedBox(width: 8),
+                      Text('Points (High → Low)'),
+                    ],
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: PlayerSortOption.pointsLowToHigh,
+                  child: Row(
+                    children: [
+                      Icon(Icons.trending_down, size: 16, color: Colors.red),
+                      SizedBox(width: 8),
+                      Text('Points (Low → High)'),
+                    ],
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: PlayerSortOption.priceHighToLow,
+                  child: Row(
+                    children: [
+                      Icon(Icons.attach_money, size: 16, color: Colors.amber),
+                      SizedBox(width: 8),
+                      Text('Price (High → Low)'),
+                    ],
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: PlayerSortOption.priceLowToHigh,
+                  child: Row(
+                    children: [
+                      Icon(Icons.money_off, size: 16, color: Colors.grey),
+                      SizedBox(width: 8),
+                      Text('Price (Low → High)'),
+                    ],
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: PlayerSortOption.nameAZ,
+                  child: Row(
+                    children: [
+                      Icon(Icons.sort_by_alpha, size: 16, color: Colors.blue),
+                      SizedBox(width: 8),
+                      Text('Name (A → Z)'),
+                    ],
+                  ),
+                ),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() {
+                    _sortOption = value;
+                    _applyFilters();
+                  });
+                }
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Build a position filter chip
+  Widget _buildPositionChip(String? position, String label, ThemeData theme) {
+    final isSelected = _selectedPosition == position;
+    Color chipColor;
+    
+    switch (position) {
+      case 'GK':
+        chipColor = Colors.orange;
+        break;
+      case 'DEF':
+        chipColor = Colors.blue;
+        break;
+      case 'MID':
+        chipColor = Colors.green;
+        break;
+      case 'FWD':
+        chipColor = Colors.red;
+        break;
+      default:
+        chipColor = theme.primaryColor;
+    }
+    
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: isSelected ? Colors.white : bgTextColor,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+        selected: isSelected,
+        onSelected: (selected) {
+          setState(() {
+            _selectedPosition = selected ? position : null;
+            _applyFilters();
+          });
+        },
+        backgroundColor: theme.colorScheme.surface,
+        selectedColor: chipColor,
+        checkmarkColor: Colors.white,
+        side: BorderSide(
+          color: isSelected ? chipColor : Colors.grey.withValues(alpha: 0.3),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       ),
     );
   }
@@ -313,7 +661,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
       );
     }
 
-    // Search results
+    // Search results (text search active)
     if (_lastQuery.isNotEmpty) {
       if (_searchResults.isEmpty) {
         return _buildEmptySearchState();
@@ -321,12 +669,48 @@ class _PlayersSearchState extends State<PlayersSearch> {
       return _buildRosterPlayersList(_searchResults, 'Search Results');
     }
 
+    // Filtered results (filters active but no text search)
+    if (_hasActiveFilters && _filteredPlayers.isNotEmpty) {
+      return _buildRosterPlayersList(
+        _filteredPlayers.take(100).toList(),
+        'Filtered Players',
+        subtitle: '${_filteredPlayers.length} found',
+      );
+    }
+    
+    // Empty filter results
+    if (_hasActiveFilters && _filteredPlayers.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.filter_alt_off, size: 48, color: Colors.grey[600]),
+              const SizedBox(height: 16),
+              Text(
+                'No players match your filters',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[500]),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _clearFilters,
+                icon: const Icon(Icons.clear),
+                label: const Text('Clear Filters'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     // Initial state - show top players from cache
     if (_cachedPlayers.isNotEmpty && _lastQuery.isEmpty) {
-      final popularPlayers = List<RosterPlayer>.from(_cachedPlayers)
+      final popularPlayers = List<RosterPlayer>.from(_filteredPlayers.isNotEmpty ? _filteredPlayers : _cachedPlayers)
         ..sort((a, b) => b.projectedPoints.compareTo(a.projectedPoints));
       return _buildRosterPlayersList(
-        popularPlayers.take(30).toList(), 
+        popularPlayers.take(50).toList(), 
         'Top Players',
         subtitle: '${_cachedPlayers.length} total',
       );
@@ -782,8 +1166,9 @@ class _PlayersSearchState extends State<PlayersSearch> {
                       shape: BoxShape.circle,
                       color: bgColor,
                       border: Border.all(
-                        color: player.position?.color.withValues(alpha: 0.5) ?? 
-                               theme.primaryColor.withValues(alpha: 0.5),
+                        color: player.position != null 
+                               ? Color(player.position!.colorValue).withValues(alpha: 0.5)
+                               : theme.primaryColor.withValues(alpha: 0.5),
                         width: 2,
                       ),
                     ),
@@ -858,9 +1243,9 @@ class _PlayersSearchState extends State<PlayersSearch> {
                       children: [
                         if (player.position != null) ...[
                           Icon(
-                            player.position!.icon,
+                            _getPositionIcon(player.position!.iconName),
                             size: 14,
-                            color: player.position!.color,
+                            color: Color(player.position!.colorValue),
                           ),
                           const SizedBox(width: 4),
                           Text(

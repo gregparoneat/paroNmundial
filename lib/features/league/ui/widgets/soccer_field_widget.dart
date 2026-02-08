@@ -124,12 +124,25 @@ class _SoccerFieldWidgetState extends State<SoccerFieldWidget> {
   }
 
   Widget _buildFormationLayout(BuildContext context) {
-    // Get players by position
+    // Get players by position - maintain original order within each position group
     final goalkeepers = widget.players.where((p) => p.position == PlayerPosition.goalkeeper).toList();
     final defenders = widget.players.where((p) => p.position == PlayerPosition.defender).toList();
     final midfielders = widget.players.where((p) => p.position == PlayerPosition.midfielder).toList();
     final forwards = widget.players.where((p) => 
         p.position == PlayerPosition.attacker || p.position == PlayerPosition.forward).toList();
+    
+    // Get formation requirements
+    final requiredDef = widget.formation.lines[0];
+    final requiredMid = widget.formation.lines[1];
+    final requiredFwd = widget.formation.lines[2];
+    
+    // Show slots based on formation, fill with available players
+    // Extra players of a position beyond the formation requirement won't be shown on field
+    // (they should be moved to bench by the user)
+    final displayedGoalkeepers = goalkeepers.take(1).toList();
+    final displayedDefenders = defenders.take(requiredDef).toList();
+    final displayedMidfielders = midfielders.take(requiredMid).toList();
+    final displayedForwards = forwards.take(requiredFwd).toList();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
@@ -140,8 +153,8 @@ class _SoccerFieldWidgetState extends State<SoccerFieldWidget> {
             flex: 2,
             child: _buildPositionRow(
               'FWD',
-              widget.formation.lines[2],
-              forwards,
+              requiredFwd,
+              displayedForwards,
             ),
           ),
           
@@ -150,8 +163,8 @@ class _SoccerFieldWidgetState extends State<SoccerFieldWidget> {
             flex: 2,
             child: _buildPositionRow(
               'MID',
-              widget.formation.lines[1],
-              midfielders,
+              requiredMid,
+              displayedMidfielders,
             ),
           ),
           
@@ -160,8 +173,8 @@ class _SoccerFieldWidgetState extends State<SoccerFieldWidget> {
             flex: 2,
             child: _buildPositionRow(
               'DEF',
-              widget.formation.lines[0],
-              defenders,
+              requiredDef,
+              displayedDefenders,
             ),
           ),
           
@@ -171,7 +184,7 @@ class _SoccerFieldWidgetState extends State<SoccerFieldWidget> {
             child: _buildPositionRow(
               'GK',
               1,
-              goalkeepers.take(1).toList(),
+              displayedGoalkeepers,
             ),
           ),
         ],
@@ -326,118 +339,143 @@ class _SoccerFieldWidgetState extends State<SoccerFieldWidget> {
           widget.onPlayerTap!(player!);
         }
       },
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Predicted points badge (above player pic)
-          if (!isEmpty && widget.showPredictedPoints && player!.predictedPoints > 0)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              margin: const EdgeInsets.only(bottom: 2),
-              decoration: BoxDecoration(
-                color: _getPredictedPointsColor(player.effectivePredictedPoints),
-                borderRadius: BorderRadius.circular(6),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black38,
-                    blurRadius: 2,
-                    offset: const Offset(0, 1),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: SizedBox(
+          width: 70,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Player avatar with overlay badges
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // Player avatar or empty slot
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isEmpty 
+                          ? (isHighlighted ? Colors.green.withValues(alpha: 0.5) : Colors.white24)
+                          : _getPositionColor(position),
+                      border: Border.all(
+                        color: isHighlighted
+                            ? Colors.greenAccent
+                            : (isEmpty ? Colors.white38 : Colors.white),
+                        width: isHighlighted ? 3 : 2,
+                      ),
+                      boxShadow: isEmpty ? null : [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: isEmpty
+                        ? Icon(
+                            widget.isEditable ? Icons.add : Icons.person_outline,
+                            color: isHighlighted ? Colors.greenAccent : Colors.white54,
+                            size: 20,
+                          )
+                        : ClipOval(
+                            child: player!.playerImageUrl != null && player.playerImageUrl!.isNotEmpty
+                                ? CachedNetworkImage(
+                                    imageUrl: player.playerImageUrl!,
+                                    fit: BoxFit.cover,
+                                    placeholder: (_, __) => _buildInitialsWidget(player),
+                                    errorWidget: (_, __, ___) => _buildInitialsWidget(player),
+                                  )
+                                : _buildInitialsWidget(player),
+                          ),
                   ),
+                  
+                  // Predicted points badge (top-right of avatar)
+                  if (!isEmpty && widget.showPredictedPoints && player!.predictedPoints > 0)
+                    Positioned(
+                      top: -4,
+                      right: -4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: _getPredictedPointsColor(player.effectivePredictedPoints),
+                          borderRadius: BorderRadius.circular(6),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black38,
+                              blurRadius: 2,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          player.effectivePredictedPoints.toStringAsFixed(0),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  
+                  // Captain/Vice-captain badge (bottom-right of avatar)
+                  if (player != null && (player.isCaptain || player.isViceCaptain))
+                    Positioned(
+                      bottom: -2,
+                      right: -2,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: player.isCaptain ? Colors.amber : Colors.grey,
+                          borderRadius: BorderRadius.circular(4),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black26,
+                              blurRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          player.isCaptain ? 'C' : 'VC',
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 7,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
-              child: Text(
-                player.effectivePredictedPoints.toStringAsFixed(1),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
+              
+              const SizedBox(height: 3),
+              
+              // Player name or position label
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: isEmpty 
+                      ? Colors.black38 
+                      : _getPositionColor(position).withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(6),
                 ),
-              ),
-            ),
-          
-          // Player avatar or empty slot
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isEmpty 
-                  ? (isHighlighted ? Colors.green.withValues(alpha: 0.5) : Colors.white24)
-                  : _getPositionColor(position),
-              border: Border.all(
-                color: isHighlighted
-                    ? Colors.greenAccent
-                    : (isEmpty ? Colors.white38 : Colors.white),
-                width: isHighlighted ? 3 : 2,
-              ),
-              boxShadow: isEmpty ? null : [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: isEmpty
-                ? Icon(
-                    widget.isEditable ? Icons.add : Icons.person_outline,
-                    color: isHighlighted ? Colors.greenAccent : Colors.white54,
-                    size: 24,
-                  )
-                : ClipOval(
-                    child: player!.playerImageUrl != null && player.playerImageUrl!.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: player.playerImageUrl!,
-                            fit: BoxFit.cover,
-                            placeholder: (_, __) => _buildInitialsWidget(player),
-                            errorWidget: (_, __, ___) => _buildInitialsWidget(player),
-                          )
-                        : _buildInitialsWidget(player),
+                child: Text(
+                  isEmpty ? position : _getShortName(player!.playerName),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
                   ),
-          ),
-          
-          const SizedBox(height: 4),
-          
-          // Player name or position label
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: isEmpty 
-                  ? Colors.black38 
-                  : _getPositionColor(position).withValues(alpha: 0.9),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              isEmpty ? position : _getShortName(player!.playerName),
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          
-          // Captain/Vice-captain badge
-          if (player != null && (player.isCaptain || player.isViceCaptain))
-            Container(
-              margin: const EdgeInsets.only(top: 2),
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              decoration: BoxDecoration(
-                color: player.isCaptain ? Colors.amber : Colors.grey,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                player.isCaptain ? 'C' : 'VC',
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 8,
-                  fontWeight: FontWeight.bold,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -464,7 +502,7 @@ class _SoccerFieldWidgetState extends State<SoccerFieldWidget> {
         style: const TextStyle(
           color: Colors.white,
           fontWeight: FontWeight.bold,
-          fontSize: 16,
+          fontSize: 14,
         ),
       ),
     );

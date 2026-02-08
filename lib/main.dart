@@ -3,6 +3,7 @@ import 'package:fantacy11/features/auth/login_navigator.dart';
 import 'package:fantacy11/features/responsive_widget.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/services/cache_service.dart';
+import 'package:fantacy11/services/player_form_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -29,6 +30,17 @@ Future<void> _preloadPlayersFromFirestore() async {
   }
 }
 
+Future<void> _syncPlayerFormsFromFirestore() async {
+  try {
+    debugPrint('Syncing player forms from Firestore...');
+    final formService = PlayerFormService();
+    await formService.syncFormsFromFirestore();
+    debugPrint('Player forms synced successfully');
+  } catch (e) {
+    debugPrint('Failed to sync player forms from Firestore: $e');
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
@@ -42,6 +54,10 @@ void main() async {
   
   // Pre-load players from Firestore in background (don't await to not block startup)
   _preloadPlayersFromFirestore();
+  
+  // Sync pre-calculated player forms from Firestore in background
+  // Form data is updated by batch jobs running Mon/Fri
+  _syncPlayerFormsFromFirestore();
   
   MobileAds.instance.initialize();
 

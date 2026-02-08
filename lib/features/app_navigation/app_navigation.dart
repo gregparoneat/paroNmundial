@@ -2,7 +2,7 @@ import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/account/ui/account.dart';
 import 'package:fantacy11/features/home/home.dart';
 import 'package:fantacy11/features/league/ui/leagues_page.dart';
-import 'package:fantacy11/features/my_matches/my_matches.dart';
+import 'package:fantacy11/features/fixtures/fixtures.dart';
 import 'package:fantacy11/features/players/players_search.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:flutter/material.dart';
@@ -22,7 +22,7 @@ class AppNavigationState extends State<AppNavigation> {
     const Home(),
     const LeaguesPage(),
     const PlayersSearch(),
-    const MyMatches(),
+    const Fixtures(),
     const Account(),
   ];
 
@@ -55,8 +55,8 @@ class AppNavigationState extends State<AppNavigation> {
             backgroundColor: const Color(0xff1C1C35),
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.sports),
-            label: s.myMatches,
+            icon: const Icon(Icons.calendar_today),
+            label: s.fixtures,
             backgroundColor: const Color(0xff1C1C35),
           ),
           BottomNavigationBarItem(
