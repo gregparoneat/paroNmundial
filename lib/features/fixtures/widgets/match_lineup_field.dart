@@ -231,105 +231,109 @@ class MatchLineupField extends StatelessWidget {
     
     return GestureDetector(
       onTap: onPlayerTap != null ? () => onPlayerTap!(player) : null,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Rating badge (above avatar)
-          if (player.rating != null)
+      // Use FittedBox to scale down the content if it doesn't fit
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Rating badge (above avatar)
+            if (player.rating != null)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                margin: const EdgeInsets.only(bottom: 2),
+                decoration: BoxDecoration(
+                  color: Color(player.ratingColorValue),
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black38,
+                      blurRadius: 3,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  player.formattedRating,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            
+            // Player avatar
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              margin: const EdgeInsets.only(bottom: 2),
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
-                color: Color(player.ratingColorValue),
-                borderRadius: BorderRadius.circular(8),
+                shape: BoxShape.circle,
+                color: _getPositionColor(position),
+                border: Border.all(color: Colors.white, width: 2),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black38,
-                    blurRadius: 3,
-                    offset: const Offset(0, 1),
+                    color: Colors.black26,
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
+              child: ClipOval(
+                child: player.playerImageUrl != null && player.playerImageUrl!.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: player.playerImageUrl!,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) => _buildInitials(player.playerName),
+                        errorWidget: (_, __, ___) => _buildInitials(player.playerName),
+                      )
+                    : _buildInitials(player.playerName),
+              ),
+            ),
+            
+            const SizedBox(height: 2),
+            
+            // Player name
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: _getPositionColor(position).withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(8),
+              ),
               child: Text(
-                player.formattedRating,
+                _getShortName(player.playerName),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 9,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            
+            // Goal/assist indicators
+            if (player.goals > 0 || player.assists > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (player.goals > 0)
+                      ...List.generate(
+                        player.goals > 3 ? 3 : player.goals,
+                        (_) => const Text('⚽', style: TextStyle(fontSize: 8)),
+                      ),
+                    if (player.assists > 0)
+                      ...List.generate(
+                        player.assists > 3 ? 3 : player.assists,
+                        (_) => const Text('🅰️', style: TextStyle(fontSize: 8)),
+                      ),
+                  ],
                 ),
               ),
-            ),
-          
-          // Player avatar
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _getPositionColor(position),
-              border: Border.all(color: Colors.white, width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: ClipOval(
-              child: player.playerImageUrl != null && player.playerImageUrl!.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: player.playerImageUrl!,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => _buildInitials(player.playerName),
-                      errorWidget: (_, __, ___) => _buildInitials(player.playerName),
-                    )
-                  : _buildInitials(player.playerName),
-            ),
-          ),
-          
-          const SizedBox(height: 4),
-          
-          // Player name
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: _getPositionColor(position).withValues(alpha: 0.9),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              _getShortName(player.playerName),
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          
-          // Goal/assist indicators
-          if (player.goals > 0 || player.assists > 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (player.goals > 0)
-                    ...List.generate(
-                      player.goals > 3 ? 3 : player.goals,
-                      (_) => const Text('⚽', style: TextStyle(fontSize: 8)),
-                    ),
-                  if (player.assists > 0)
-                    ...List.generate(
-                      player.assists > 3 ? 3 : player.assists,
-                      (_) => const Text('🅰️', style: TextStyle(fontSize: 8)),
-                    ),
-                ],
-              ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -6,6 +6,7 @@ import '../../routes/routes.dart';
 import '../components/custom_scaffold.dart';
 import '../match/ui/match_list.dart';
 import 'ui/past_fixtures_page.dart';
+import 'ui/upcoming_fixtures_page.dart';
 
 class Fixtures extends StatelessWidget {
   const Fixtures({super.key});
@@ -61,16 +62,8 @@ class Fixtures extends StatelessWidget {
       ],
       tabBarChild: const SizedBox.shrink(),
       tabBarViewItems: [
-        MatchList.vertical(
-          '0h 9m',
-          'Lineup Announced',
-          (matchInfo) => Navigator.pushNamed(
-            context,
-            PageRoutes.contests,
-            arguments: matchInfo,
-          ),
-          itemCount: 3,
-        ),
+        // Upcoming fixtures with predicted lineups
+        const UpcomingFixturesPage(embedded: true),
         MatchList.vertical(
           locale.live,
           '',

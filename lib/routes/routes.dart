@@ -8,6 +8,7 @@ import 'package:fantacy11/features/account/ui/support.dart';
 import 'package:fantacy11/features/app_navigation/app_navigation.dart';
 import 'package:fantacy11/features/fixtures/ui/match_details_page.dart';
 import 'package:fantacy11/features/fixtures/ui/past_fixtures_page.dart';
+import 'package:fantacy11/features/fixtures/ui/upcoming_match_details_page.dart';
 import 'package:fantacy11/features/home/choose_captain_and_vice_captain.dart';
 import 'package:fantacy11/features/home/contests.dart';
 import 'package:fantacy11/features/home/create_new_team.dart';
@@ -45,6 +46,7 @@ class PageRoutes {
   static const String playerDetails = "playerDetails";
   static const String pastFixtures = "pastFixtures";
   static const String matchDetails = "matchDetails";
+  static const String upcomingMatchDetails = "upcomingMatchDetails";
 }
 
 class AppNavigator extends StatelessWidget {
@@ -136,6 +138,12 @@ class AppNavigator extends StatelessWidget {
               builder = (c, a1, a2) {
                 final fixtureId = settings.arguments as int;
                 return MatchDetailsPage(fixtureId: fixtureId);
+              };
+              break;
+            case PageRoutes.upcomingMatchDetails:
+              builder = (c, a1, a2) {
+                final matchInfo = settings.arguments as MatchInfo;
+                return UpcomingMatchDetailsPage(matchInfo: matchInfo);
               };
               break;
           }

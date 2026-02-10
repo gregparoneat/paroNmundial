@@ -1,16 +1,13 @@
 import 'dart:developer';
 import 'dart:io';
 
-import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:fantacy11/app_config/colors.dart';
+import 'package:fantacy11/features/fixtures/ui/upcoming_fixtures_page.dart';
 import 'package:fantacy11/features/home/widgets/my_leagues_carousel.dart';
-import 'package:fantacy11/features/match/ui/match_list.dart';
 import 'package:fantacy11/features/responsive_widget.dart';
 import 'package:fantacy11/generated/l10n.dart';
-import 'package:fantacy11/routes/routes.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'package:intl/intl.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -28,82 +25,6 @@ class HomeState extends State<Home> {
 
   BannerAd? _anchoredBanner;
   bool _loadingAnchoredBanner = false;
-  
-  // Date filter state - initialize to today
-  DateTime? _selectedDate;
-  final List<DateTime> _quickDates = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _initQuickDates();
-    // Initialize to today's date to ensure consistent behavior
-    final now = DateTime.now();
-    _selectedDate = DateTime(now.year, now.month, now.day);
-  }
-
-  void _initQuickDates() {
-    final now = DateTime.now();
-    // Generate next 7 days for quick selection
-    for (int i = 0; i < 7; i++) {
-      _quickDates.add(DateTime(now.year, now.month, now.day + i));
-    }
-  }
-
-  Future<void> _selectDate(BuildContext context) async {
-    final theme = Theme.of(context);
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate ?? DateTime.now(),
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-      builder: (context, child) {
-        return Theme(
-          data: theme.copyWith(
-            colorScheme: theme.colorScheme.copyWith(
-              primary: theme.primaryColor,
-              onPrimary: Colors.white,
-              surface: theme.colorScheme.surface,
-              onSurface: Colors.white,
-            ),
-            dialogBackgroundColor: theme.scaffoldBackgroundColor,
-          ),
-          child: child!,
-        );
-      },
-    );
-    if (picked != null) {
-      setState(() {
-        _selectedDate = picked;
-      });
-    }
-  }
-
-  String _formatDateChip(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final tomorrow = today.add(const Duration(days: 1));
-    
-    if (date.isAtSameMomentAs(today)) {
-      return 'Today';
-    } else if (date.isAtSameMomentAs(tomorrow)) {
-      return 'Tomorrow';
-    } else {
-      return DateFormat('EEE, MMM d').format(date);
-    }
-  }
-
-  bool _isDateSelected(DateTime date) {
-    if (_selectedDate == null) {
-      // If no date selected, "Today" is the default
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      return date.isAtSameMomentAs(today);
-    }
-    return _selectedDate!.year == date.year &&
-           _selectedDate!.month == date.month &&
-           _selectedDate!.day == date.day;
-  }
 
   Future<void> _createAnchoredBanner(BuildContext context) async {
     final AnchoredAdaptiveBannerAdSize? size =
@@ -233,76 +154,20 @@ class HomeState extends State<Home> {
                       child: AdWidget(ad: _anchoredBanner!),
                     ),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          locale.upcomingMatches,
-                          style: theme.textTheme.headlineSmall!.copyWith(
-                            fontSize: 16,
-                          ),
-                        ),
-                        // Calendar button
-                        IconButton(
-                          icon: Icon(Icons.calendar_month, color: theme.primaryColor),
-                          onPressed: () => _selectDate(context),
-                          tooltip: 'Select date',
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Date filter chips
-                  Container(
-                    height: 44,
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _quickDates.length,
-                      itemBuilder: (context, index) {
-                        final date = _quickDates[index];
-                        final isSelected = _isDateSelected(date);
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: FilterChip(
-                            label: Text(_formatDateChip(date)),
-                            selected: isSelected,
-                            onSelected: (selected) {
-                              setState(() {
-                                _selectedDate = selected ? date : null;
-                              });
-                            },
-                            backgroundColor: theme.colorScheme.surface,
-                            selectedColor: theme.primaryColor.withValues(alpha: 0.3),
-                            checkmarkColor: theme.primaryColor,
-                            labelStyle: TextStyle(
-                              color: isSelected ? theme.primaryColor : Colors.white70,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            ),
-                            side: BorderSide(
-                              color: isSelected ? theme.primaryColor : Colors.transparent,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  FadedSlideAnimation(
-                    beginOffset: const Offset(0, 2),
-                    endOffset: const Offset(0, 0),
-                    slideCurve: Curves.linearToEaseOut,
-                    child: MatchList.vertical(
-                      '0h 9m',
-                      'Lineup Announced',
-                      (matchInfo) => Navigator.pushNamed(
-                        context,
-                        PageRoutes.contests,
-                        arguments: matchInfo,
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                    child: Text(
+                      locale.upcomingMatches,
+                      style: theme.textTheme.headlineSmall!.copyWith(
+                        fontSize: 16,
                       ),
-                      key: ValueKey('matches_${_selectedDate?.toIso8601String() ?? 'default'}'),
-                      selectedDate: _selectedDate,
                     ),
+                  ),
+                  // Use the same UpcomingFixturesPage widget from fixtures tab
+                  // shrinkWrap mode allows it to be embedded in a scrollable parent
+                  const UpcomingFixturesPage(
+                    embedded: true,
+                    shrinkWrap: true,
+                    maxMatches: 10, // Show up to 10 matches on home page
                   ),
                 ],
               ),
