@@ -14,6 +14,11 @@ import 'package:fantacy11/features/home/contests.dart';
 import 'package:fantacy11/features/home/create_new_team.dart';
 import 'package:fantacy11/features/home/team_preview.dart';
 import 'package:fantacy11/features/language/language_ui.dart';
+import 'package:fantacy11/features/league/models/league_models.dart';
+import 'package:fantacy11/features/league/ui/draft_room_page.dart';
+import 'package:fantacy11/features/league/ui/trade_page.dart';
+import 'package:fantacy11/features/league/ui/free_agency_page.dart';
+import 'package:fantacy11/api/repositories/players_repository.dart';
 import 'package:fantacy11/features/match/models/match_info.dart';
 import 'package:fantacy11/features/my_matches/match_completed.dart';
 import 'package:fantacy11/features/my_matches/match_live.dart';
@@ -47,6 +52,9 @@ class PageRoutes {
   static const String pastFixtures = "pastFixtures";
   static const String matchDetails = "matchDetails";
   static const String upcomingMatchDetails = "upcomingMatchDetails";
+  static const String draftRoom = "draftRoom";
+  static const String trades = "trades";
+  static const String freeAgency = "freeAgency";
 }
 
 class AppNavigator extends StatelessWidget {
@@ -144,6 +152,33 @@ class AppNavigator extends StatelessWidget {
               builder = (c, a1, a2) {
                 final matchInfo = settings.arguments as MatchInfo;
                 return UpcomingMatchDetailsPage(matchInfo: matchInfo);
+              };
+              break;
+            case PageRoutes.draftRoom:
+              builder = (c, a1, a2) {
+                final league = settings.arguments as League;
+                return DraftRoomPage(league: league);
+              };
+              break;
+            case PageRoutes.trades:
+              builder = (c, a1, a2) {
+                final args = settings.arguments as Map<String, dynamic>;
+                return TradePage(
+                  league: args['league'] as League,
+                  teams: args['teams'] as List<FantasyTeam>,
+                  currentUserId: args['currentUserId'] as String,
+                );
+              };
+              break;
+            case PageRoutes.freeAgency:
+              builder = (c, a1, a2) {
+                final args = settings.arguments as Map<String, dynamic>;
+                return FreeAgencyPage(
+                  league: args['league'] as League,
+                  allPlayers: args['allPlayers'] as List<RosterPlayer>,
+                  currentUserId: args['currentUserId'] as String,
+                  playerOwnership: args['playerOwnership'] as Map<int, String>,
+                );
               };
               break;
           }

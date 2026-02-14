@@ -1,10 +1,12 @@
 import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:fantacy11/api/repositories/league_repository.dart';
+import 'package:fantacy11/api/repositories/players_repository.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/league/models/league_models.dart';
 import 'package:fantacy11/features/league/models/league_models_ui.dart';
 import 'package:fantacy11/features/league/ui/team_builder_page.dart';
 import 'package:fantacy11/features/league/ui/widgets/soccer_field_widget.dart';
+import 'package:fantacy11/routes/routes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -1676,39 +1678,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
       ),
       child: SafeArea(
         child: _isMember
-            ? ElevatedButton(
-                onPressed: _league.status == LeagueStatus.draft
-                    ? _navigateToTeamBuilder
-                    : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      _myTeam != null && _myTeam!.players.isNotEmpty
-                          ? Icons.edit
-                          : Icons.add,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _myTeam != null && _myTeam!.players.isNotEmpty
-                          ? 'Edit Team'
-                          : 'Build Team',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              )
+            ? _buildMemberBottomButton(theme)
             : ElevatedButton(
                 onPressed: _league.canJoin ? _joinLeague : null,
                 style: ElevatedButton.styleFrom(
@@ -1738,6 +1708,209 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
               ),
       ),
     );
+  }
+  
+  Widget _buildMemberBottomButton(ThemeData theme) {
+    // Draft mode league
+    if (_league.isDraftMode) {
+      final draftDateTime = _league.draftSettings?.draftDateTime;
+      final isDraftTime = draftDateTime != null && 
+          DateTime.now().isAfter(draftDateTime.subtract(const Duration(minutes: 15)));
+      final isDraftCompleted = _league.status != LeagueStatus.draft || 
+          (_myTeam?.players.length ?? 0) >= (_league.draftSettings?.rosterSize ?? 18);
+      
+      // After draft is completed, show trade/free agency options
+      if (isDraftCompleted && _myTeam != null && _myTeam!.players.isNotEmpty) {
+        return Row(
+          children: [
+            // Trades button
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _navigateToTrades,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.swap_horiz, size: 20),
+                label: const Text(
+                  'Trades',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Free Agency button
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _navigateToFreeAgency,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.person_add, size: 20),
+                label: const Text(
+                  'Free Agency',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      }
+      
+      // Draft room button (before/during draft)
+      return ElevatedButton(
+        onPressed: isDraftTime ? _navigateToDraftRoom : null,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: isDraftTime ? Colors.green : theme.primaryColor,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(isDraftTime ? Icons.play_arrow : Icons.schedule),
+            const SizedBox(width: 8),
+            Text(
+              isDraftTime
+                  ? 'Enter Draft Room'
+                  : 'Draft: ${_formatDraftTime(draftDateTime)}',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // Classic mode league
+    return ElevatedButton(
+      onPressed: _league.status == LeagueStatus.draft
+          ? _navigateToTeamBuilder
+          : null,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: theme.primaryColor,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            _myTeam != null && _myTeam!.players.isNotEmpty
+                ? Icons.edit
+                : Icons.add,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _myTeam != null && _myTeam!.players.isNotEmpty
+                ? 'Edit Team'
+                : 'Build Team',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  void _navigateToDraftRoom() {
+    Navigator.pushNamed(
+      context,
+      PageRoutes.draftRoom,
+      arguments: _league,
+    );
+  }
+  
+  void _navigateToTrades() {
+    // Get all teams for this league
+    final allTeams = _teams ?? [];
+    
+    Navigator.pushNamed(
+      context,
+      PageRoutes.trades,
+      arguments: {
+        'league': _league,
+        'teams': allTeams,
+        'currentUserId': _currentMember!.oderId,
+      },
+    );
+  }
+  
+  void _navigateToFreeAgency() async {
+    // Load all players for free agency
+    try {
+      final playersRepository = PlayersRepository();
+      final allPlayers = await playersRepository.getLigaMxRosterPlayers();
+      
+      // Build ownership map from all teams
+      final ownership = <int, String>{};
+      for (final team in _teams ?? []) {
+        for (final player in team.players) {
+          ownership[player.playerId] = team.oderId;
+        }
+      }
+      
+      if (mounted) {
+        Navigator.pushNamed(
+          context,
+          PageRoutes.freeAgency,
+          arguments: {
+            'league': _league,
+            'allPlayers': allPlayers,
+            'currentUserId': _currentMember!.oderId,
+            'playerOwnership': ownership,
+          },
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load players: $e')),
+        );
+      }
+    }
+  }
+  
+  String _formatDraftTime(DateTime? dateTime) {
+    if (dateTime == null) return 'TBD';
+    
+    final now = DateTime.now();
+    final difference = dateTime.difference(now);
+    
+    if (difference.isNegative) {
+      return 'Now';
+    } else if (difference.inDays > 0) {
+      return DateFormat('MMM d, h:mm a').format(dateTime);
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}h ${difference.inMinutes % 60}m';
+    } else {
+      return '${difference.inMinutes}m';
+    }
   }
 }
 

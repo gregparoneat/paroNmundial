@@ -100,6 +100,10 @@ class LeagueRepository {
     String? matchName,
     DateTime? matchDateTime,
     double? entryFee,
+    LeagueMode mode = LeagueMode.classic,
+    DraftSettings? draftSettings,
+    TradeSettings? tradeSettings,
+    int rosterSize = 18,
   }) async {
     await _ensureInitialized();
     
@@ -123,6 +127,10 @@ class LeagueRepository {
       memberCount: 1, // Creator is automatically a member
       entryFee: entryFee,
       prizePool: entryFee != null ? entryFee * maxMembers * 0.9 : null,
+      mode: mode,
+      draftSettings: draftSettings,
+      tradeSettings: tradeSettings,
+      rosterSize: rosterSize,
     );
     
     // Save league (to Hive and Firestore)
@@ -140,7 +148,7 @@ class LeagueRepository {
     );
     await _saveMember(member);
     
-    debugPrint('Created league: ${league.name} (${league.id})');
+    debugPrint('Created ${mode.name} league: ${league.name} (${league.id})');
     return league;
   }
 

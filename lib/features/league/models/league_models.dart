@@ -1,6 +1,9 @@
 // Pure Dart file - no Flutter imports
 // Colors are stored as int values (ARGB format), icons as string names
+import 'package:fantacy11/features/league/models/draft_models.dart';
 import 'package:fantacy11/features/player/models/player_info.dart' show Player, PositionColors;
+
+export 'draft_models.dart';
 
 /// League color constants as int values (ARGB format)
 class LeagueColors {
@@ -162,6 +165,12 @@ class League {
   final double? prizePool;
   final String? leagueImageUrl;
   final bool isJoined; // Whether current user has joined this league
+  
+  // Draft mode fields
+  final LeagueMode mode; // Classic (budget) or Draft
+  final DraftSettings? draftSettings; // Settings for draft mode
+  final TradeSettings? tradeSettings; // Trade rules for draft mode
+  final int rosterSize; // Total roster size (default 18)
 
   League({
     required this.id,
@@ -183,12 +192,30 @@ class League {
     this.prizePool,
     this.leagueImageUrl,
     this.isJoined = false,
+    this.mode = LeagueMode.classic,
+    this.draftSettings,
+    this.tradeSettings,
+    this.rosterSize = 18,
   });
 
   bool get isPublic => type == LeagueType.public;
   bool get isPrivate => type == LeagueType.private;
   bool get isFull => memberCount >= maxMembers;
   bool get canJoin => !isFull && status == LeagueStatus.draft && !isJoined;
+  
+  // Draft mode helpers
+  bool get isClassicMode => mode == LeagueMode.classic;
+  bool get isDraftMode => mode == LeagueMode.draft;
+  
+  /// Check if draft is scheduled and upcoming
+  bool get hasDraftScheduled => 
+      isDraftMode && draftSettings?.draftDateTime != null;
+  
+  /// Check if draft time has passed
+  bool get isDraftTimePassed {
+    if (!hasDraftScheduled) return false;
+    return DateTime.now().isAfter(draftSettings!.draftDateTime!);
+  }
 
   /// Generate a short invite code
   static String generateInviteCode() {
@@ -240,6 +267,10 @@ Or click: $inviteLink
     double? prizePool,
     String? leagueImageUrl,
     bool? isJoined,
+    LeagueMode? mode,
+    DraftSettings? draftSettings,
+    TradeSettings? tradeSettings,
+    int? rosterSize,
   }) {
     return League(
       id: id ?? this.id,
@@ -261,6 +292,10 @@ Or click: $inviteLink
       prizePool: prizePool ?? this.prizePool,
       leagueImageUrl: leagueImageUrl ?? this.leagueImageUrl,
       isJoined: isJoined ?? this.isJoined,
+      mode: mode ?? this.mode,
+      draftSettings: draftSettings ?? this.draftSettings,
+      tradeSettings: tradeSettings ?? this.tradeSettings,
+      rosterSize: rosterSize ?? this.rosterSize,
     );
   }
 
@@ -284,6 +319,10 @@ Or click: $inviteLink
       'entryFee': entryFee,
       'prizePool': prizePool,
       'leagueImageUrl': leagueImageUrl,
+      'mode': mode.name,
+      'draftSettings': draftSettings?.toJson(),
+      'tradeSettings': tradeSettings?.toJson(),
+      'rosterSize': rosterSize,
     };
   }
 
@@ -317,6 +356,17 @@ Or click: $inviteLink
       entryFee: (json['entryFee'] as num?)?.toDouble(),
       prizePool: (json['prizePool'] as num?)?.toDouble(),
       leagueImageUrl: json['leagueImageUrl'] as String?,
+      mode: LeagueMode.values.firstWhere(
+        (e) => e.name == json['mode'],
+        orElse: () => LeagueMode.classic,
+      ),
+      draftSettings: json['draftSettings'] != null
+          ? DraftSettings.fromJson(json['draftSettings'] as Map<String, dynamic>)
+          : null,
+      tradeSettings: json['tradeSettings'] != null
+          ? TradeSettings.fromJson(json['tradeSettings'] as Map<String, dynamic>)
+          : null,
+      rosterSize: json['rosterSize'] as int? ?? 18,
     );
   }
 }
@@ -602,10 +652,12 @@ class FantasyTeam {
     return players.where((p) => p.position == position).length;
   }
 
-  /// Check if team is valid (15 players total: 11 starters + 4 bench, captain/VC selected)
-  bool get isValid {
-    // Full squad = 15 players (11 starting + 4 bench)
-    if (players.length != 15) return false;
+  /// Check if team is valid (supports 15 or 18 player rosters)
+  /// For 15 players: 11 starters + 4 bench (classic default)
+  /// For 18 players: 11 starters + 7 bench (draft mode default)
+  bool isValidForRosterSize(int rosterSize) {
+    // Check total player count matches roster size
+    if (players.length != rosterSize) return false;
     if (captain == null || viceCaptain == null) return false;
     
     // Check position constraints - flexible for different formations
@@ -615,19 +667,28 @@ class FantasyTeam {
     final fwd = countByPosition(PlayerPosition.attacker) + 
                 countByPosition(PlayerPosition.forward);
     
-    // Minimum constraints for any formation:
-    // At least 2 GK (1 starter + 1 sub)
-    // At least 3-6 DEF, 3-6 MID, 1-4 FWD (flexible for different formations)
-    if (gk < 2) return false;
-    if (def < 3 || def > 6) return false;
-    if (mid < 3 || mid > 6) return false;
-    if (fwd < 1 || fwd > 4) return false;
-    
-    // Total should be 15
-    if (gk + def + mid + fwd != 15) return false;
+    // Minimum constraints vary by roster size
+    if (rosterSize == 18) {
+      // 18-player roster: 2 GK, 5-6 DEF, 5-6 MID, 3-4 FWD
+      if (gk < 2) return false;
+      if (def < 5 || def > 6) return false;
+      if (mid < 5 || mid > 6) return false;
+      if (fwd < 3 || fwd > 4) return false;
+      if (gk + def + mid + fwd != 18) return false;
+    } else {
+      // 15-player roster (default): 2 GK, 3-6 DEF, 3-6 MID, 1-4 FWD
+      if (gk < 2) return false;
+      if (def < 3 || def > 6) return false;
+      if (mid < 3 || mid > 6) return false;
+      if (fwd < 1 || fwd > 4) return false;
+      if (gk + def + mid + fwd != 15) return false;
+    }
     
     return true;
   }
+  
+  /// Legacy isValid check - defaults to 15-player roster validation
+  bool get isValid => isValidForRosterSize(15);
   
   /// Check if team has minimum required players to be saved (can be incomplete)
   bool get hasMinimumPlayers {
