@@ -733,6 +733,32 @@ class SportMonksClient {
     );
   }
 
+  /// Get sidelined (injured/suspended) players for a team
+  /// 
+  /// Uses the team endpoint with sidelined include:
+  /// GET /football/teams/{TEAM_ID}?include=sidelined.player
+  /// 
+  /// Returns the team data with sidelined array containing:
+  /// - category: "injury" or "suspended"
+  /// - start_date, end_date, completed
+  /// - player: nested player info (id, display_name, image_path)
+  Future<SportMonksResponse<Map<String, dynamic>?>> getTeamWithSidelined(
+    int teamId,
+  ) async {
+    final queryParams = <String, String>{
+      // Include nested player info for each sidelined entry
+      'include': 'sidelined.player',
+    };
+    
+    _log('SportMonks: Getting team $teamId with sidelined players');
+    
+    return get<Map<String, dynamic>?>(
+      '/football/teams/$teamId',
+      queryParams: queryParams,
+      parser: (data) => data as Map<String, dynamic>?,
+    );
+  }
+
   /// Dispose the client
   void dispose() {
     _httpClient.close();

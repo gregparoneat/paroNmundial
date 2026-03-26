@@ -1560,6 +1560,122 @@ class FixturesRepository {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
+  /// Get sidelined (injured/suspended) players for a team
+  /// 
+  /// Uses: GET /football/teams/{TEAM_ID}?include=sidelined.player
+  /// 
+  /// Returns a list of sidelined player entries normalized for SidelinedPlayer.fromJson.
+  /// 
+  /// [teamId] - The team ID to get sidelined players for
+  /// [matchDate] - Optional match date to check if player will be back by then
+  Future<List<Map<String, dynamic>>> getSidelinedPlayers(
+    int teamId, {
+    DateTime? matchDate,
+  }) async {
+    if (!SportMonksConfig.isConfigured) {
+      print('Cannot fetch sidelined players: API not configured');
+      return [];
+    }
+    
+    try {
+      print('Fetching sidelined players for team $teamId...');
+      final response = await _client.getTeamWithSidelined(teamId);
+      
+      final teamData = response.data;
+      if (teamData == null) {
+        print('Team $teamId not found');
+        return [];
+      }
+      
+      // Extract sidelined array from team response
+      final sidelinedList = teamData['sidelined'] as List?;
+      if (sidelinedList == null || sidelinedList.isEmpty) {
+        print('No sidelined players found for team $teamId');
+        return [];
+      }
+      
+      print('Found ${sidelinedList.length} sidelined entries for team $teamId');
+      
+      // Filter to only currently sidelined players (not completed)
+      final now = DateTime.now();
+      final currentlySidelined = <Map<String, dynamic>>[];
+      
+      for (final entry in sidelinedList) {
+        if (entry is! Map<String, dynamic>) continue;
+        
+        // Check the 'completed' field first
+        final completed = entry['completed'] as bool? ?? false;
+        if (completed) {
+          continue; // Player has returned
+        }
+        
+        // Check dates
+        final endDateStr = entry['end_date'] as String?;
+        if (endDateStr != null && endDateStr.isNotEmpty) {
+          final endDate = DateTime.tryParse(endDateStr);
+          if (endDate != null && endDate.isBefore(now)) {
+            continue; // Sideline period has ended
+          }
+        }
+        
+        final startDateStr = entry['start_date'] as String?;
+        if (startDateStr != null && startDateStr.isNotEmpty) {
+          final startDate = DateTime.tryParse(startDateStr);
+          if (startDate != null && startDate.isAfter(now)) {
+            continue; // Sideline hasn't started yet
+          }
+        }
+        
+        // Extract player info - could be nested under 'player' key
+        final playerInfo = entry['player'] as Map<String, dynamic>?;
+        final playerId = entry['player_id'] as int? ?? 
+                        playerInfo?['id'] as int? ?? 0;
+        
+        if (playerId == 0) {
+          print('  - Skipping sidelined entry with no player_id');
+          continue;
+        }
+        
+        // Normalize the entry for SidelinedPlayer.fromJson
+        // Format expected by SidelinedPlayer.fromJson:
+        // {
+        //   'player_id': int,
+        //   'sideline': { 'category', 'start_date', 'end_date', 'description' },
+        //   'player': { 'display_name', 'common_name', 'image_path' }
+        // }
+        final normalizedEntry = <String, dynamic>{
+          'player_id': playerId,
+          'sideline': {
+            'category': entry['category'], // "injury" or "suspended"
+            'start_date': entry['start_date'],
+            'end_date': entry['end_date'],
+            'completed': entry['completed'],
+            'description': entry['description'] ?? entry['reason'],
+          },
+          'player': playerInfo,
+        };
+        
+        currentlySidelined.add(normalizedEntry);
+        
+        // Log details
+        final category = entry['category'] ?? 'unknown';
+        final playerName = playerInfo?['display_name'] ?? 
+                          playerInfo?['common_name'] ?? 
+                          'Player $playerId';
+        print('  - $playerName ($playerId): $category (end: ${endDateStr ?? "unknown"})');
+      }
+      
+      print('${currentlySidelined.length} players currently sidelined');
+      return currentlySidelined;
+    } on SportMonksException catch (e) {
+      print('SportMonks API Error fetching sidelined players: $e');
+      return [];
+    } catch (e) {
+      print('Error fetching sidelined players: $e');
+      return [];
+    }
+  }
+
   /// Dispose resources
   void dispose() {
     _client.dispose();

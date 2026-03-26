@@ -2,10 +2,107 @@ import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/account/models/account_item_data.dart';
 import 'package:fantacy11/features/language/language_ui.dart';
+import 'package:fantacy11/features/fixtures/services/lineup_prediction_service.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/routes/routes.dart';
+import 'package:fantacy11/services/cache_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_phoenix/flutter_phoenix.dart';
+
+/// Clear all app caches (Hive + in-memory prediction cache)
+void _clearAllCaches(BuildContext context) {
+  debugPrint('Clear cache button pressed');
+  
+  // Store scaffold messenger before async operations
+  final scaffoldMessenger = ScaffoldMessenger.of(context);
+  
+  // Show "clearing" message
+  scaffoldMessenger.showSnackBar(
+    const SnackBar(
+      content: Row(
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ),
+          SizedBox(width: 16),
+          Text('Clearing cache...'),
+        ],
+      ),
+      backgroundColor: Colors.orange,
+      duration: Duration(seconds: 10), // Long duration, will be replaced
+    ),
+  );
+  
+  try {
+    // Clear lineup prediction in-memory cache (synchronous)
+    debugPrint('Clearing lineup prediction cache...');
+    LineupPredictionService().clearCache();
+    debugPrint('Lineup prediction cache cleared');
+    
+    // Clear Hive caches
+    debugPrint('Clearing Hive caches...');
+    CacheService().clearAll().then((_) {
+      debugPrint('Hive caches cleared successfully');
+      
+      // Hide previous snackbar and show success
+      scaffoldMessenger.hideCurrentSnackBar();
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 16),
+              Text('Cache cleared! Restart app for fresh data.'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }).catchError((e) {
+      debugPrint('Error clearing Hive cache: $e');
+      
+      // Hide previous snackbar and show error
+      scaffoldMessenger.hideCurrentSnackBar();
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 16),
+              Expanded(child: Text('Error: $e')),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    });
+  } catch (e) {
+    debugPrint('Error clearing cache: $e');
+    
+    scaffoldMessenger.hideCurrentSnackBar();
+    scaffoldMessenger.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error, color: Colors.white),
+            const SizedBox(width: 16),
+            Expanded(child: Text('Error: $e')),
+          ],
+        ),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+}
 
 class Account extends StatelessWidget {
   const Account({super.key});
@@ -49,6 +146,13 @@ class Account extends StatelessWidget {
         Icons.question_answer_rounded,
         Colors.cyanAccent,
         PageRoutes.faqs,
+      ),
+      AccountItemData(
+        'Clear Cache',
+        'Clear all cached data (for testing)',
+        Icons.cleaning_services_rounded,
+        Colors.orange,
+        'clear_cache',
       ),
       AccountItemData(
         locale.logout,
@@ -203,6 +307,9 @@ class Account extends StatelessWidget {
                                 } else if (accountItems[index].title ==
                                     locale.logout) {
                                   Phoenix.rebirth(context);
+                                } else if (accountItems[index].routeName ==
+                                    'clear_cache') {
+                                  _clearAllCaches(context);
                                 } else {
                                   Navigator.pushNamed(
                                       context, accountItems[index].routeName);

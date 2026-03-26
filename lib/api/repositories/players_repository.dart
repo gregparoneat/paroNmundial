@@ -2004,6 +2004,96 @@ class PlayersRepository {
     }
   }
 
+  /// Get current squad player IDs for a team from local cache or Firebase
+  /// This is faster than making API calls and uses your maintained data
+  /// 
+  /// Returns a Set of player IDs currently on the team's roster
+  Future<Set<int>> getCurrentSquadPlayerIds(int teamId) async {
+    // First, try to get from in-memory cache (fastest)
+    final cachedPlayers = _playerDetailsCache.values
+        .where((p) => p.teamId == teamId)
+        .map((p) => p.id)
+        .toSet();
+    
+    if (cachedPlayers.isNotEmpty) {
+      debugPrint('PlayersRepository: Found ${cachedPlayers.length} players for team $teamId in memory cache');
+      return cachedPlayers;
+    }
+    
+    // Second, try Hive cache
+    final hivePlayers = getCachedPlayers()
+        .where((p) => p.teamId == teamId)
+        .map((p) => p.id)
+        .toSet();
+    
+    if (hivePlayers.isNotEmpty) {
+      debugPrint('PlayersRepository: Found ${hivePlayers.length} players for team $teamId in Hive cache');
+      return hivePlayers;
+    }
+    
+    // Third, fetch from Firebase (which you've updated with teamId)
+    try {
+      debugPrint('PlayersRepository: Fetching players for team $teamId from Firebase');
+      final firestorePlayers = await _firestoreService.getPlayersByTeam(teamId);
+      
+      final playerIds = firestorePlayers
+          .map((p) {
+            // Handle both 'id' field and document ID
+            final id = p['id'];
+            if (id is int) return id;
+            if (id is String) return int.tryParse(id);
+            return null;
+          })
+          .whereType<int>()
+          .toSet();
+      
+      debugPrint('PlayersRepository: Found ${playerIds.length} players for team $teamId in Firebase');
+      return playerIds;
+    } catch (e) {
+      debugPrint('PlayersRepository: Error fetching from Firebase: $e');
+    }
+    
+    // Last resort: fetch from SportMonks API
+    try {
+      debugPrint('PlayersRepository: Falling back to SportMonks API for team $teamId');
+      final squadPlayers = await getTeamSquadPlayers(teamId);
+      return squadPlayers.map((p) => p.id).toSet();
+    } catch (e) {
+      debugPrint('PlayersRepository: Error fetching from API: $e');
+      return {};
+    }
+  }
+  
+  /// Get team ID for a specific player from local cache or Firebase
+  /// Returns null if player not found
+  Future<int?> getTeamIdForPlayer(int playerId) async {
+    // First, check in-memory cache
+    if (_playerDetailsCache.containsKey(playerId)) {
+      return _playerDetailsCache[playerId]!.teamId;
+    }
+    
+    // Second, check Hive cache
+    final cachedPlayers = getCachedPlayers();
+    final cachedPlayer = cachedPlayers.where((p) => p.id == playerId).firstOrNull;
+    if (cachedPlayer != null) {
+      return cachedPlayer.teamId;
+    }
+    
+    // Third, fetch from Firebase
+    try {
+      final playerData = await _firestoreService.getPlayerById(playerId);
+      if (playerData != null && playerData.containsKey('teamId')) {
+        final teamId = playerData['teamId'];
+        if (teamId is int) return teamId;
+        if (teamId is String) return int.tryParse(teamId);
+      }
+    } catch (e) {
+      debugPrint('PlayersRepository: Error fetching player $playerId from Firebase: $e');
+    }
+    
+    return null;
+  }
+
   /// Dispose resources
   void dispose() {
     _client.dispose();
