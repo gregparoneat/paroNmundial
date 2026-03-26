@@ -185,15 +185,22 @@ class SidelinedPlayer {
     final sidelineInfo = json['sideline'] as Map<String, dynamic>?;
     final playerInfo = json['player'] as Map<String, dynamic>?;
     
+    // Extract player ID - could be in different places
+    final playerId = json['player_id'] as int? ?? 
+                    playerInfo?['id'] as int? ?? 0;
+    
+    // Extract dates - check both sideline object and root level
     DateTime? endDate;
-    final endDateStr = sidelineInfo?['end_date'] as String?;
-    if (endDateStr != null) {
+    final endDateStr = sidelineInfo?['end_date'] as String? ?? 
+                       json['end_date'] as String?;
+    if (endDateStr != null && endDateStr.isNotEmpty) {
       endDate = DateTime.tryParse(endDateStr);
     }
     
     DateTime? startDate;
-    final startDateStr = sidelineInfo?['start_date'] as String?;
-    if (startDateStr != null) {
+    final startDateStr = sidelineInfo?['start_date'] as String? ?? 
+                         json['start_date'] as String?;
+    if (startDateStr != null && startDateStr.isNotEmpty) {
       startDate = DateTime.tryParse(startDateStr);
     }
     
@@ -203,12 +210,28 @@ class SidelinedPlayer {
       isExpectedBack = endDate.isBefore(matchDate) || endDate.isAtSameMomentAs(matchDate);
     }
     
+    // Extract category - check both sideline object and root level
+    final category = sidelineInfo?['category'] as String? ?? 
+                    sidelineInfo?['type'] as String? ??
+                    json['category'] as String?;
+    
+    // Extract description/reason
+    final reason = sidelineInfo?['description'] as String? ?? 
+                   json['description'] as String? ??
+                   json['reason'] as String?;
+    
+    // Player name - fallback to "Player {id}" if no info available
+    final playerName = playerInfo?['display_name'] as String? ?? 
+                       playerInfo?['common_name'] as String? ?? 
+                       playerInfo?['name'] as String? ??
+                       (playerId > 0 ? 'Player $playerId' : 'Unknown');
+    
     return SidelinedPlayer(
-      playerId: json['player_id'] as int? ?? 0,
-      playerName: playerInfo?['display_name'] ?? playerInfo?['common_name'] ?? 'Unknown',
+      playerId: playerId,
+      playerName: playerName,
       playerImageUrl: playerInfo?['image_path'] as String?,
-      type: _determineType(sidelineInfo?['category'] as String? ?? sidelineInfo?['type'] as String?),
-      reason: sidelineInfo?['description'] as String?,
+      type: _determineType(category),
+      reason: reason,
       startDate: startDate,
       endDate: endDate,
       isExpectedBack: isExpectedBack,
