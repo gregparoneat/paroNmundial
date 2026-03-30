@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:fantacy11/api/repositories/league_repository.dart';
+import 'package:fantacy11/api/repositories/players_repository.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/league/models/league_models.dart';
 import 'package:fantacy11/features/league/models/league_models_ui.dart';
+import 'package:fantacy11/features/league/ui/draft_room_page.dart';
 import 'package:fantacy11/features/league/ui/team_builder_page.dart';
 import 'package:fantacy11/features/league/ui/widgets/soccer_field_widget.dart';
+import 'package:fantacy11/routes/routes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -13,17 +18,19 @@ import 'package:share_plus/share_plus.dart';
 /// League details page showing info, members, standings
 class LeagueDetailsPage extends StatefulWidget {
   final League league;
-  
+
   const LeagueDetailsPage({super.key, required this.league});
 
   @override
   State<LeagueDetailsPage> createState() => _LeagueDetailsPageState();
 }
 
-class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTickerProviderStateMixin {
+class _LeagueDetailsPageState extends State<LeagueDetailsPage>
+    with SingleTickerProviderStateMixin {
   final LeagueRepository _repository = LeagueRepository();
   late TabController _tabController;
-  
+  Timer? _draftCountdownTimer;
+
   late League _league;
   List<LeagueMember> _members = [];
   List<FantasyTeam> _teams = [];
@@ -32,7 +39,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
   FantasyTeam? _opponent; // Next matchup opponent
   bool _isLoading = true;
   bool _isMember = false;
-  
+
   // Formation for team visualization
   Formation _selectedFormation = Formation.f433;
 
@@ -41,48 +48,56 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
     super.initState();
     _league = widget.league;
     _tabController = TabController(length: 3, vsync: this);
+    _startDraftCountdownTicker();
     _loadData();
   }
 
   @override
   void dispose() {
+    _draftCountdownTimer?.cancel();
     _tabController.dispose();
     super.dispose();
   }
 
+  void _startDraftCountdownTicker() {
+    if (!_league.isDraftMode) return;
+
+    _draftCountdownTimer?.cancel();
+    _draftCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    
+
     try {
       await _repository.init();
-      
-      // Reload league data
-      debugPrint("league id inside league details page is ");
-      debugPrint(_league.id);
+
       final updatedLeague = await _repository.getLeague(_league.id);
       if (updatedLeague != null) {
         _league = updatedLeague;
       }
-      debugPrint(_league.matchName);
-      // Load members
+
       final members = await _repository.getLeagueMembers(_league.id);
-      
-      // Load teams for standings
       final teams = await _repository.getLeagueTeams(_league.id);
-      debugPrint(teams.first.userName);
-      // Check if current user is a member
       final currentUser = await _repository.getCurrentUser();
-      final currentMember = members.where((m) => m.oderId == currentUser.oderId).firstOrNull;
-      
-      // Load my team if I'm a member
+      final currentMember = members
+          .where((m) => m.oderId == currentUser.oderId)
+          .firstOrNull;
+
       FantasyTeam? myTeam;
       FantasyTeam? opponent;
       if (currentMember != null) {
-        myTeam = await _repository.getFantasyTeam(_league.id, currentUser.oderId);
-        // Load next matchup opponent
+        myTeam = await _repository.getFantasyTeam(
+          _league.id,
+          currentUser.oderId,
+        );
         opponent = await _repository.getNextMatchup(_league.id);
       }
-      
+
       if (mounted) {
         setState(() {
           _members = members;
@@ -103,35 +118,53 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
   }
 
   Future<void> _joinLeague() async {
-    // First, ask for the team name
-    final teamName = await _showTeamNameDialog();
-    if (teamName == null || teamName.isEmpty) return;
-    
-    final member = await _repository.joinLeague(_league.id);
-    if (member != null) {
-      // Create the team with the chosen name
-      await _repository.createEmptyTeam(
-        leagueId: _league.id,
-        budget: _league.budget,
-        teamName: teamName,
-      );
-      
+    if (_league.isDraftMode) {
+      final member = await _repository.joinLeague(_league.id);
+      if (member == null) return;
+
       _loadData();
       if (mounted) {
+        final draftDateTime = _league.draftSettings?.draftDateTime;
+        final message = draftDateTime != null
+            ? 'Joined successfully. Team creation opens on ${_formatDraftTime(draftDateTime)}.'
+            : 'Joined successfully. Team creation opens on draft day.';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Welcome to the league! Your team "$teamName" is ready.'),
-            backgroundColor: Colors.green,
-          ),
+          SnackBar(content: Text(message), backgroundColor: Colors.green),
         );
       }
+      return;
+    }
+
+    // Classic leagues create a team immediately after joining.
+    final teamName = await _showTeamNameDialog();
+    if (teamName == null || teamName.isEmpty) return;
+
+    final member = await _repository.joinLeague(_league.id);
+    if (member == null) return;
+
+    await _repository.createEmptyTeam(
+      leagueId: _league.id,
+      budget: _league.budget,
+      teamName: teamName,
+    );
+
+    _loadData();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Welcome to the league! Your team "$teamName" is ready.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
     }
   }
-  
+
   Future<String?> _showTeamNameDialog() async {
     final controller = TextEditingController();
     final theme = Theme.of(context);
-    
+
     return showDialog<String>(
       context: context,
       barrierDismissible: false,
@@ -186,7 +219,9 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Leave League?'),
-        content: const Text('Are you sure you want to leave this league? Your team will be deleted.'),
+        content: const Text(
+          'Are you sure you want to leave this league? Your team will be deleted.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -200,7 +235,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
         ],
       ),
     );
-    
+
     if (confirm == true) {
       final success = await _repository.leaveLeague(_league.id);
       if (success && mounted) {
@@ -224,9 +259,9 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
   void _copyInviteCode() {
     if (_league.inviteCode != null) {
       Clipboard.setData(ClipboardData(text: _league.inviteCode!));
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invite code copied!')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Invite code copied!')));
     }
   }
 
@@ -234,10 +269,8 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => TeamBuilderPage(
-          league: _league,
-          existingTeam: _myTeam,
-        ),
+        builder: (context) =>
+            TeamBuilderPage(league: _league, existingTeam: _myTeam),
       ),
     );
     _loadData();
@@ -246,7 +279,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: _isLoading
@@ -255,10 +288,10 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
               slivers: [
                 // App Bar with league banner
                 _buildAppBar(theme),
-                
+
                 // League info card
                 //SliverToBoxAdapter(child: _buildLeagueInfoCard(theme)),
-                
+
                 // Tab bar
                 SliverPersistentHeader(
                   pinned: true,
@@ -277,7 +310,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                     theme.colorScheme.surface,
                   ),
                 ),
-                
+
                 // Tab content
                 SliverFillRemaining(
                   child: TabBarView(
@@ -301,10 +334,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
       pinned: true,
       backgroundColor: theme.colorScheme.surface,
       flexibleSpace: FlexibleSpaceBar(
-        title: Text(
-          _league.name,
-          style: const TextStyle(fontSize: 16),
-        ),
+        title: Text(_league.name, style: const TextStyle(fontSize: 16)),
         centerTitle: true,
         background: Container(
           decoration: BoxDecoration(
@@ -477,21 +507,20 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
               ),
             ],
           ),
-          
-          if (_league.description != null && _league.description!.isNotEmpty) ...[
+
+          if (_league.description != null &&
+              _league.description!.isNotEmpty) ...[
             const SizedBox(height: 12),
             Text(
               _league.description!,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: bgTextColor,
-              ),
+              style: theme.textTheme.bodyMedium?.copyWith(color: bgTextColor),
             ),
           ],
-          
+
           const SizedBox(height: 16),
           const Divider(height: 1),
           const SizedBox(height: 16),
-          
+
           // Stats row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -501,14 +530,15 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                 '${_league.memberCount}/${_league.maxMembers}',
                 'Members',
               ),
-              _buildStatColumn(
-                Icons.account_balance_wallet,
-                '${_league.budget.toInt()}',
-                'Budget',
-              ),
+              if (_league.isClassicMode)
+                _buildStatColumn(
+                  Icons.account_balance_wallet,
+                  '${_league.budget.toInt()}',
+                  'Budget',
+                ),
             ],
           ),
-          
+
           // Invite code for private leagues
           if (_league.isPrivate && _league.inviteCode != null && _isMember) ...[
             const SizedBox(height: 16),
@@ -520,7 +550,10 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                 const SizedBox(width: 8),
                 Text('Invite Code: ', style: TextStyle(color: bgTextColor)),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: bgColor,
                     borderRadius: BorderRadius.circular(4),
@@ -553,7 +586,12 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
     );
   }
 
-  Widget _buildStatColumn(IconData icon, String value, String label, {Color? color}) {
+  Widget _buildStatColumn(
+    IconData icon,
+    String value,
+    String label, {
+    Color? color,
+  }) {
     return Column(
       children: [
         Icon(icon, color: color ?? bgTextColor, size: 24),
@@ -566,33 +604,36 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
             color: color,
           ),
         ),
-        Text(
-          label,
-          style: TextStyle(
-            color: bgTextColor,
-            fontSize: 12,
-          ),
-        ),
+        Text(label, style: TextStyle(color: bgTextColor, fontSize: 12)),
       ],
     );
   }
 
   Widget _buildOverviewTab(ThemeData theme) {
+    final isDraftOverviewActive =
+        _league.isDraftMode && _league.status == LeagueStatus.draft;
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (isDraftOverviewActive) _buildDraftScheduleCard(theme),
+
+        if (isDraftOverviewActive) const SizedBox(height: 16),
+
+        if (isDraftOverviewActive) _buildDraftGuideCard(theme),
+
+        if (isDraftOverviewActive) const SizedBox(height: 16),
+
         // Next Fantasy Matchup
-        if (_isMember && _myTeam != null)
-          _buildFantasyMatchupCard(theme),
-        
+        if (_isMember && _myTeam != null) _buildFantasyMatchupCard(theme),
+
         if (_isMember && _myTeam != null) const SizedBox(height: 16),
-        
+
         // My Team visualization (if member)
-        if (_isMember)
-          _buildMyTeamSection(theme),
-        
+        if (_isMember) _buildMyTeamSection(theme),
+
         if (_isMember) const SizedBox(height: 16),
-        
+
         // Rules
         _buildSectionCard(
           theme,
@@ -601,10 +642,15 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildRuleItem('Select 15 players (11 starters + 4 subs) within \$${_league.budget.toInt()}M'),
-              _buildRuleItem('Squad: 2 GK, 5 DEF, 5 MID, 3 FWD'),
+              _buildRuleItem(
+                _league.isDraftMode
+                    ? 'Select 18 players (11 starters + 7 subs) through the live draft'
+                    : 'Select 18 players (11 starters + 7 subs) within \$${_league.budget.toInt()}M',
+              ),
+              _buildRuleItem('Squad: 18 total players'),
               _buildRuleItem('Captain gets 2x points, Vice-captain gets 1.5x'),
-              _buildRuleItem('Max 4 players from one team'),
+              if (_league.isClassicMode)
+                _buildRuleItem('Max 4 players from one team'),
               _buildRuleItem('Team locks when match starts'),
             ],
           ),
@@ -612,14 +658,314 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
       ],
     );
   }
-  
+
+  Widget _buildDraftScheduleCard(ThemeData theme) {
+    final draftDateTime = _league.draftSettings?.draftDateTime;
+    final isLive =
+        draftDateTime != null && !DateTime.now().isBefore(draftDateTime);
+    final isDraftCompleted =
+        _league.status != LeagueStatus.draft ||
+        ((_myTeam?.players.length ?? 0) >=
+            (_league.draftSettings?.rosterSize ?? 18));
+    final canEnterDraft =
+        !isDraftCompleted &&
+        _isMember &&
+        draftDateTime != null &&
+        DateTime.now().isAfter(
+          draftDateTime.subtract(const Duration(minutes: 15)),
+        );
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            theme.primaryColor.withValues(alpha: 0.18),
+            theme.colorScheme.surface,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isLive
+              ? Colors.green.withValues(alpha: 0.45)
+              : theme.primaryColor.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: isLive
+                  ? Colors.green.withValues(alpha: 0.16)
+                  : isDraftCompleted
+                  ? Colors.green.withValues(alpha: 0.16)
+                  : theme.primaryColor.withValues(alpha: 0.16),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isDraftCompleted
+                  ? Icons.check_circle
+                  : isLive
+                  ? Icons.timer
+                  : Icons.schedule,
+              color: isDraftCompleted || isLive
+                  ? Colors.green
+                  : theme.primaryColor,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Draft Schedule',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  draftDateTime == null
+                      ? 'Time pending'
+                      : DateFormat(
+                          'EEEE, MMM d • h:mm:ss a',
+                        ).format(draftDateTime),
+                  style: TextStyle(color: bgTextColor, fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  isDraftCompleted
+                      ? 'Draft completed'
+                      : _formatDraftCountdown(draftDateTime),
+                  style: TextStyle(
+                    color: isDraftCompleted || isLive
+                        ? Colors.green
+                        : theme.primaryColor,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+                if (_isMember) ...[
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: isDraftCompleted
+                        ? null
+                        : (canEnterDraft ? _navigateToDraftRoom : null),
+                    icon: Icon(
+                      isDraftCompleted
+                          ? Icons.check_circle
+                          : (canEnterDraft ? Icons.play_arrow : Icons.schedule),
+                    ),
+                    label: Text(
+                      isDraftCompleted
+                          ? 'Draft Completed'
+                          : canEnterDraft
+                          ? 'Join Draft Now'
+                          : 'Draft Room Opens 15 Min Before Start',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDraftGuideCard(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.primaryColor.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: theme.primaryColor.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.menu_book_rounded, color: theme.primaryColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'How Draft Leagues Work',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Quick guide for users coming from classic budget fantasy.',
+                      style: TextStyle(color: bgTextColor, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _buildGuideBullet(
+            'Each manager takes turns selecting one player at a time. Once a player is drafted, nobody else can roster him.',
+          ),
+          _buildGuideBullet(
+            'There is no transfer budget during the draft. Your advantage comes from pick timing, queue priority, and roster balance.',
+          ),
+          _buildGuideBullet(
+            'Auto-pick can step in if your clock expires, so your queue matters even when you are not actively selecting.',
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _showDraftGuideSheet,
+                icon: const Icon(Icons.help_outline),
+                label: const Text('Full Draft Guide'),
+              ),
+              TextButton.icon(
+                onPressed: _showDraftGuideSheet,
+                icon: const Icon(Icons.compare_arrows),
+                label: const Text('Draft vs Classic'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuideBullet(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Icon(Icons.circle, size: 8, color: bgTextColor),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(color: bgTextColor, height: 1.35),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuideSection(ThemeData theme, String title, List<String> items) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 10),
+        for (final item in items) _buildGuideBullet(item),
+      ],
+    );
+  }
+
+  Future<void> _showDraftGuideSheet() async {
+    final theme = Theme.of(context);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.menu_book_rounded, color: theme.primaryColor),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Draft League Guide',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _buildGuideSection(theme, 'How The Draft Works', [
+                  'When the draft starts, managers pick one player at a time in the draft order shown by the room.',
+                  'If the league uses snake order, the order reverses every round so the manager picking last in one round picks first in the next.',
+                  'Every player can belong to only one manager. If someone drafts a player before you, that player is gone from the pool.',
+                  'You can queue players before your turn so the app can auto-pick from your priority list if your clock expires.',
+                ]),
+                const SizedBox(height: 16),
+                _buildGuideSection(theme, 'What You Are Building', [
+                  'Your draft roster has 18 players total.',
+                  'You must still be able to finish with at least 1 goalkeeper, 3 defenders, 3 midfielders, and 1 forward.',
+                  'Beyond those minimums, the remaining spots are flexible, so strategy matters.',
+                ]),
+                const SizedBox(height: 16),
+                _buildGuideSection(theme, 'Draft Vs Classic', [
+                  'Draft mode is exclusive: once you draft a player, nobody else in the league can own him.',
+                  'Classic mode is budget-based: multiple users can buy the same player as long as they can afford him.',
+                  'In draft mode, your decisions are about scarcity, timing, and roster construction. In classic mode, they are about value under budget.',
+                  'Season projection is most useful during drafting and buying, while next-match projection is more useful later when deciding starters and substitutions.',
+                ]),
+                const SizedBox(height: 16),
+                _buildGuideSection(theme, 'Practical Tips', [
+                  'Use the queue to rank fallback picks before your turn arrives.',
+                  'Watch the turns-left indicator so you know when to stop browsing and start narrowing your shortlist.',
+                  'Do not ignore position balance early enough that you become forced into weak picks late in the draft.',
+                ]),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFantasyMatchupCard(ThemeData theme) {
     final myTeamName = _myTeam?.teamName ?? 'My Team';
     final myPoints = _myTeam?.totalPredictedPoints ?? 0.0;
     final opponentName = _opponent?.teamName ?? 'Waiting for opponent...';
     final opponentPoints = _opponent?.totalPredictedPoints ?? 0.0;
     final hasOpponent = _opponent != null;
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -632,9 +978,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
           end: Alignment.bottomCenter,
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.primaryColor.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3)),
       ),
       child: Column(
         children: [
@@ -654,7 +998,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
               Icon(Icons.emoji_events, color: Colors.amber, size: 20),
             ],
           ),
-          
+
           if (_league.matchDateTime != null) ...[
             const SizedBox(height: 4),
             Text(
@@ -662,9 +1006,9 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
               style: TextStyle(color: bgTextColor, fontSize: 12),
             ),
           ],
-          
+
           const SizedBox(height: 20),
-          
+
           // Matchup display
           Row(
             children: [
@@ -678,10 +1022,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                       decoration: BoxDecoration(
                         color: theme.primaryColor.withValues(alpha: 0.2),
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: theme.primaryColor,
-                          width: 2,
-                        ),
+                        border: Border.all(color: theme.primaryColor, width: 2),
                       ),
                       child: Center(
                         child: Text(
@@ -707,7 +1048,10 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                     ),
                     const SizedBox(height: 4),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: theme.primaryColor.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
@@ -724,7 +1068,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                   ],
                 ),
               ),
-              
+
               // VS
               Container(
                 width: 50,
@@ -744,7 +1088,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                   ),
                 ),
               ),
-              
+
               // Opponent Team
               Expanded(
                 child: Column(
@@ -753,7 +1097,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                       width: 60,
                       height: 60,
                       decoration: BoxDecoration(
-                        color: hasOpponent 
+                        color: hasOpponent
                             ? Colors.red.withValues(alpha: 0.2)
                             : bgColor,
                         shape: BoxShape.circle,
@@ -790,7 +1134,10 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                     const SizedBox(height: 4),
                     if (hasOpponent)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.red.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(12),
@@ -811,32 +1158,32 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
               ),
             ],
           ),
-          
+
           // Prediction
           if (hasOpponent && myPoints > 0 && opponentPoints > 0) ...[
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: myPoints > opponentPoints 
+                color: myPoints > opponentPoints
                     ? Colors.green.withValues(alpha: 0.15)
                     : myPoints < opponentPoints
-                        ? Colors.red.withValues(alpha: 0.15)
-                        : Colors.grey.withValues(alpha: 0.15),
+                    ? Colors.red.withValues(alpha: 0.15)
+                    : Colors.grey.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 myPoints > opponentPoints
                     ? '🔥 You\'re projected to win by ${(myPoints - opponentPoints).toStringAsFixed(1)} pts!'
                     : myPoints < opponentPoints
-                        ? '⚠️ Behind by ${(opponentPoints - myPoints).toStringAsFixed(1)} pts - Edit your team!'
-                        : '⚖️ It\'s a close matchup!',
+                    ? '⚠️ Behind by ${(opponentPoints - myPoints).toStringAsFixed(1)} pts - Edit your team!'
+                    : '⚖️ It\'s a close matchup!',
                 style: TextStyle(
-                  color: myPoints > opponentPoints 
+                  color: myPoints > opponentPoints
                       ? Colors.green
                       : myPoints < opponentPoints
-                          ? Colors.red
-                          : bgTextColor,
+                      ? Colors.red
+                      : bgTextColor,
                   fontWeight: FontWeight.w600,
                   fontSize: 12,
                 ),
@@ -847,7 +1194,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
       ),
     );
   }
-  
+
   String _getTeamInitials(String teamName) {
     final words = teamName.split(' ');
     if (words.length >= 2) {
@@ -858,8 +1205,76 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
 
   Widget _buildMyTeamSection(ThemeData theme) {
     final hasTeam = _myTeam != null && _myTeam!.players.isNotEmpty;
-    
+    final rosterSize = _league.rosterSize;
+
     if (!hasTeam) {
+      if (_league.isDraftMode) {
+        final draftDateTime = _league.draftSettings?.draftDateTime;
+        final canEnterDraft =
+            draftDateTime != null &&
+            DateTime.now().isAfter(
+              draftDateTime.subtract(const Duration(minutes: 15)),
+            );
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  canEnterDraft ? Icons.gavel : Icons.schedule,
+                  size: 40,
+                  color: canEnterDraft ? theme.primaryColor : bgTextColor,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                canEnterDraft
+                    ? 'Draft Room Ready'
+                    : 'Team Will Be Drafted Live',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                canEnterDraft
+                    ? 'The draft is live. Enter the room to make your picks while other managers auto-pick when their timers expire.'
+                    : 'Your team is created through the live draft, not with the classic team builder.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: bgTextColor),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: canEnterDraft ? _navigateToDraftRoom : null,
+                icon: Icon(canEnterDraft ? Icons.play_arrow : Icons.schedule),
+                label: Text(
+                  canEnterDraft
+                      ? 'Enter Draft Room'
+                      : 'Waiting For Draft Start',
+                ),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+
       // No team - show prompt to create one
       return Container(
         padding: const EdgeInsets.all(16),
@@ -872,15 +1287,8 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
             Container(
               width: 80,
               height: 80,
-              decoration: BoxDecoration(
-                color: bgColor,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.groups_outlined,
-                size: 40,
-                color: bgTextColor,
-              ),
+              decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
+              child: Icon(Icons.groups_outlined, size: 40, color: bgTextColor),
             ),
             const SizedBox(height: 16),
             Text(
@@ -901,21 +1309,20 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
               icon: const Icon(Icons.add),
               label: const Text('Build Team'),
               style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
             ),
           ],
         ),
       );
     }
-    
-    // Has team - show soccer field visualization
-    // Use the team's actual starting XI and bench (first 11 are starters, rest are bench)
-    final starters = _myTeam!.startingXI;
-    final subs = _myTeam!.benchPlayers;
-    
+
     // Load formation from saved team if available
-    if (_myTeam!.formation != null && _selectedFormation.name != _myTeam!.formation) {
+    if (_myTeam!.formation != null &&
+        _selectedFormation.name != _myTeam!.formation) {
       final savedFormation = Formation.values.firstWhere(
         (f) => f.name == _myTeam!.formation,
         orElse: () => Formation.f433,
@@ -927,7 +1334,15 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
         }
       });
     }
-    
+
+    final hasConfiguredLineup =
+        _myTeam!.formation != null &&
+        _canFillFormation(_selectedFormation, _myTeam!.players);
+    final starters = hasConfiguredLineup
+        ? _getStartingXI(_myTeam!.players)
+        : const <FantasyTeamPlayer>[];
+    final validationErrors = _myTeam!.validationErrorsForRosterSize(rosterSize);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -955,7 +1370,9 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                           ),
                         ),
                         Text(
-                          '${_myTeam!.players.length}/15 players • \$${_myTeam!.budgetRemaining.toStringAsFixed(1)}M left',
+                          _league.isDraftMode
+                              ? '${_myTeam!.players.length}/$rosterSize players'
+                              : '${_myTeam!.players.length}/$rosterSize players • \$${_myTeam!.budgetRemaining.toStringAsFixed(1)}M left',
                           style: TextStyle(color: bgTextColor, fontSize: 12),
                         ),
                       ],
@@ -968,72 +1385,107 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                   ),
                 ],
               ),
-              
+
               const SizedBox(height: 12),
-              
+
               // Projected Points Card for Next Matchup
               _buildProjectedPointsCard(theme),
             ],
           ),
         ),
-        
-        // Formation selector
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          color: theme.colorScheme.surface,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Formation',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: bgTextColor,
-                  fontWeight: FontWeight.w500,
+        if (!hasConfiguredLineup)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.primaryColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: theme.primaryColor.withValues(alpha: 0.22),
                 ),
               ),
-              const SizedBox(height: 8),
-              FormationSelector(
-                selectedFormation: _selectedFormation,
-                onFormationChanged: (formation) {
-                  setState(() => _selectedFormation = formation);
-                },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.tune, color: theme.primaryColor),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Pick Your Starters And Formation',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your draft squad is ready. Set your starting XI, choose a formation, and assign captain roles before the matchup locks.',
+                    style: TextStyle(color: bgTextColor, height: 1.35),
+                  ),
+                  const SizedBox(height: 14),
+                  ElevatedButton.icon(
+                    onPressed: _navigateToTeamBuilder,
+                    icon: const Icon(Icons.edit),
+                    label: const Text('Set Starters'),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
-        
-        // Total predicted points card
-        if (_myTeam != null && _league.status == LeagueStatus.draft)
-         /* Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: _buildPredictedPointsCard(_myTeam!),
-          ),*/
-        
-        // Soccer field
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: SoccerFieldWidget(
-            players: starters,
-            formation: _selectedFormation,
-            isEditable: false,
-            showPredictedPoints: _league.status == LeagueStatus.draft,
-            onPlayerTap: (player) => _showPlayerOptions(player),
-          ),
-        ),
-        
-        // Bench/Substitutes
-        if (subs.isNotEmpty)
+            ),
+          )
+        else ...[
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: BenchWidget(
-              benchPlayers: subs,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: Row(
+              children: [
+                Text(
+                  'Current Formation',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: bgTextColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.primaryColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    _selectedFormation.name,
+                    style: TextStyle(
+                      color: theme.primaryColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: SoccerFieldWidget(
+              players: starters,
+              formation: _selectedFormation,
+              isEditable: false,
+              showPredictedPoints: _league.status == LeagueStatus.draft,
               onPlayerTap: (player) => _showPlayerOptions(player),
             ),
           ),
-        
+        ],
+
         // Team validation status - only show if there are actual issues
-        if (!_myTeam!.isValid && _myTeam!.validationErrors.isNotEmpty)
+        if (!_myTeam!.isValidForRosterSize(rosterSize) &&
+            validationErrors.isNotEmpty)
           Container(
             margin: const EdgeInsets.all(16),
             padding: const EdgeInsets.all(12),
@@ -1048,7 +1500,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    _myTeam!.validationErrors.first,
+                    validationErrors.first,
                     style: const TextStyle(color: Colors.orange, fontSize: 13),
                   ),
                 ),
@@ -1062,13 +1514,27 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
   /// Get starting XI players (prioritize by position for formation)
   List<FantasyTeamPlayer> _getStartingXI(List<FantasyTeamPlayer> allPlayers) {
     // Get required starters for selected formation
-    final gks = allPlayers.where((p) => p.position == PlayerPosition.goalkeeper).take(1).toList();
-    final defs = allPlayers.where((p) => p.position == PlayerPosition.defender).take(_selectedFormation.lines[0]).toList();
-    final mids = allPlayers.where((p) => p.position == PlayerPosition.midfielder).take(_selectedFormation.lines[1]).toList();
-    final fwds = allPlayers.where((p) => 
-        p.position == PlayerPosition.attacker || p.position == PlayerPosition.forward)
-        .take(_selectedFormation.lines[2]).toList();
-    
+    final gks = allPlayers
+        .where((p) => p.position == PlayerPosition.goalkeeper)
+        .take(1)
+        .toList();
+    final defs = allPlayers
+        .where((p) => p.position == PlayerPosition.defender)
+        .take(_selectedFormation.lines[0])
+        .toList();
+    final mids = allPlayers
+        .where((p) => p.position == PlayerPosition.midfielder)
+        .take(_selectedFormation.lines[1])
+        .toList();
+    final fwds = allPlayers
+        .where(
+          (p) =>
+              p.position == PlayerPosition.attacker ||
+              p.position == PlayerPosition.forward,
+        )
+        .take(_selectedFormation.lines[2])
+        .toList();
+
     return [...gks, ...defs, ...mids, ...fwds];
   }
 
@@ -1079,33 +1545,38 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
     return allPlayers.where((p) => !starterIds.contains(p.playerId)).toList();
   }
 
+  bool _canFillFormation(
+    Formation formation,
+    List<FantasyTeamPlayer> allPlayers,
+  ) {
+    final goalkeeperCount = allPlayers
+        .where((p) => p.position == PlayerPosition.goalkeeper)
+        .length;
+    final defenderCount = allPlayers
+        .where((p) => p.position == PlayerPosition.defender)
+        .length;
+    final midfielderCount = allPlayers
+        .where((p) => p.position == PlayerPosition.midfielder)
+        .length;
+    final forwardCount = allPlayers
+        .where(
+          (p) =>
+              p.position == PlayerPosition.attacker ||
+              p.position == PlayerPosition.forward,
+        )
+        .length;
+
+    return allPlayers.length >= 11 &&
+        goalkeeperCount >= 1 &&
+        defenderCount >= formation.lines[0] &&
+        midfielderCount >= formation.lines[1] &&
+        forwardCount >= formation.lines[2];
+  }
+
   /// Build the projected points card for next matchup
   Widget _buildProjectedPointsCard(ThemeData theme) {
-    // Calculate total projected points from the team
-    // Using the price as a proxy for projected points (in real implementation,
-    // you'd fetch actual projected points from player stats)
-    final players = _myTeam?.players ?? [];
-    
-    // Sum up projected points (using price as an estimate since expensive players tend to score more)
-    // In a real implementation, you'd store projectedPoints in FantasyTeamPlayer
-    double totalProjectedPoints = 0;
-    for (final player in players) {
-      // Estimate based on player price - higher value players typically score more
-      final estimatedPoints = player.price * 0.8 + 2.0;
-      totalProjectedPoints += estimatedPoints;
-    }
-    
-    // Apply captain/vice-captain bonuses
-    final captain = players.where((p) => p.isCaptain).firstOrNull;
-    final viceCaptain = players.where((p) => p.isViceCaptain).firstOrNull;
-    
-    if (captain != null) {
-      totalProjectedPoints += captain.price * 0.8 + 2.0; // Double captain's points
-    }
-    if (viceCaptain != null) {
-      totalProjectedPoints += (viceCaptain.price * 0.8 + 2.0) * 0.5; // 1.5x vice-captain's points
-    }
-    
+    final totalProjectedPoints = _myTeam?.totalPredictedPoints ?? 0.0;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1130,14 +1601,10 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
               color: theme.primaryColor.withValues(alpha: 0.2),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              Icons.trending_up,
-              color: theme.primaryColor,
-              size: 26,
-            ),
+            child: Icon(Icons.trending_up, color: theme.primaryColor, size: 26),
           ),
           const SizedBox(width: 16),
-          
+
           // Points info
           Expanded(
             child: Column(
@@ -1145,10 +1612,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
               children: [
                 Text(
                   'Projected Points',
-                  style: TextStyle(
-                    color: bgTextColor,
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: bgTextColor, fontSize: 12),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -1162,7 +1626,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
               ],
             ),
           ),
-          
+
           // Points value
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -1191,6 +1655,9 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
 
   /// Show options for a player (view profile, swap, etc.)
   void _showPlayerOptions(FantasyTeamPlayer player) {
+    final seasonProjection =
+        player.predictedPoints * RosterPlayer.seasonMatchesProjection;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -1215,7 +1682,12 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                     ),
                     child: Center(
                       child: Text(
-                        player.playerName.split(' ').map((s) => s.isNotEmpty ? s[0] : '').take(2).join().toUpperCase(),
+                        player.playerName
+                            .split(' ')
+                            .map((s) => s.isNotEmpty ? s[0] : '')
+                            .take(2)
+                            .join()
+                            .toUpperCase(),
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),
@@ -1227,9 +1699,8 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                       children: [
                         Text(
                           player.playerName,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         Text(
                           '${player.position.name} • ${player.teamName}',
@@ -1240,28 +1711,103 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                   ),
                   if (player.isCaptain)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.amber,
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: const Text('C', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                      child: const Text(
+                        'C',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   if (player.isViceCaptain)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.grey,
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: const Text('VC', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      child: const Text(
+                        'VC',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                 ],
               ),
-              
+
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).primaryColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Next Match',
+                            style: TextStyle(color: bgTextColor, fontSize: 12),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            player.predictedPoints.toStringAsFixed(1),
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Season',
+                            style: TextStyle(color: bgTextColor, fontSize: 12),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            seasonProjection.toStringAsFixed(1),
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
               const SizedBox(height: 16),
               const Divider(),
-              
+
               // Actions
               ListTile(
                 leading: const Icon(Icons.edit),
@@ -1308,7 +1854,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
         child: Text('No members yet', style: TextStyle(color: bgTextColor)),
       );
     }
-    
+
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: _members.length,
@@ -1325,13 +1871,17 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
 
   Widget _buildMemberCard(ThemeData theme, LeagueMember member, int position) {
     final isMe = member.oderId == _currentMember?.oderId;
-    
+
     return Card(
-      color: isMe ? theme.primaryColor.withValues(alpha: 0.1) : theme.colorScheme.surface,
+      color: isMe
+          ? theme.primaryColor.withValues(alpha: 0.1)
+          : theme.colorScheme.surface,
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: isMe ? BorderSide(color: theme.primaryColor, width: 1) : BorderSide.none,
+        side: isMe
+            ? BorderSide(color: theme.primaryColor, width: 1)
+            : BorderSide.none,
       ),
       child: ListTile(
         leading: CircleAvatar(
@@ -1425,7 +1975,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
     final theme = Theme.of(context);
     final totalPredicted = team.totalPredictedPoints;
     final opponentName = _opponent?.teamName ?? 'Waiting for opponent';
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1436,9 +1986,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
           ],
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.primaryColor.withValues(alpha: 0.5),
-        ),
+        border: Border.all(color: theme.primaryColor.withValues(alpha: 0.5)),
       ),
       child: Row(
         children: [
@@ -1448,11 +1996,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
               color: theme.primaryColor.withValues(alpha: 0.2),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              Icons.trending_up,
-              color: theme.primaryColor,
-              size: 28,
-            ),
+            child: Icon(Icons.trending_up, color: theme.primaryColor, size: 28),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -1483,10 +2027,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
             children: [
               Text(
                 'Next Opponent',
-                style: TextStyle(
-                  color: bgTextColor,
-                  fontSize: 11,
-                ),
+                style: TextStyle(color: bgTextColor, fontSize: 11),
               ),
               const SizedBox(height: 4),
               Row(
@@ -1531,14 +2072,14 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
         ),
       );
     }
-    
+
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: _teams.length,
       itemBuilder: (context, index) {
         final team = _teams[index];
         final position = index + 1;
-        
+
         return FadedSlideAnimation(
           beginOffset: Offset(0, 0.1 * (index + 1)),
           endOffset: Offset.zero,
@@ -1550,18 +2091,25 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
 
   Widget _buildStandingCard(ThemeData theme, FantasyTeam team, int position) {
     final isMe = team.userId == _currentMember?.oderId;
-    
+
     Color? positionColor;
-    if (position == 1) positionColor = Colors.amber;
-    else if (position == 2) positionColor = Colors.grey[400];
-    else if (position == 3) positionColor = Colors.orange[300];
-    
+    if (position == 1)
+      positionColor = Colors.amber;
+    else if (position == 2)
+      positionColor = Colors.grey[400];
+    else if (position == 3)
+      positionColor = Colors.orange[300];
+
     return Card(
-      color: isMe ? theme.primaryColor.withValues(alpha: 0.1) : theme.colorScheme.surface,
+      color: isMe
+          ? theme.primaryColor.withValues(alpha: 0.1)
+          : theme.colorScheme.surface,
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: isMe ? BorderSide(color: theme.primaryColor, width: 1) : BorderSide.none,
+        side: isMe
+            ? BorderSide(color: theme.primaryColor, width: 1)
+            : BorderSide.none,
       ),
       child: ListTile(
         leading: Container(
@@ -1620,17 +2168,19 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                 color: theme.primaryColor,
               ),
             ),
-            Text(
-              'points',
-              style: TextStyle(color: bgTextColor, fontSize: 10),
-            ),
+            Text('points', style: TextStyle(color: bgTextColor, fontSize: 10)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSectionCard(ThemeData theme, String title, IconData icon, Widget child) {
+  Widget _buildSectionCard(
+    ThemeData theme,
+    String title,
+    IconData icon,
+    Widget child,
+  ) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1661,7 +2211,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
 
   Widget _buildBottomBar(ThemeData theme) {
     if (_isLoading) return const SizedBox.shrink();
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1676,39 +2226,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
       ),
       child: SafeArea(
         child: _isMember
-            ? ElevatedButton(
-                onPressed: _league.status == LeagueStatus.draft
-                    ? _navigateToTeamBuilder
-                    : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      _myTeam != null && _myTeam!.players.isNotEmpty
-                          ? Icons.edit
-                          : Icons.add,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _myTeam != null && _myTeam!.players.isNotEmpty
-                          ? 'Edit Team'
-                          : 'Build Team',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              )
+            ? _buildMemberBottomButton(theme)
             : ElevatedButton(
                 onPressed: _league.canJoin ? _joinLeague : null,
                 style: ElevatedButton.styleFrom(
@@ -1725,9 +2243,7 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
                     const Icon(Icons.login),
                     const SizedBox(width: 8),
                     Text(
-                      _league.isFull
-                          ? 'League Full'
-                          : 'Join League',
+                      _league.isFull ? 'League Full' : 'Join League',
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -1739,6 +2255,222 @@ class _LeagueDetailsPageState extends State<LeagueDetailsPage> with SingleTicker
       ),
     );
   }
+
+  Widget _buildMemberBottomButton(ThemeData theme) {
+    // Draft mode league
+    if (_league.isDraftMode) {
+      final draftDateTime = _league.draftSettings?.draftDateTime;
+      final isDraftTime =
+          draftDateTime != null &&
+          DateTime.now().isAfter(
+            draftDateTime.subtract(const Duration(minutes: 15)),
+          );
+      final isDraftCompleted =
+          _league.status != LeagueStatus.draft ||
+          (_myTeam?.players.length ?? 0) >=
+              (_league.draftSettings?.rosterSize ?? 18);
+
+      // After draft is completed, show trade/free agency options
+      if (isDraftCompleted && _myTeam != null && _myTeam!.players.isNotEmpty) {
+        return Row(
+          children: [
+            // Trades button
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _navigateToTrades,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.swap_horiz, size: 20),
+                label: const Text(
+                  'Trades',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Free Agency button
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _navigateToFreeAgency,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.person_add, size: 20),
+                label: const Text(
+                  'Free Agency',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        );
+      }
+
+      // Draft room button (before/during draft)
+      return ElevatedButton(
+        onPressed: isDraftTime ? _navigateToDraftRoom : null,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: isDraftTime ? Colors.green : theme.primaryColor,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(isDraftTime ? Icons.play_arrow : Icons.schedule),
+            const SizedBox(width: 8),
+            Text(
+              isDraftTime
+                  ? 'Enter Draft Room'
+                  : 'Draft: ${_formatDraftTime(draftDateTime)}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Classic mode league
+    return ElevatedButton(
+      onPressed: _league.status == LeagueStatus.draft
+          ? _navigateToTeamBuilder
+          : null,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: theme.primaryColor,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            _myTeam != null && _myTeam!.players.isNotEmpty
+                ? Icons.edit
+                : Icons.add,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _myTeam != null && _myTeam!.players.isNotEmpty
+                ? 'Edit Team'
+                : 'Build Team',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _navigateToDraftRoom() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => DraftRoomPage(league: _league)),
+    );
+    _loadData();
+  }
+
+  void _navigateToTrades() {
+    // Get all teams for this league
+    final allTeams = _teams ?? [];
+
+    Navigator.pushNamed(
+      context,
+      PageRoutes.trades,
+      arguments: {
+        'league': _league,
+        'teams': allTeams,
+        'currentUserId': _currentMember!.oderId,
+      },
+    );
+  }
+
+  void _navigateToFreeAgency() async {
+    // Load all players for free agency
+    try {
+      final playersRepository = PlayersRepository();
+      final allPlayers = await playersRepository.getLigaMxRosterPlayers();
+      final allTeams = _teams;
+
+      // Build ownership map from all teams
+      final ownership = <int, String>{};
+      for (final team in allTeams) {
+        for (final player in team.players) {
+          ownership[player.playerId] = team.userId;
+        }
+      }
+
+      if (mounted) {
+        Navigator.pushNamed(
+          context,
+          PageRoutes.freeAgency,
+          arguments: {
+            'league': _league,
+            'allPlayers': allPlayers,
+            'currentUserId': _currentMember!.oderId,
+            'playerOwnership': ownership,
+          },
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load players: $e')));
+      }
+    }
+  }
+
+  String _formatDraftTime(DateTime? dateTime) {
+    if (dateTime == null) return 'TBD';
+
+    final now = DateTime.now();
+    final difference = dateTime.difference(now);
+
+    if (difference.isNegative) {
+      return 'Now';
+    } else if (difference.inDays > 0) {
+      return DateFormat('MMM d, h:mm a').format(dateTime);
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}h ${difference.inMinutes % 60}m';
+    } else {
+      return '${difference.inMinutes}m';
+    }
+  }
+
+  String _formatDraftCountdown(DateTime? dateTime) {
+    if (dateTime == null) return 'Draft time has not been scheduled yet';
+
+    final difference = dateTime.difference(DateTime.now());
+    if (difference.isNegative) {
+      return 'Draft is live now';
+    }
+
+    final hours = difference.inHours;
+    final minutes = difference.inMinutes % 60;
+    final seconds = difference.inSeconds % 60;
+
+    if (difference.inDays > 0) {
+      return 'Starts in ${difference.inDays}d ${hours % 24}h ${minutes}m';
+    }
+
+    return 'Starts in ${hours.toString().padLeft(2, '0')}:'
+        '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
+  }
 }
 
 class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
@@ -1748,11 +2480,12 @@ class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
   _SliverTabBarDelegate(this.tabBar, this.backgroundColor);
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    return Container(
-      color: backgroundColor,
-      child: tabBar,
-    );
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Container(color: backgroundColor, child: tabBar);
   }
 
   @override
@@ -1766,4 +2499,3 @@ class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
     return tabBar != oldDelegate.tabBar;
   }
 }
-

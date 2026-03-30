@@ -46,24 +46,24 @@ class _PlayersSearchState extends State<PlayersSearch> {
   final CacheService _cache = CacheService();
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
-  
+
   // Current state
   List<Player> _recentPlayers = [];
   String? _error;
   String _lastQuery = '';
-  
+
   // Active Liga MX players from cached team rosters
   List<RosterPlayer> _cachedPlayers = [];
   List<RosterPlayer> _searchResults = [];
   List<RosterPlayer> _filteredPlayers = [];
   bool _isLoadingInitial = true;
-  
+
   // Filters
   String? _selectedTeam;
   String? _selectedPosition;
   PlayerSortOption _sortOption = PlayerSortOption.pointsHighToLow;
   bool _showFilters = false;
-  
+
   // Available filter options (populated from data)
   List<String> _availableTeams = [];
   final List<String> _availablePositions = ['GK', 'DEF', 'MID', 'FWD'];
@@ -77,34 +77,43 @@ class _PlayersSearchState extends State<PlayersSearch> {
   /// Load players - first from Hive cache, then from Firestore if needed
   Future<void> _loadInitialData() async {
     setState(() => _isLoadingInitial = true);
-    
+
     try {
       // Load recent players for display
       final cachedPlayersList = _cache.getRecentPlayers();
       if (cachedPlayersList.isNotEmpty) {
-        _recentPlayers = cachedPlayersList.map((json) => Player.fromJson(json)).toList();
+        _recentPlayers = cachedPlayersList
+            .map((json) => Player.fromJson(json))
+            .toList();
       }
-      
+
       // First try to get from Hive cache
       _cachedPlayers = _repository.getCachedPlayers();
-      debugPrint('PlayersSearch: Found ${_cachedPlayers.length} players in Hive cache');
-      
+      debugPrint(
+        'PlayersSearch: Found ${_cachedPlayers.length} players in Hive cache',
+      );
+
       // If cache is empty or has very few players, load from Firestore
       if (_cachedPlayers.length < 100) {
-        debugPrint('PlayersSearch: Cache insufficient, loading from Firestore...');
-        final firestorePlayers = await _repository.loadAllPlayersFromFirestore();
+        debugPrint(
+          'PlayersSearch: Cache insufficient, loading from Firestore...',
+        );
+        final firestorePlayers = await _repository
+            .loadAllPlayersFromFirestore();
         if (firestorePlayers.isNotEmpty) {
           _cachedPlayers = firestorePlayers;
-          debugPrint('PlayersSearch: Loaded ${_cachedPlayers.length} players from Firestore');
+          debugPrint(
+            'PlayersSearch: Loaded ${_cachedPlayers.length} players from Firestore',
+          );
         }
       }
-      
+
       // Extract unique teams for filter
       _extractAvailableTeams();
-      
+
       // Apply initial filters
       _applyFilters();
-      
+
       if (mounted) {
         setState(() => _isLoadingInitial = false);
       }
@@ -115,7 +124,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
       }
     }
   }
-  
+
   /// Extract unique teams from cached players
   void _extractAvailableTeams() {
     final teams = _cachedPlayers
@@ -126,33 +135,33 @@ class _PlayersSearchState extends State<PlayersSearch> {
     teams.sort();
     _availableTeams = teams;
   }
-  
+
   /// Apply filters and sorting to players
   void _applyFilters() {
     List<RosterPlayer> result = List.from(_cachedPlayers);
-    
+
     // Filter by team
     if (_selectedTeam != null) {
       result = result.where((p) => p.teamName == _selectedTeam).toList();
     }
-    
+
     // Filter by position
     if (_selectedPosition != null) {
-      result = result.where((p) => 
-        p.positionCode.toUpperCase() == _selectedPosition
-      ).toList();
+      result = result
+          .where((p) => p.positionCode.toUpperCase() == _selectedPosition)
+          .toList();
     }
-    
+
     // Apply text search if active
     if (_lastQuery.isNotEmpty && _lastQuery.length >= 2) {
       final normalizedQuery = _normalizeString(_lastQuery);
       result = result.where((p) {
         return _normalizeString(p.name).contains(normalizedQuery) ||
-               _normalizeString(p.displayName).contains(normalizedQuery) ||
-               _normalizeString(p.teamName).contains(normalizedQuery);
+            _normalizeString(p.displayName).contains(normalizedQuery) ||
+            _normalizeString(p.teamName).contains(normalizedQuery);
       }).toList();
     }
-    
+
     // Apply sorting
     switch (_sortOption) {
       case PlayerSortOption.pointsHighToLow:
@@ -171,13 +180,13 @@ class _PlayersSearchState extends State<PlayersSearch> {
         result.sort((a, b) => a.displayName.compareTo(b.displayName));
         break;
     }
-    
+
     _filteredPlayers = result;
     if (_lastQuery.isNotEmpty) {
       _searchResults = result.take(50).toList();
     }
   }
-  
+
   /// Clear all filters
   void _clearFilters() {
     setState(() {
@@ -187,11 +196,11 @@ class _PlayersSearchState extends State<PlayersSearch> {
       _applyFilters();
     });
   }
-  
+
   /// Check if any filters are active
-  bool get _hasActiveFilters => 
-      _selectedTeam != null || 
-      _selectedPosition != null || 
+  bool get _hasActiveFilters =>
+      _selectedTeam != null ||
+      _selectedPosition != null ||
       _sortOption != PlayerSortOption.pointsHighToLow;
 
   @override
@@ -230,7 +239,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
         _cachedPlayers = [];
         _searchResults = [];
       });
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(S.of(context).searchHistoryCleared),
@@ -267,12 +276,14 @@ class _PlayersSearchState extends State<PlayersSearch> {
       _applyFilters();
     });
   }
-  
+
   /// Normalize string for search (remove accents, lowercase)
   String _normalizeString(String input) {
-    const withAccents = 'àáâãäåèéêëìíîïòóôõöùúûüýÿñçÀÁÂÃÄÅÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜÝŸÑÇ';
-    const withoutAccents = 'aaaaaaeeeeiiiiooooouuuuyyncAAAAAAAAAEEEEIIIIOOOOOUUUUYYNC';
-    
+    const withAccents =
+        'àáâãäåèéêëìíîïòóôõöùúûüýÿñçÀÁÂÃÄÅÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜÝŸÑÇ';
+    const withoutAccents =
+        'aaaaaaeeeeiiiiooooouuuuyyncAAAAAAAAAEEEEIIIIOOOOOUUUUYYNC';
+
     var result = input.toLowerCase();
     for (int i = 0; i < withAccents.length; i++) {
       result = result.replaceAll(withAccents[i], withoutAccents[i]);
@@ -284,7 +295,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
   void _onPlayerTap(Player player) async {
     // Add to recent players cache (Hive)
     await _cache.addRecentPlayer(player.toJson());
-    
+
     // Update local state
     setState(() {
       _recentPlayers.removeWhere((p) => p.id == player.id);
@@ -296,11 +307,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
 
     // Navigate to player details
     if (mounted) {
-      Navigator.pushNamed(
-        context,
-        PageRoutes.playerDetails,
-        arguments: player,
-      );
+      Navigator.pushNamed(context, PageRoutes.playerDetails, arguments: player);
     }
   }
 
@@ -387,7 +394,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
                   Icon(Icons.sports_soccer, size: 14, color: bgTextColor),
                   const SizedBox(width: 6),
                   Text(
-                    _hasActiveFilters 
+                    _hasActiveFilters
                         ? '${_filteredPlayers.length} of ${_cachedPlayers.length} players'
                         : '${_cachedPlayers.length} players available',
                     style: TextStyle(fontSize: 12, color: bgTextColor),
@@ -408,18 +415,16 @@ class _PlayersSearchState extends State<PlayersSearch> {
                 ],
               ),
             ),
-          
+
           const SizedBox(height: 4),
 
           // Content
-          Expanded(
-            child: _buildContent(theme),
-          ),
+          Expanded(child: _buildContent(theme)),
         ],
       ),
     );
   }
-  
+
   /// Build the filters section
   Widget _buildFiltersSection(ThemeData theme) {
     return Container(
@@ -436,7 +441,11 @@ class _PlayersSearchState extends State<PlayersSearch> {
           // Position filter chips
           Text(
             'Position',
-            style: TextStyle(fontSize: 11, color: bgTextColor, fontWeight: FontWeight.w500),
+            style: TextStyle(
+              fontSize: 11,
+              color: bgTextColor,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(height: 6),
           SingleChildScrollView(
@@ -444,17 +453,23 @@ class _PlayersSearchState extends State<PlayersSearch> {
             child: Row(
               children: [
                 _buildPositionChip(null, 'All', theme),
-                ..._availablePositions.map((pos) => _buildPositionChip(pos, pos, theme)),
+                ..._availablePositions.map(
+                  (pos) => _buildPositionChip(pos, pos, theme),
+                ),
               ],
             ),
           ),
-          
+
           const SizedBox(height: 12),
-          
+
           // Team dropdown
           Text(
             'Team',
-            style: TextStyle(fontSize: 11, color: bgTextColor, fontWeight: FontWeight.w500),
+            style: TextStyle(
+              fontSize: 11,
+              color: bgTextColor,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(height: 6),
           Container(
@@ -476,10 +491,12 @@ class _PlayersSearchState extends State<PlayersSearch> {
                   value: null,
                   child: Text('All Teams'),
                 ),
-                ..._availableTeams.map((team) => DropdownMenuItem<String?>(
-                  value: team,
-                  child: Text(team, overflow: TextOverflow.ellipsis),
-                )),
+                ..._availableTeams.map(
+                  (team) => DropdownMenuItem<String?>(
+                    value: team,
+                    child: Text(team, overflow: TextOverflow.ellipsis),
+                  ),
+                ),
               ],
               onChanged: (value) {
                 setState(() {
@@ -489,13 +506,17 @@ class _PlayersSearchState extends State<PlayersSearch> {
               },
             ),
           ),
-          
+
           const SizedBox(height: 12),
-          
+
           // Sort dropdown
           Text(
             'Sort by',
-            style: TextStyle(fontSize: 11, color: bgTextColor, fontWeight: FontWeight.w500),
+            style: TextStyle(
+              fontSize: 11,
+              color: bgTextColor,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(height: 6),
           Container(
@@ -577,12 +598,12 @@ class _PlayersSearchState extends State<PlayersSearch> {
       ),
     );
   }
-  
+
   /// Build a position filter chip
   Widget _buildPositionChip(String? position, String label, ThemeData theme) {
     final isSelected = _selectedPosition == position;
     Color chipColor;
-    
+
     switch (position) {
       case 'GK':
         chipColor = Colors.orange;
@@ -599,7 +620,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
       default:
         chipColor = theme.primaryColor;
     }
-    
+
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: FilterChip(
@@ -677,7 +698,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
         subtitle: '${_filteredPlayers.length} found',
       );
     }
-    
+
     // Empty filter results
     if (_hasActiveFilters && _filteredPlayers.isEmpty) {
       return Center(
@@ -707,10 +728,11 @@ class _PlayersSearchState extends State<PlayersSearch> {
 
     // Initial state - show top players from cache
     if (_cachedPlayers.isNotEmpty && _lastQuery.isEmpty) {
-      final popularPlayers = List<RosterPlayer>.from(_filteredPlayers.isNotEmpty ? _filteredPlayers : _cachedPlayers)
-        ..sort((a, b) => b.projectedPoints.compareTo(a.projectedPoints));
+      final popularPlayers = List<RosterPlayer>.from(
+        _filteredPlayers.isNotEmpty ? _filteredPlayers : _cachedPlayers,
+      )..sort((a, b) => b.projectedPoints.compareTo(a.projectedPoints));
       return _buildRosterPlayersList(
-        popularPlayers.take(50).toList(), 
+        popularPlayers.take(50).toList(),
         'Top Players',
         subtitle: '${_cachedPlayers.length} total',
       );
@@ -718,7 +740,11 @@ class _PlayersSearchState extends State<PlayersSearch> {
 
     // Show recent players if available
     if (_recentPlayers.isNotEmpty) {
-      return _buildPlayersList(_recentPlayers, S.of(context).recentPlayersTitle, showClearButton: true);
+      return _buildPlayersList(
+        _recentPlayers,
+        S.of(context).recentPlayersTitle,
+        showClearButton: true,
+      );
     }
 
     // Empty state - need to build team first
@@ -732,9 +758,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
             const SizedBox(height: 24),
             Text(
               'No Players Loaded',
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: Colors.white,
-              ),
+              style: theme.textTheme.titleLarge?.copyWith(color: Colors.white),
             ),
             const SizedBox(height: 8),
             Text(
@@ -748,7 +772,11 @@ class _PlayersSearchState extends State<PlayersSearch> {
     );
   }
 
-  Widget _buildPlayersList(List<Player> players, String title, {bool showClearButton = false}) {
+  Widget _buildPlayersList(
+    List<Player> players,
+    String title, {
+    bool showClearButton = false,
+  }) {
     final theme = Theme.of(context);
 
     return ListView.builder(
@@ -825,10 +853,10 @@ class _PlayersSearchState extends State<PlayersSearch> {
   }
 
   Widget _buildRosterPlayersList(
-    List<RosterPlayer> players, 
-    String title, 
-    {String? subtitle}
-  ) {
+    List<RosterPlayer> players,
+    String title, {
+    String? subtitle,
+  }) {
     final theme = Theme.of(context);
 
     return ListView.builder(
@@ -859,10 +887,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
                   const Spacer(),
                   Text(
                     subtitle,
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontSize: 11,
-                    ),
+                    style: TextStyle(color: Colors.grey[600], fontSize: 11),
                   ),
                 ],
               ],
@@ -896,9 +921,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
     return Card(
       color: theme.colorScheme.surface,
       margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: () => _onRosterPlayerTap(player),
         borderRadius: BorderRadius.circular(12),
@@ -921,12 +944,16 @@ class _PlayersSearchState extends State<PlayersSearch> {
                       ),
                     ),
                     child: ClipOval(
-                      child: player.imagePath != null && player.imagePath!.isNotEmpty
+                      child:
+                          player.imagePath != null &&
+                              player.imagePath!.isNotEmpty
                           ? CachedNetworkImage(
                               imageUrl: player.imagePath!,
                               fit: BoxFit.cover,
-                              placeholder: (context, url) => _buildPlayerInitials(player),
-                              errorWidget: (context, url, error) => _buildPlayerInitials(player),
+                              placeholder: (context, url) =>
+                                  _buildPlayerInitials(player),
+                              errorWidget: (context, url, error) =>
+                                  _buildPlayerInitials(player),
                             )
                           : _buildPlayerInitials(player),
                     ),
@@ -965,7 +992,9 @@ class _PlayersSearchState extends State<PlayersSearch> {
                       child: Container(
                         padding: const EdgeInsets.all(3),
                         decoration: BoxDecoration(
-                          color: player.isElitePlayer ? Colors.amber : Colors.orange,
+                          color: player.isElitePlayer
+                              ? Colors.amber
+                              : Colors.orange,
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
@@ -998,10 +1027,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
                             ),
                           ],
                         ),
-                        child: const Text(
-                          '🍑',
-                          style: TextStyle(fontSize: 11),
-                        ),
+                        child: const Text('🍑', style: TextStyle(fontSize: 11)),
                       ),
                     ),
                 ],
@@ -1025,7 +1051,10 @@ class _PlayersSearchState extends State<PlayersSearch> {
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: positionColor.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(4),
@@ -1043,10 +1072,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
                         Expanded(
                           child: Text(
                             player.teamName,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: bgTextColor,
-                            ),
+                            style: TextStyle(fontSize: 12, color: bgTextColor),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -1059,8 +1085,11 @@ class _PlayersSearchState extends State<PlayersSearch> {
                         Icon(Icons.trending_up, size: 12, color: Colors.green),
                         const SizedBox(width: 2),
                         Text(
-                          '${player.projectedPoints.toStringAsFixed(1)} pts',
-                          style: const TextStyle(fontSize: 11, color: Colors.green),
+                          '${player.projectedPoints.toStringAsFixed(1)} next • ${player.projectedSeasonPoints.toStringAsFixed(1)} season',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.green,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Icon(Icons.attach_money, size: 12, color: bgTextColor),
@@ -1076,10 +1105,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
               ),
 
               // Arrow icon
-              Icon(
-                Icons.chevron_right,
-                color: bgTextColor,
-              ),
+              Icon(Icons.chevron_right, color: bgTextColor),
             ],
           ),
         ),
@@ -1094,7 +1120,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
         .map((s) => s.isNotEmpty ? s[0] : '')
         .join()
         .toUpperCase();
-    
+
     return Center(
       child: Text(
         initials,
@@ -1111,7 +1137,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
   Future<void> _onRosterPlayerTap(RosterPlayer rosterPlayer) async {
     // Try to fetch full player details
     final fullPlayer = await _repository.getPlayerById(rosterPlayer.id);
-    
+
     if (fullPlayer != null && mounted) {
       // Add to recent players
       await _cache.addRecentPlayer(fullPlayer.toJson());
@@ -1122,7 +1148,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
           _recentPlayers = _recentPlayers.sublist(0, 10);
         }
       });
-      
+
       // Navigate to player details
       Navigator.pushNamed(
         context,
@@ -1134,7 +1160,9 @@ class _PlayersSearchState extends State<PlayersSearch> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Could not load full details for ${rosterPlayer.displayName}'),
+            content: Text(
+              'Could not load full details for ${rosterPlayer.displayName}',
+            ),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -1146,9 +1174,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
     return Card(
       color: theme.colorScheme.surface,
       margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: () => _onPlayerTap(player),
         borderRadius: BorderRadius.circular(12),
@@ -1166,9 +1192,11 @@ class _PlayersSearchState extends State<PlayersSearch> {
                       shape: BoxShape.circle,
                       color: bgColor,
                       border: Border.all(
-                        color: player.position != null 
-                               ? Color(player.position!.colorValue).withValues(alpha: 0.5)
-                               : theme.primaryColor.withValues(alpha: 0.5),
+                        color: player.position != null
+                            ? Color(
+                                player.position!.colorValue,
+                              ).withValues(alpha: 0.5)
+                            : theme.primaryColor.withValues(alpha: 0.5),
                         width: 2,
                       ),
                     ),
@@ -1187,12 +1215,8 @@ class _PlayersSearchState extends State<PlayersSearch> {
                                 color: bgTextColor,
                                 size: 28,
                               ),
-                        )
-                      : Icon(
-                          Icons.person,
-                          color: bgTextColor,
-                          size: 28,
-                        ),
+                            )
+                          : Icon(Icons.person, color: bgTextColor, size: 28),
                     ),
                   ),
                   // Easter egg: deceased banner for player 253780 💀
@@ -1249,7 +1273,8 @@ class _PlayersSearchState extends State<PlayersSearch> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            player.detailedPosition?.name ?? player.position!.name,
+                            player.detailedPosition?.name ??
+                                player.position!.name,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: Colors.grey[500],
                               fontSize: 12,
@@ -1283,10 +1308,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
               ),
 
               // Arrow
-              Icon(
-                Icons.chevron_right,
-                color: Colors.grey[600],
-              ),
+              Icon(Icons.chevron_right, color: Colors.grey[600]),
             ],
           ),
         ),
@@ -1294,4 +1316,3 @@ class _PlayersSearchState extends State<PlayersSearch> {
     );
   }
 }
-

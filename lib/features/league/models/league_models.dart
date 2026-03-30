@@ -1,6 +1,10 @@
 // Pure Dart file - no Flutter imports
 // Colors are stored as int values (ARGB format), icons as string names
-import 'package:fantacy11/features/player/models/player_info.dart' show Player, PositionColors;
+import 'package:fantacy11/features/league/models/draft_models.dart';
+import 'package:fantacy11/features/player/models/player_info.dart'
+    show Player, PositionColors;
+
+export 'draft_models.dart';
 
 /// League color constants as int values (ARGB format)
 class LeagueColors {
@@ -108,10 +112,10 @@ enum LeagueType {
 
 /// League status
 enum LeagueStatus {
-  draft,      // League created but match not started
-  active,     // Match is ongoing
-  completed,  // Match finished, points calculated
-  cancelled;  // League was cancelled
+  draft, // League created but match not started
+  active, // Match is ongoing
+  completed, // Match finished, points calculated
+  cancelled; // League was cancelled
 
   String get displayName {
     switch (this) {
@@ -150,7 +154,8 @@ class League {
   final LeagueStatus status;
   final String? inviteCode;
   final int maxMembers;
-  final double budget; // Total budget per team (in millions of USD, e.g., 100.0 = $100M)
+  final double
+  budget; // Total budget per team (in millions of USD, e.g., 100.0 = $100M)
   final int? matchId; // Associated match ID from SportMonks
   final String? matchName; // e.g., "Team A vs Team B"
   final DateTime? matchDateTime;
@@ -162,6 +167,12 @@ class League {
   final double? prizePool;
   final String? leagueImageUrl;
   final bool isJoined; // Whether current user has joined this league
+
+  // Draft mode fields
+  final LeagueMode mode; // Classic (budget) or Draft
+  final DraftSettings? draftSettings; // Settings for draft mode
+  final TradeSettings? tradeSettings; // Trade rules for draft mode
+  final int rosterSize; // Total roster size (default 18)
 
   League({
     required this.id,
@@ -183,12 +194,30 @@ class League {
     this.prizePool,
     this.leagueImageUrl,
     this.isJoined = false,
+    this.mode = LeagueMode.classic,
+    this.draftSettings,
+    this.tradeSettings,
+    this.rosterSize = 18,
   });
 
   bool get isPublic => type == LeagueType.public;
   bool get isPrivate => type == LeagueType.private;
   bool get isFull => memberCount >= maxMembers;
   bool get canJoin => !isFull && status == LeagueStatus.draft && !isJoined;
+
+  // Draft mode helpers
+  bool get isClassicMode => mode == LeagueMode.classic;
+  bool get isDraftMode => mode == LeagueMode.draft;
+
+  /// Check if draft is scheduled and upcoming
+  bool get hasDraftScheduled =>
+      isDraftMode && draftSettings?.draftDateTime != null;
+
+  /// Check if draft time has passed
+  bool get isDraftTimePassed {
+    if (!hasDraftScheduled) return false;
+    return DateTime.now().isAfter(draftSettings!.draftDateTime!);
+  }
 
   /// Generate a short invite code
   static String generateInviteCode() {
@@ -216,7 +245,7 @@ Join with code: $inviteCode
 Or click: $inviteLink
 ''';
   }
-  
+
   /// Get formatted budget string (e.g., "$100M")
   String get formattedBudget => '\$${budget.toInt()}M';
 
@@ -240,6 +269,10 @@ Or click: $inviteLink
     double? prizePool,
     String? leagueImageUrl,
     bool? isJoined,
+    LeagueMode? mode,
+    DraftSettings? draftSettings,
+    TradeSettings? tradeSettings,
+    int? rosterSize,
   }) {
     return League(
       id: id ?? this.id,
@@ -261,6 +294,10 @@ Or click: $inviteLink
       prizePool: prizePool ?? this.prizePool,
       leagueImageUrl: leagueImageUrl ?? this.leagueImageUrl,
       isJoined: isJoined ?? this.isJoined,
+      mode: mode ?? this.mode,
+      draftSettings: draftSettings ?? this.draftSettings,
+      tradeSettings: tradeSettings ?? this.tradeSettings,
+      rosterSize: rosterSize ?? this.rosterSize,
     );
   }
 
@@ -284,6 +321,10 @@ Or click: $inviteLink
       'entryFee': entryFee,
       'prizePool': prizePool,
       'leagueImageUrl': leagueImageUrl,
+      'mode': mode.name,
+      'draftSettings': draftSettings?.toJson(),
+      'tradeSettings': tradeSettings?.toJson(),
+      'rosterSize': rosterSize,
     };
   }
 
@@ -317,6 +358,21 @@ Or click: $inviteLink
       entryFee: (json['entryFee'] as num?)?.toDouble(),
       prizePool: (json['prizePool'] as num?)?.toDouble(),
       leagueImageUrl: json['leagueImageUrl'] as String?,
+      mode: LeagueMode.values.firstWhere(
+        (e) => e.name == json['mode'],
+        orElse: () => LeagueMode.classic,
+      ),
+      draftSettings: json['draftSettings'] != null
+          ? DraftSettings.fromJson(
+              json['draftSettings'] as Map<String, dynamic>,
+            )
+          : null,
+      tradeSettings: json['tradeSettings'] != null
+          ? TradeSettings.fromJson(
+              json['tradeSettings'] as Map<String, dynamic>,
+            )
+          : null,
+      rosterSize: json['rosterSize'] as int? ?? 18,
     );
   }
 }
@@ -418,10 +474,10 @@ class FantasyTeamPlayer {
   final double predictedPoints; // Predicted points for next fixture
   final bool isCaptain;
   final bool isViceCaptain;
-  
+
   /// Backwards compatibility - returns price (previously called credits)
   double get credits => price;
-  
+
   /// Get formatted price string (e.g., "$8.5M")
   String get formattedPrice => '\$${price.toStringAsFixed(1)}M';
 
@@ -502,8 +558,10 @@ class FantasyTeamPlayer {
         (e) => e.name == json['position'],
         orElse: () => PlayerPosition.midfielder,
       ),
-      price: (json['price'] as num?)?.toDouble() ?? 
-             (json['credits'] as num?)?.toDouble() ?? 5.0, // Support both
+      price:
+          (json['price'] as num?)?.toDouble() ??
+          (json['credits'] as num?)?.toDouble() ??
+          5.0, // Support both
       points: (json['points'] as num?)?.toDouble() ?? 0,
       predictedPoints: (json['predictedPoints'] as num?)?.toDouble() ?? 0,
       isCaptain: json['isCaptain'] as bool? ?? false,
@@ -535,7 +593,7 @@ class FantasyTeamPlayer {
           break;
       }
     }
-    
+
     return FantasyTeamPlayer(
       playerId: player.id,
       playerName: player.displayName,
@@ -555,7 +613,8 @@ class FantasyTeam {
   final String userName;
   final String teamName;
   final List<FantasyTeamPlayer> players;
-  final double totalCredits; // Total budget in millions USD (e.g., 100.0 = $100M)
+  final double
+  totalCredits; // Total budget in millions USD (e.g., 100.0 = $100M)
   final double budgetRemaining; // Remaining budget in millions USD
   final double totalPoints;
   final DateTime createdAt;
@@ -580,11 +639,11 @@ class FantasyTeam {
   });
 
   /// Get captain
-  FantasyTeamPlayer? get captain => 
+  FantasyTeamPlayer? get captain =>
       players.where((p) => p.isCaptain).firstOrNull;
 
   /// Get vice-captain
-  FantasyTeamPlayer? get viceCaptain => 
+  FantasyTeamPlayer? get viceCaptain =>
       players.where((p) => p.isViceCaptain).firstOrNull;
 
   /// Get total predicted points for all players (with captain/VC multipliers)
@@ -602,72 +661,88 @@ class FantasyTeam {
     return players.where((p) => p.position == position).length;
   }
 
-  /// Check if team is valid (15 players total: 11 starters + 4 bench, captain/VC selected)
-  bool get isValid {
-    // Full squad = 15 players (11 starting + 4 bench)
-    if (players.length != 15) return false;
+  /// Check if team is valid for the requested roster size.
+  bool isValidForRosterSize(int rosterSize) {
+    // Check total player count matches roster size
+    if (players.length != rosterSize) return false;
     if (captain == null || viceCaptain == null) return false;
-    
+
     // Check position constraints - flexible for different formations
     final gk = countByPosition(PlayerPosition.goalkeeper);
     final def = countByPosition(PlayerPosition.defender);
     final mid = countByPosition(PlayerPosition.midfielder);
-    final fwd = countByPosition(PlayerPosition.attacker) + 
-                countByPosition(PlayerPosition.forward);
-    
-    // Minimum constraints for any formation:
-    // At least 2 GK (1 starter + 1 sub)
-    // At least 3-6 DEF, 3-6 MID, 1-4 FWD (flexible for different formations)
-    if (gk < 2) return false;
-    if (def < 3 || def > 6) return false;
-    if (mid < 3 || mid > 6) return false;
-    if (fwd < 1 || fwd > 4) return false;
-    
-    // Total should be 15
-    if (gk + def + mid + fwd != 15) return false;
-    
+    final fwd =
+        countByPosition(PlayerPosition.attacker) +
+        countByPosition(PlayerPosition.forward);
+
+    // Minimum constraints vary by roster size
+    if (rosterSize == 18) {
+      // 18-player roster: 2 GK, 5-6 DEF, 5-6 MID, 3-4 FWD
+      if (gk < 2) return false;
+      if (def < 5 || def > 6) return false;
+      if (mid < 5 || mid > 6) return false;
+      if (fwd < 3 || fwd > 4) return false;
+      if (gk + def + mid + fwd != 18) return false;
+    } else {
+      // 15-player roster (default): 2 GK, 3-6 DEF, 3-6 MID, 1-4 FWD
+      if (gk < 2) return false;
+      if (def < 3 || def > 6) return false;
+      if (mid < 3 || mid > 6) return false;
+      if (fwd < 1 || fwd > 4) return false;
+      if (gk + def + mid + fwd != 15) return false;
+    }
+
     return true;
   }
-  
+
+  /// Default validation uses the current 18-player squad standard.
+  bool get isValid => isValidForRosterSize(18);
+
   /// Check if team has minimum required players to be saved (can be incomplete)
   bool get hasMinimumPlayers {
     return players.length >= 11 && captain != null && viceCaptain != null;
   }
-  
+
   /// Get starting XI (first 11 players)
   List<FantasyTeamPlayer> get startingXI => players.take(11).toList();
-  
+
   /// Get bench players (players after first 11)
   List<FantasyTeamPlayer> get benchPlayers => players.skip(11).toList();
 
-  /// Get validation errors
-  List<String> get validationErrors {
+  /// Get validation errors for a given roster size.
+  List<String> validationErrorsForRosterSize(int rosterSize) {
     final errors = <String>[];
-    
-    if (players.length != 15) {
-      errors.add('Team must have exactly 15 players (currently ${players.length})');
+
+    if (players.length != rosterSize) {
+      errors.add(
+        'Team must have exactly $rosterSize players (currently ${players.length})',
+      );
     }
-    
+
     if (captain == null) errors.add('Select a captain');
     if (viceCaptain == null) errors.add('Select a vice-captain');
-    
+
     final gk = countByPosition(PlayerPosition.goalkeeper);
     final def = countByPosition(PlayerPosition.defender);
     final mid = countByPosition(PlayerPosition.midfielder);
-    final fwd = countByPosition(PlayerPosition.attacker) + 
-                countByPosition(PlayerPosition.forward);
-    
+    final fwd =
+        countByPosition(PlayerPosition.attacker) +
+        countByPosition(PlayerPosition.forward);
+
     if (gk < 2) errors.add('Need at least 2 goalkeepers (currently $gk)');
     if (def < 3) errors.add('Need at least 3 defenders (currently $def)');
     if (mid < 3) errors.add('Need at least 3 midfielders (currently $mid)');
     if (fwd < 1) errors.add('Need at least 1 forward (currently $fwd)');
-    
+
     if (budgetRemaining < 0) {
       errors.add('Over budget by \$${(-budgetRemaining).toStringAsFixed(1)}M');
     }
-    
+
     return errors;
   }
+
+  /// Default validation errors use the current 18-player squad standard.
+  List<String> get validationErrors => validationErrorsForRosterSize(18);
 
   FantasyTeam copyWith({
     String? id,
@@ -768,14 +843,15 @@ class FantasyTeam {
 class AvailablePlayer {
   final Player player;
   final double price; // Price in millions USD (e.g., 8.5 = $8.5M)
-  final double selectedByPercent; // Percentage of users who selected this player
+  final double
+  selectedByPercent; // Percentage of users who selected this player
   final double averagePoints; // Average fantasy points per match
   final bool isSelected; // Is this player in the user's current team?
   final PlayerPosition? position; // Override position for demo players
-  
+
   /// Backwards compatibility - returns price (previously called credits)
   double get credits => price;
-  
+
   /// Get formatted price string (e.g., "$8.5M")
   String get formattedPrice => '\$${price.toStringAsFixed(1)}M';
 
@@ -791,7 +867,7 @@ class AvailablePlayer {
   /// Get the effective position (override or from player)
   PlayerPosition get effectivePosition {
     if (position != null) return position!;
-    
+
     // Convert from player's PositionInfo to PlayerPosition
     final posCode = player.position?.code.toLowerCase() ?? 'midfielder';
     switch (posCode) {
@@ -828,4 +904,3 @@ class AvailablePlayer {
     );
   }
 }
-
