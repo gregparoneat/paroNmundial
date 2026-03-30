@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
 
-Color bgColor = const Color(0xff21272D);
-Color bgTextColor = const Color(0xff4A5451);
+Color bgColor = const Color(0xFF1B232C);
+Color bgTextColor = const Color(0xFFB7C3CF);
 Color iconColor = Colors.white;

@@ -12,7 +12,7 @@ class TradePage extends StatefulWidget {
   final League league;
   final List<FantasyTeam> teams; // All teams in the league
   final String currentUserId;
-  
+
   const TradePage({
     super.key,
     required this.league,
@@ -24,28 +24,31 @@ class TradePage extends StatefulWidget {
   State<TradePage> createState() => _TradePageState();
 }
 
-class _TradePageState extends State<TradePage> with SingleTickerProviderStateMixin {
+class _TradePageState extends State<TradePage>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late TradeService _tradeService;
-  
+
   // For proposing trades
   String? _selectedRecipientId;
   final List<FantasyTeamPlayer> _playersToOffer = [];
   final List<FantasyTeamPlayer> _playersToRequest = [];
   final _messageController = TextEditingController();
-  
+  final _playerSearchController = TextEditingController();
+  String _playerSearchQuery = '';
+
   FantasyTeam? get _myTeam => widget.teams.firstWhere(
     (t) => t.userId == widget.currentUserId,
     orElse: () => throw Exception('Your team not found'),
   );
-  
+
   FantasyTeam? get _selectedRecipientTeam => _selectedRecipientId != null
       ? widget.teams.firstWhere(
           (t) => t.userId == _selectedRecipientId,
           orElse: () => throw Exception('Recipient team not found'),
         )
       : null;
-  
+
   @override
   void initState() {
     super.initState();
@@ -56,24 +59,25 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
     );
     _tradeService.addListener(_onTradeServiceUpdate);
   }
-  
+
   void _onTradeServiceUpdate() {
     if (mounted) setState(() {});
   }
-  
+
   @override
   void dispose() {
     _tabController.dispose();
     _tradeService.removeListener(_onTradeServiceUpdate);
     _tradeService.dispose();
     _messageController.dispose();
+    _playerSearchController.dispose();
     super.dispose();
   }
-  
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Trades'),
@@ -97,7 +101,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
           // Trade deadline banner
           if (widget.league.tradeSettings?.hasDeadline ?? false)
             _buildDeadlineBanner(theme),
-          
+
           Expanded(
             child: TabBarView(
               controller: _tabController,
@@ -112,14 +116,14 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
       ),
     );
   }
-  
+
   Widget _buildDeadlineBanner(ThemeData theme) {
     final deadline = widget.league.tradeSettings?.tradeDeadline;
     if (deadline == null) return const SizedBox.shrink();
-    
+
     final isPassed = DateTime.now().isAfter(deadline);
     final color = isPassed ? Colors.red : Colors.orange;
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: color.withValues(alpha: 0.2),
@@ -139,12 +143,12 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
       ),
     );
   }
-  
+
   Widget _buildInboxTab(ThemeData theme) {
     final incoming = _tradeService.incomingTrades;
     final outgoing = _tradeService.outgoingTrades;
     final awaitingVote = _tradeService.tradesAwaitingVote;
-    
+
     if (incoming.isEmpty && outgoing.isEmpty && awaitingVote.isEmpty) {
       return Center(
         child: Column(
@@ -165,7 +169,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
         ),
       );
     }
-    
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -180,13 +184,19 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
           const SizedBox(height: 16),
         ],
         if (awaitingVote.isNotEmpty) ...[
-          _buildSectionHeader(theme, 'Awaiting League Vote', awaitingVote.length),
-          ...awaitingVote.map((t) => _buildTradeCard(theme, t, showVoting: true)),
+          _buildSectionHeader(
+            theme,
+            'Awaiting League Vote',
+            awaitingVote.length,
+          ),
+          ...awaitingVote.map(
+            (t) => _buildTradeCard(theme, t, showVoting: true),
+          ),
         ],
       ],
     );
   }
-  
+
   Widget _buildSectionHeader(ThemeData theme, String title, int count) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -218,7 +228,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
       ),
     );
   }
-  
+
   Widget _buildTradeCard(
     ThemeData theme,
     Trade trade, {
@@ -240,7 +250,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
                   radius: 18,
                   backgroundColor: theme.primaryColor.withValues(alpha: 0.2),
                   child: Text(
-                    isIncoming 
+                    isIncoming
                         ? trade.proposerName[0].toUpperCase()
                         : trade.recipientName[0].toUpperCase(),
                     style: TextStyle(color: theme.primaryColor),
@@ -271,9 +281,9 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
                 _buildStatusChip(theme, trade.status),
               ],
             ),
-            
+
             const Divider(height: 24),
-            
+
             // Trade details
             Row(
               children: [
@@ -289,16 +299,14 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
                         ),
                       ),
                       const SizedBox(height: 4),
-                      ...( isIncoming ? trade.proposerPlayers : trade.recipientPlayers)
+                      ...(isIncoming
+                              ? trade.proposerPlayers
+                              : trade.recipientPlayers)
                           .map((p) => _buildPlayerRow(theme, p)),
                     ],
                   ),
                 ),
-                Container(
-                  width: 1,
-                  height: 60,
-                  color: Colors.grey.shade700,
-                ),
+                Container(width: 1, height: 60, color: Colors.grey.shade700),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -314,17 +322,21 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
                         ),
                       ),
                       const SizedBox(height: 4),
-                      ...(isIncoming ? trade.recipientPlayers : trade.proposerPlayers)
-                          .map((p) => Padding(
-                            padding: const EdgeInsets.only(left: 12),
-                            child: _buildPlayerRow(theme, p),
-                          )),
+                      ...(isIncoming
+                              ? trade.recipientPlayers
+                              : trade.proposerPlayers)
+                          .map(
+                            (p) => Padding(
+                              padding: const EdgeInsets.only(left: 12),
+                              child: _buildPlayerRow(theme, p),
+                            ),
+                          ),
                     ],
                   ),
                 ),
               ],
             ),
-            
+
             // Message
             if (trade.message != null && trade.message!.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -350,7 +362,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
                 ),
               ),
             ],
-            
+
             // Actions
             if (trade.isPending && isIncoming) ...[
               const SizedBox(height: 16),
@@ -379,7 +391,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
                 ],
               ),
             ],
-            
+
             if (trade.isPending && !isIncoming) ...[
               const SizedBox(height: 16),
               SizedBox(
@@ -394,7 +406,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
                 ),
               ),
             ],
-            
+
             // Voting
             if (showVoting) ...[
               const SizedBox(height: 16),
@@ -405,7 +417,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
       ),
     );
   }
-  
+
   Widget _buildPlayerRow(ThemeData theme, TradePlayer player) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -448,7 +460,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
       ),
     );
   }
-  
+
   Widget _buildStatusChip(ThemeData theme, TradeStatus status) {
     Color color;
     switch (status) {
@@ -470,7 +482,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
         color = Colors.grey;
         break;
     }
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -486,14 +498,15 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
       ),
     );
   }
-  
+
   Widget _buildVotingSection(ThemeData theme, Trade trade) {
     final votesFor = trade.votesFor ?? 0;
     final votesAgainst = trade.votesAgainst ?? 0;
     final hasVoted = trade.voters?.contains(widget.currentUserId) ?? false;
-    final isParticipant = trade.proposerId == widget.currentUserId || 
-                          trade.recipientId == widget.currentUserId;
-    
+    final isParticipant =
+        trade.proposerId == widget.currentUserId ||
+        trade.recipientId == widget.currentUserId;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -570,8 +583,13 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
       ),
     );
   }
-  
-  Widget _buildVoteCount(ThemeData theme, String label, int count, Color color) {
+
+  Widget _buildVoteCount(
+    ThemeData theme,
+    String label,
+    int count,
+    Color color,
+  ) {
     return Row(
       children: [
         Container(
@@ -596,7 +614,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
       ],
     );
   }
-  
+
   Widget _buildProposeTab(ThemeData theme) {
     if (!_tradeService.isTradingEnabled) {
       return Center(
@@ -618,27 +636,55 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
         ),
       );
     }
-    
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Select recipient
           Text(
-            'Trade with:',
-            style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+            'Find a player to target',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 8),
-          _buildRecipientSelector(theme),
-          
+          TextField(
+            controller: _playerSearchController,
+            decoration: InputDecoration(
+              hintText: 'Search players in other squads...',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _playerSearchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _playerSearchController.clear();
+                        setState(() => _playerSearchQuery = '');
+                      },
+                    )
+                  : null,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onChanged: (value) => setState(() => _playerSearchQuery = value),
+          ),
+          const SizedBox(height: 12),
+          _buildTradeTargetSearch(theme),
+
           if (_selectedRecipientId != null) ...[
             const SizedBox(height: 24),
-            
+
+            _buildSelectedTradeTarget(theme),
+
+            const SizedBox(height: 24),
+
             // Players to offer
             Text(
-              'Players you offer:',
-              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+              'Choose one of your players to offer:',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 8),
             _buildPlayerSelector(
@@ -647,24 +693,9 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
               _playersToOffer,
               isOffer: true,
             ),
-            
+
             const SizedBox(height: 24),
-            
-            // Players to request
-            Text(
-              'Players you want:',
-              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            _buildPlayerSelector(
-              theme,
-              _selectedRecipientTeam!.players,
-              _playersToRequest,
-              isOffer: false,
-            ),
-            
-            const SizedBox(height: 24),
-            
+
             // Message
             TextField(
               controller: _messageController,
@@ -677,9 +708,9 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
               ),
               maxLines: 2,
             ),
-            
+
             const SizedBox(height: 24),
-            
+
             // Submit button
             SizedBox(
               width: double.infinity,
@@ -698,42 +729,191 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
       ),
     );
   }
-  
-  Widget _buildRecipientSelector(ThemeData theme) {
-    final otherTeams = widget.teams
-        .where((t) => t.userId != widget.currentUserId)
-        .toList();
-    
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: otherTeams.map((team) {
-        final isSelected = team.userId == _selectedRecipientId;
-        return ChoiceChip(
-          label: Text(team.teamName ?? team.userName),
-          selected: isSelected,
-          onSelected: (_) {
-            setState(() {
-              _selectedRecipientId = team.userId;
-              _playersToOffer.clear();
-              _playersToRequest.clear();
-            });
-          },
-          selectedColor: theme.primaryColor,
-          labelStyle: TextStyle(
-            color: isSelected ? Colors.white : null,
+
+  List<(FantasyTeam team, FantasyTeamPlayer player)>
+  get _searchableTradeTargets {
+    final query = _playerSearchQuery.trim().toLowerCase();
+    final results = <(FantasyTeam, FantasyTeamPlayer)>[];
+
+    for (final team in widget.teams.where(
+      (t) => t.userId != widget.currentUserId,
+    )) {
+      for (final player in team.players) {
+        final matches =
+            query.isEmpty ||
+            player.playerName.toLowerCase().contains(query) ||
+            (player.teamName ?? '').toLowerCase().contains(query);
+        if (matches) {
+          results.add((team, player));
+        }
+      }
+    }
+
+    results.sort(
+      (a, b) => b.$2.predictedPoints.compareTo(a.$2.predictedPoints),
+    );
+    return results;
+  }
+
+  Widget _buildTradeTargetSearch(ThemeData theme) {
+    final targets = _searchableTradeTargets;
+
+    if (targets.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Center(
+          child: Text(
+            'No trade targets found',
+            style: TextStyle(color: Colors.grey.shade500),
           ),
-        );
-      }).toList(),
+        ),
+      );
+    }
+
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 320),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade800),
+      ),
+      child: ListView.separated(
+        shrinkWrap: true,
+        itemCount: targets.length,
+        separatorBuilder: (_, __) =>
+            Divider(height: 1, color: Colors.grey.shade900),
+        itemBuilder: (context, index) {
+          final target = targets[index];
+          final team = target.$1;
+          final player = target.$2;
+          final isSelected = _playersToRequest.any(
+            (p) => p.playerId == player.playerId,
+          );
+
+          return ListTile(
+            leading: CircleAvatar(
+              radius: 18,
+              backgroundColor: _getPositionColor(
+                player.position,
+              ).withValues(alpha: 0.18),
+              child: Text(
+                player.position.abbreviation,
+                style: TextStyle(
+                  color: _getPositionColor(player.position),
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            title: Text(
+              player.playerName,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: isSelected ? FontWeight.bold : null,
+              ),
+            ),
+            subtitle: Text(
+              '${player.teamName ?? ''} • Owned by ${team.teamName ?? team.userName} • ${player.predictedPoints.toStringAsFixed(1)} next',
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: isSelected
+                ? Icon(Icons.check_circle, color: theme.primaryColor)
+                : const Icon(Icons.chevron_right),
+            onTap: () {
+              setState(() {
+                _selectedRecipientId = team.userId;
+                _playersToRequest
+                  ..clear()
+                  ..add(player);
+                _playersToOffer.clear();
+              });
+            },
+          );
+        },
+      ),
     );
   }
-  
+
+  Widget _buildSelectedTradeTarget(ThemeData theme) {
+    final requestedPlayer = _playersToRequest.isEmpty
+        ? null
+        : _playersToRequest.first;
+    final recipientTeam = _selectedRecipientTeam;
+    if (requestedPlayer == null || recipientTeam == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.green.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: _getPositionColor(
+              requestedPlayer.position,
+            ).withValues(alpha: 0.18),
+            child: Text(
+              requestedPlayer.position.abbreviation,
+              style: TextStyle(
+                color: _getPositionColor(requestedPlayer.position),
+                fontWeight: FontWeight.bold,
+                fontSize: 10,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  requestedPlayer.playerName,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Owned by ${recipientTeam.teamName ?? recipientTeam.userName}',
+                  style: TextStyle(color: Colors.grey.shade400),
+                ),
+                Text(
+                  '${requestedPlayer.predictedPoints.toStringAsFixed(1)} next • ${requestedPlayer.teamName ?? ''}',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: () {
+              setState(() {
+                _selectedRecipientId = null;
+                _playersToRequest.clear();
+                _playersToOffer.clear();
+              });
+            },
+            icon: const Icon(Icons.close),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPlayerSelector(
     ThemeData theme,
     List<FantasyTeamPlayer> players,
-    List<FantasyTeamPlayer> selected,
-    {required bool isOffer}
-  ) {
+    List<FantasyTeamPlayer> selected, {
+    required bool isOffer,
+  }) {
     return Container(
       decoration: BoxDecoration(
         border: Border.all(color: Colors.grey.shade700),
@@ -746,25 +926,34 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: (isOffer ? Colors.red : Colors.green).withValues(alpha: 0.1),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                color: (isOffer ? Colors.red : Colors.green).withValues(
+                  alpha: 0.1,
+                ),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(8),
+                ),
               ),
               child: Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: selected.map((p) => Chip(
-                  label: Text(p.playerName),
-                  deleteIcon: const Icon(Icons.close, size: 16),
-                  onDeleted: () {
-                    setState(() {
-                      selected.remove(p);
-                    });
-                  },
-                  backgroundColor: (isOffer ? Colors.red : Colors.green).withValues(alpha: 0.2),
-                )).toList(),
+                children: selected
+                    .map(
+                      (p) => Chip(
+                        label: Text(p.playerName),
+                        deleteIcon: const Icon(Icons.close, size: 16),
+                        onDeleted: () {
+                          setState(() {
+                            selected.remove(p);
+                          });
+                        },
+                        backgroundColor: (isOffer ? Colors.red : Colors.green)
+                            .withValues(alpha: 0.2),
+                      ),
+                    )
+                    .toList(),
               ),
             ),
-          
+
           // Available players
           Container(
             constraints: const BoxConstraints(maxHeight: 200),
@@ -774,12 +963,14 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
               itemBuilder: (context, index) {
                 final player = players[index];
                 final isSelected = selected.contains(player);
-                
+
                 return ListTile(
                   dense: true,
                   leading: CircleAvatar(
                     radius: 16,
-                    backgroundColor: _getPositionColor(player.position).withValues(alpha: 0.2),
+                    backgroundColor: _getPositionColor(
+                      player.position,
+                    ).withValues(alpha: 0.2),
                     child: Text(
                       player.position.abbreviation,
                       style: TextStyle(
@@ -796,14 +987,18 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
                   ),
                   subtitle: Text(
                     player.teamName ?? '',
-                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.grey,
+                    ),
                   ),
                   trailing: Checkbox(
                     value: isSelected,
                     onChanged: (value) {
                       setState(() {
                         if (value == true) {
-                          selected.add(player);
+                          selected
+                            ..clear()
+                            ..add(player);
                         } else {
                           selected.remove(player);
                         }
@@ -815,7 +1010,9 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
                       if (isSelected) {
                         selected.remove(player);
                       } else {
-                        selected.add(player);
+                        selected
+                          ..clear()
+                          ..add(player);
                       }
                     });
                   },
@@ -827,10 +1024,10 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
       ),
     );
   }
-  
+
   Widget _buildHistoryTab(ThemeData theme) {
     final history = _tradeService.myTradeHistory;
-    
+
     if (history.isEmpty) {
       return Center(
         child: Column(
@@ -846,7 +1043,7 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
         ),
       );
     }
-    
+
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: history.length,
@@ -857,26 +1054,35 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
       },
     );
   }
-  
+
   bool get _canProposeTrade =>
-      _playersToOffer.isNotEmpty || _playersToRequest.isNotEmpty;
-  
+      _selectedRecipientId != null &&
+      _playersToOffer.isNotEmpty &&
+      _playersToRequest.isNotEmpty;
+
   Future<void> _proposeTrade() async {
     if (_selectedRecipientId == null) return;
-    
+
     final trade = await _tradeService.proposeTrade(
       recipientId: _selectedRecipientId!,
-      recipientName: _selectedRecipientTeam?.teamName ?? _selectedRecipientTeam?.userName ?? '',
-      playersOffered: _playersToOffer.map((p) => TradePlayer.fromFantasyTeamPlayer(p)).toList(),
-      playersRequested: _playersToRequest.map((p) => TradePlayer.fromFantasyTeamPlayer(p)).toList(),
+      recipientName:
+          _selectedRecipientTeam?.teamName ??
+          _selectedRecipientTeam?.userName ??
+          '',
+      playersOffered: _playersToOffer
+          .map((p) => TradePlayer.fromFantasyTeamPlayer(p))
+          .toList(),
+      playersRequested: _playersToRequest
+          .map((p) => TradePlayer.fromFantasyTeamPlayer(p))
+          .toList(),
       message: _messageController.text.isEmpty ? null : _messageController.text,
     );
-    
+
     if (trade != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Trade proposed successfully')),
       );
-      
+
       // Clear form
       setState(() {
         _playersToOffer.clear();
@@ -884,48 +1090,50 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
         _messageController.clear();
         _selectedRecipientId = null;
       });
-      
+
       // Switch to inbox tab
       _tabController.animateTo(0);
     }
   }
-  
+
   Future<void> _acceptTrade(Trade trade) async {
     final success = await _tradeService.acceptTrade(trade.id);
     if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Trade accepted')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Trade accepted')));
     }
   }
-  
+
   Future<void> _rejectTrade(Trade trade) async {
     final success = await _tradeService.rejectTrade(trade.id);
     if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Trade rejected')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Trade rejected')));
     }
   }
-  
+
   Future<void> _cancelTrade(Trade trade) async {
     final success = await _tradeService.cancelTrade(trade.id);
     if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Trade cancelled')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Trade cancelled')));
     }
   }
-  
+
   Future<void> _voteOnTrade(Trade trade, {required bool approve}) async {
     final success = await _tradeService.voteOnTrade(trade.id, approve: approve);
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Vote recorded: ${approve ? "For" : "Against"}')),
+        SnackBar(
+          content: Text('Vote recorded: ${approve ? "For" : "Against"}'),
+        ),
       );
     }
   }
-  
+
   Color _getPositionColor(PlayerPosition position) {
     switch (position) {
       case PlayerPosition.goalkeeper:
@@ -940,4 +1148,3 @@ class _TradePageState extends State<TradePage> with SingleTickerProviderStateMix
     }
   }
 }
-

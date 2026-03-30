@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:fantacy11/api/repositories/players_repository.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:fantacy11/features/league/models/league_models.dart';
@@ -16,10 +17,12 @@ class LeagueRepository {
   static const String _membersBox = 'league_members_box';
   static const String _teamsBox = 'fantasy_teams_box';
   static const String _currentUserKey = 'current_user';
-  
+  static const String _draftTestLeagueName = 'TEST: Draft Today';
+  static const String _draftQuickTestLeagueName = 'TEST: Draft Today (6 Teams)';
+
   final _uuid = const Uuid();
   final _firestoreService = FirestoreService();
-  
+
   Box<String>? _leaguesBoxInstance;
   Box<String>? _membersBoxInstance;
   Box<String>? _teamsBoxInstance;
@@ -29,47 +32,50 @@ class LeagueRepository {
   /// Initialize the repository
   Future<void> init() async {
     if (_initialized) return;
-    
+
     _leaguesBoxInstance = await Hive.openBox<String>(_leaguesBox);
     _membersBoxInstance = await Hive.openBox<String>(_membersBox);
     _teamsBoxInstance = await Hive.openBox<String>(_teamsBox);
-    
+
     _initialized = true;
     debugPrint('LeagueRepository initialized');
-    
+
     // Sync from Firestore or create demo data
     await _syncFromFirestoreOrCreateDemo();
+    await _ensureDraftTodayTestLeagues();
   }
-  
+
   /// Sync data from Firestore or create demo leagues if empty
   Future<void> _syncFromFirestoreOrCreateDemo() async {
     try {
       if (_useFirestore) {
         // Try to fetch leagues from Firestore
         final firestoreLeagues = await _firestoreService.getLeagues();
-        
+
         if (firestoreLeagues.isNotEmpty) {
-          debugPrint('Syncing ${firestoreLeagues.length} leagues from Firestore');
-          
+          debugPrint(
+            'Syncing ${firestoreLeagues.length} leagues from Firestore',
+          );
+
           // Cache leagues locally
           for (final leagueJson in firestoreLeagues) {
             final leagueId = leagueJson['id'] as String;
             await _leaguesBoxInstance!.put(leagueId, json.encode(leagueJson));
-            
+
             // Also sync members and teams for this league
             final members = await _firestoreService.getLeagueMembers(leagueId);
             for (final memberJson in members) {
               final memberId = memberJson['id'] as String;
               await _membersBoxInstance!.put(memberId, json.encode(memberJson));
             }
-            
+
             final teams = await _firestoreService.getLeagueTeams(leagueId);
             for (final teamJson in teams) {
               final teamId = teamJson['id'] as String;
               await _teamsBoxInstance!.put(teamId, json.encode(teamJson));
             }
           }
-          
+
           debugPrint('Firestore sync complete');
           return;
         }
@@ -77,7 +83,7 @@ class LeagueRepository {
     } catch (e) {
       debugPrint('Firestore sync failed, using local data: $e');
     }
-    
+
     // Fall back to demo data if Firestore is empty or unavailable
     await _createDemoLeaguesIfNeeded();
   }
@@ -106,11 +112,13 @@ class LeagueRepository {
     int rosterSize = 18,
   }) async {
     await _ensureInitialized();
-    
+
     final currentUser = await getCurrentUser();
     final leagueId = _uuid.v4();
-    final inviteCode = type == LeagueType.private ? League.generateInviteCode() : null;
-    
+    final inviteCode = type == LeagueType.private
+        ? League.generateInviteCode()
+        : null;
+
     final league = League(
       id: leagueId,
       name: name,
@@ -132,10 +140,10 @@ class LeagueRepository {
       tradeSettings: tradeSettings,
       rosterSize: rosterSize,
     );
-    
+
     // Save league (to Hive and Firestore)
     await _saveLeague(league);
-    
+
     // Add creator as first member
     final member = LeagueMember(
       id: _uuid.v4(),
@@ -147,7 +155,7 @@ class LeagueRepository {
       isCreator: true,
     );
     await _saveMember(member);
-    
+
     debugPrint('Created ${mode.name} league: ${league.name} (${league.id})');
     return league;
   }
@@ -155,10 +163,10 @@ class LeagueRepository {
   /// Get a league by ID
   Future<League?> getLeague(String leagueId) async {
     await _ensureInitialized();
-    
+
     final data = _leaguesBoxInstance!.get(leagueId);
     if (data == null) return null;
-    
+
     try {
       return League.fromJson(json.decode(data) as Map<String, dynamic>);
     } catch (e) {
@@ -170,16 +178,18 @@ class LeagueRepository {
   /// Get all public leagues (marks isJoined for leagues user has already joined)
   Future<List<League>> getPublicLeagues() async {
     await _ensureInitialized();
-    
+
     // First get the list of leagues the user has joined
     final currentUser = await getCurrentUser();
     final myLeagueIds = <String>{};
-    
+
     for (final key in _membersBoxInstance!.keys) {
       final data = _membersBoxInstance!.get(key);
       if (data != null) {
         try {
-          final member = LeagueMember.fromJson(json.decode(data) as Map<String, dynamic>);
+          final member = LeagueMember.fromJson(
+            json.decode(data) as Map<String, dynamic>,
+          );
           if (member.oderId == currentUser.oderId) {
             myLeagueIds.add(member.leagueId);
           }
@@ -188,23 +198,27 @@ class LeagueRepository {
         }
       }
     }
-    
+
     final leagues = <League>[];
     for (final key in _leaguesBoxInstance!.keys) {
       final data = _leaguesBoxInstance!.get(key);
       if (data != null) {
         try {
-          final league = League.fromJson(json.decode(data) as Map<String, dynamic>);
+          final league = League.fromJson(
+            json.decode(data) as Map<String, dynamic>,
+          );
           if (league.isPublic && league.status == LeagueStatus.draft) {
             // Mark as joined if user is a member
-            leagues.add(league.copyWith(isJoined: myLeagueIds.contains(league.id)));
+            leagues.add(
+              league.copyWith(isJoined: myLeagueIds.contains(league.id)),
+            );
           }
         } catch (e) {
           debugPrint('Error parsing league $key: $e');
         }
       }
     }
-    
+
     // Sort by created date (newest first)
     leagues.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return leagues;
@@ -213,16 +227,18 @@ class LeagueRepository {
   /// Get leagues the current user is a member of
   Future<List<League>> getMyLeagues() async {
     await _ensureInitialized();
-    
+
     final currentUser = await getCurrentUser();
     final myLeagueIds = <String>[];
-    
+
     // Find all leagues where user is a member
     for (final key in _membersBoxInstance!.keys) {
       final data = _membersBoxInstance!.get(key);
       if (data != null) {
         try {
-          final member = LeagueMember.fromJson(json.decode(data) as Map<String, dynamic>);
+          final member = LeagueMember.fromJson(
+            json.decode(data) as Map<String, dynamic>,
+          );
           if (member.oderId == currentUser.oderId) {
             myLeagueIds.add(member.leagueId);
           }
@@ -231,7 +247,7 @@ class LeagueRepository {
         }
       }
     }
-    
+
     // Get league details and mark all as joined (since these are "My Leagues")
     final leagues = <League>[];
     for (final leagueId in myLeagueIds) {
@@ -240,7 +256,7 @@ class LeagueRepository {
         leagues.add(league.copyWith(isJoined: true));
       }
     }
-    
+
     // Sort by created date (newest first)
     leagues.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return leagues;
@@ -249,12 +265,14 @@ class LeagueRepository {
   /// Get league by invite code
   Future<League?> getLeagueByInviteCode(String code) async {
     await _ensureInitialized();
-    
+
     for (final key in _leaguesBoxInstance!.keys) {
       final data = _leaguesBoxInstance!.get(key);
       if (data != null) {
         try {
-          final league = League.fromJson(json.decode(data) as Map<String, dynamic>);
+          final league = League.fromJson(
+            json.decode(data) as Map<String, dynamic>,
+          );
           if (league.inviteCode?.toUpperCase() == code.toUpperCase()) {
             return league;
           }
@@ -269,27 +287,29 @@ class LeagueRepository {
   /// Join a league
   Future<LeagueMember?> joinLeague(String leagueId) async {
     await _ensureInitialized();
-    
+
     final league = await getLeague(leagueId);
     if (league == null) {
       debugPrint('League not found: $leagueId');
       return null;
     }
-    
+
     if (!league.canJoin) {
-      debugPrint('Cannot join league: ${league.id} (full or not in draft status)');
+      debugPrint(
+        'Cannot join league: ${league.id} (full or not in draft status)',
+      );
       return null;
     }
-    
+
     final currentUser = await getCurrentUser();
-    
+
     // Check if already a member
     final existingMember = await getMember(leagueId, currentUser.oderId);
     if (existingMember != null) {
       debugPrint('User already a member of league: $leagueId');
       return existingMember;
     }
-    
+
     // Create member
     final member = LeagueMember(
       id: _uuid.v4(),
@@ -300,14 +320,14 @@ class LeagueRepository {
       joinedAt: DateTime.now(),
     );
     await _saveMember(member);
-    
+
     // Update league member count
     final updatedLeague = league.copyWith(
       memberCount: league.memberCount + 1,
       updatedAt: DateTime.now(),
     );
     await _saveLeague(updatedLeague);
-    
+
     debugPrint('Joined league: ${league.name}');
     return member;
   }
@@ -315,20 +335,20 @@ class LeagueRepository {
   /// Leave a league
   Future<bool> leaveLeague(String leagueId) async {
     await _ensureInitialized();
-    
+
     final currentUser = await getCurrentUser();
     final member = await getMember(leagueId, currentUser.oderId);
-    
+
     if (member == null) {
       debugPrint('User is not a member of league: $leagueId');
       return false;
     }
-    
+
     if (member.isCreator) {
       debugPrint('Creator cannot leave league. Delete the league instead.');
       return false;
     }
-    
+
     // Remove member
     await _membersBoxInstance!.delete(member.id);
     if (_useFirestore) {
@@ -338,7 +358,7 @@ class LeagueRepository {
         debugPrint('Failed to delete member from Firestore: $e');
       }
     }
-    
+
     // Update league member count
     final league = await getLeague(leagueId);
     if (league != null) {
@@ -348,7 +368,7 @@ class LeagueRepository {
       );
       await _saveLeague(updatedLeague);
     }
-    
+
     // Delete user's fantasy team if exists
     final team = await getFantasyTeam(leagueId, currentUser.oderId);
     if (team != null) {
@@ -361,7 +381,7 @@ class LeagueRepository {
         }
       }
     }
-    
+
     debugPrint('Left league: $leagueId');
     return true;
   }
@@ -369,28 +389,30 @@ class LeagueRepository {
   /// Delete a league (only creator can delete)
   Future<bool> deleteLeague(String leagueId) async {
     await _ensureInitialized();
-    
+
     final currentUser = await getCurrentUser();
     final league = await getLeague(leagueId);
-    
+
     if (league == null) return false;
     if (league.createdBy != currentUser.oderId) {
       debugPrint('Only creator can delete the league');
       return false;
     }
-    
+
     // Delete all members
     final members = await getLeagueMembers(leagueId);
     for (final member in members) {
       await _membersBoxInstance!.delete(member.id);
     }
-    
+
     // Delete all fantasy teams
     for (final key in _teamsBoxInstance!.keys) {
       final data = _teamsBoxInstance!.get(key);
       if (data != null) {
         try {
-          final team = FantasyTeam.fromJson(json.decode(data) as Map<String, dynamic>);
+          final team = FantasyTeam.fromJson(
+            json.decode(data) as Map<String, dynamic>,
+          );
           if (team.leagueId == leagueId) {
             await _teamsBoxInstance!.delete(key);
           }
@@ -399,10 +421,10 @@ class LeagueRepository {
         }
       }
     }
-    
+
     // Delete league
     await _leaguesBoxInstance!.delete(leagueId);
-    
+
     // Delete from Firestore (this also deletes members and teams)
     if (_useFirestore) {
       try {
@@ -411,7 +433,7 @@ class LeagueRepository {
         debugPrint('Failed to delete league from Firestore: $e');
       }
     }
-    
+
     debugPrint('Deleted league: $leagueId');
     return true;
   }
@@ -421,13 +443,15 @@ class LeagueRepository {
   /// Get all members of a league
   Future<List<LeagueMember>> getLeagueMembers(String leagueId) async {
     await _ensureInitialized();
-    
+
     final members = <LeagueMember>[];
     for (final key in _membersBoxInstance!.keys) {
       final data = _membersBoxInstance!.get(key);
       if (data != null) {
         try {
-          final member = LeagueMember.fromJson(json.decode(data) as Map<String, dynamic>);
+          final member = LeagueMember.fromJson(
+            json.decode(data) as Map<String, dynamic>,
+          );
           if (member.leagueId == leagueId) {
             members.add(member);
           }
@@ -436,25 +460,27 @@ class LeagueRepository {
         }
       }
     }
-    
+
     // Sort by rank (if set) or join date
     members.sort((a, b) {
       if (a.rank != b.rank) return a.rank.compareTo(b.rank);
       return a.joinedAt.compareTo(b.joinedAt);
     });
-    
+
     return members;
   }
 
   /// Get a specific member
   Future<LeagueMember?> getMember(String leagueId, String userId) async {
     await _ensureInitialized();
-    
+
     for (final key in _membersBoxInstance!.keys) {
       final data = _membersBoxInstance!.get(key);
       if (data != null) {
         try {
-          final member = LeagueMember.fromJson(json.decode(data) as Map<String, dynamic>);
+          final member = LeagueMember.fromJson(
+            json.decode(data) as Map<String, dynamic>,
+          );
           if (member.leagueId == leagueId && member.oderId == userId) {
             return member;
           }
@@ -470,7 +496,7 @@ class LeagueRepository {
   Future<void> _saveMember(LeagueMember member) async {
     final memberJson = member.toJson();
     await _membersBoxInstance!.put(member.id, json.encode(memberJson));
-    
+
     // Sync to Firestore
     if (_useFirestore) {
       try {
@@ -480,12 +506,12 @@ class LeagueRepository {
       }
     }
   }
-  
+
   /// Save a league (to Hive and Firestore)
   Future<void> _saveLeague(League league) async {
     final leagueJson = league.toJson();
     await _leaguesBoxInstance!.put(league.id, json.encode(leagueJson));
-    
+
     // Sync to Firestore
     if (_useFirestore) {
       try {
@@ -501,11 +527,11 @@ class LeagueRepository {
   /// Create or update a fantasy team
   Future<FantasyTeam> saveFantasyTeam(FantasyTeam team) async {
     await _ensureInitialized();
-    
+
     final teamToSave = team.copyWith(updatedAt: DateTime.now());
     final teamJson = teamToSave.toJson();
     await _teamsBoxInstance!.put(team.id, json.encode(teamJson));
-    
+
     // Sync to Firestore
     if (_useFirestore) {
       try {
@@ -514,14 +540,14 @@ class LeagueRepository {
         debugPrint('Failed to sync fantasy team to Firestore: $e');
       }
     }
-    
+
     // Update member with team ID
     final member = await getMember(team.leagueId, team.userId);
     if (member != null && member.fantasyTeamId == null) {
       final updatedMember = member.copyWith(fantasyTeamId: team.id);
       await _saveMember(updatedMember);
     }
-    
+
     debugPrint('Saved fantasy team: ${team.id}');
     return teamToSave;
   }
@@ -529,12 +555,14 @@ class LeagueRepository {
   /// Get a fantasy team
   Future<FantasyTeam?> getFantasyTeam(String leagueId, String userId) async {
     await _ensureInitialized();
-    
+
     for (final key in _teamsBoxInstance!.keys) {
       final data = _teamsBoxInstance!.get(key);
       if (data != null) {
         try {
-          final team = FantasyTeam.fromJson(json.decode(data) as Map<String, dynamic>);
+          final team = FantasyTeam.fromJson(
+            json.decode(data) as Map<String, dynamic>,
+          );
           if (team.leagueId == leagueId && team.userId == userId) {
             return team;
           }
@@ -549,13 +577,15 @@ class LeagueRepository {
   /// Get all teams in a league (for standings)
   Future<List<FantasyTeam>> getLeagueTeams(String leagueId) async {
     await _ensureInitialized();
-    
+
     final teams = <FantasyTeam>[];
     for (final key in _teamsBoxInstance!.keys) {
       final data = _teamsBoxInstance!.get(key);
       if (data != null) {
         try {
-          final team = FantasyTeam.fromJson(json.decode(data) as Map<String, dynamic>);
+          final team = FantasyTeam.fromJson(
+            json.decode(data) as Map<String, dynamic>,
+          );
           if (team.leagueId == leagueId) {
             teams.add(team);
           }
@@ -564,7 +594,7 @@ class LeagueRepository {
         }
       }
     }
-    
+
     // Sort by total points (descending)
     teams.sort((a, b) => b.totalPoints.compareTo(a.totalPoints));
     return teams;
@@ -577,15 +607,15 @@ class LeagueRepository {
     String? teamName,
   }) async {
     await _ensureInitialized();
-    
+
     final currentUser = await getCurrentUser();
-    
+
     // Check if team already exists
     final existingTeam = await getFantasyTeam(leagueId, currentUser.oderId);
     if (existingTeam != null) {
       return existingTeam;
     }
-    
+
     final team = FantasyTeam.empty(
       id: _uuid.v4(),
       leagueId: leagueId,
@@ -594,42 +624,125 @@ class LeagueRepository {
       teamName: teamName ?? '${currentUser.userName}\'s Team',
       budget: budget,
     );
-    
+
     return await saveFantasyTeam(team);
   }
-  
+
   /// Update a fantasy team's name
-  Future<FantasyTeam?> updateTeamName(String leagueId, String newTeamName) async {
+  Future<FantasyTeam?> updateTeamName(
+    String leagueId,
+    String newTeamName,
+  ) async {
     await _ensureInitialized();
-    
+
     final currentUser = await getCurrentUser();
     final team = await getFantasyTeam(leagueId, currentUser.oderId);
-    
+
     if (team == null) return null;
-    
+
     final updatedTeam = team.copyWith(teamName: newTeamName);
     return await saveFantasyTeam(updatedTeam);
   }
-  
+
+  Future<void> finalizeDraftResults({
+    required League league,
+    required List<DraftPick> picks,
+    required List<RosterPlayer> rosterPlayers,
+  }) async {
+    await _ensureInitialized();
+
+    final members = await getLeagueMembers(league.id);
+    final playersById = <int, RosterPlayer>{
+      for (final player in rosterPlayers) player.id: player,
+    };
+    final picksByUser = <String, List<DraftPick>>{};
+
+    for (final pick in picks) {
+      picksByUser.putIfAbsent(pick.userId, () => []).add(pick);
+    }
+
+    for (final member in members) {
+      final memberPicks = picksByUser[member.oderId] ?? const <DraftPick>[];
+      if (memberPicks.isEmpty) continue;
+
+      final existingTeam = await getFantasyTeam(league.id, member.oderId);
+      final draftedPlayers = <FantasyTeamPlayer>[];
+      double spentBudget = 0;
+
+      for (int i = 0; i < memberPicks.length; i++) {
+        final pick = memberPicks[i];
+        final rosterPlayer = playersById[pick.playerId];
+        final price = rosterPlayer?.price ?? 5.0;
+        final projectedPoints = rosterPlayer?.projectedPoints ?? 0.0;
+        spentBudget += price;
+
+        draftedPlayers.add(
+          FantasyTeamPlayer(
+            playerId: pick.playerId,
+            playerName: pick.playerName,
+            playerImageUrl: pick.playerImageUrl,
+            teamName: pick.teamName,
+            position: pick.position,
+            price: price,
+            predictedPoints: projectedPoints,
+            isCaptain: i == 0,
+            isViceCaptain: i == 1,
+          ),
+        );
+      }
+
+      final team =
+          (existingTeam ??
+                  FantasyTeam.empty(
+                    id: existingTeam?.id ?? _uuid.v4(),
+                    leagueId: league.id,
+                    userId: member.oderId,
+                    userName: member.userName,
+                    teamName: existingTeam?.teamName ?? member.userName,
+                    budget: league.budget,
+                  ))
+              .copyWith(
+                players: draftedPlayers,
+                totalCredits: league.budget,
+                budgetRemaining: (league.budget - spentBudget).clamp(
+                  0.0,
+                  league.budget,
+                ),
+                formation: draftedPlayers.length >= 11 ? '4-3-3' : null,
+                isLocked: false,
+              );
+
+      await saveFantasyTeam(team);
+    }
+
+    final updatedLeague = league.copyWith(
+      status: LeagueStatus.active,
+      updatedAt: DateTime.now(),
+    );
+    await _saveLeague(updatedLeague);
+  }
+
   /// Get the next matchup for the current user in a league
   /// Returns the opponent's fantasy team, or null if no matchup
   Future<FantasyTeam?> getNextMatchup(String leagueId) async {
     await _ensureInitialized();
-    
+
     final currentUser = await getCurrentUser();
     final teams = await getLeagueTeams(leagueId);
-    
+
     if (teams.length < 2) return null;
-    
+
     // Find user's team index
-    final userTeamIndex = teams.indexWhere((t) => t.userId == currentUser.oderId);
+    final userTeamIndex = teams.indexWhere(
+      (t) => t.userId == currentUser.oderId,
+    );
     if (userTeamIndex == -1) return null;
-    
+
     // Simple round-robin matchup: pair teams sequentially
     // In a real implementation, you'd have a proper fixture/schedule system
     final totalTeams = teams.length;
     int opponentIndex;
-    
+
     if (userTeamIndex % 2 == 0) {
       // Even index: opponent is next team
       opponentIndex = (userTeamIndex + 1) % totalTeams;
@@ -637,27 +750,29 @@ class LeagueRepository {
       // Odd index: opponent is previous team
       opponentIndex = (userTeamIndex - 1 + totalTeams) % totalTeams;
     }
-    
+
     // Make sure we don't match against ourselves
     if (opponentIndex == userTeamIndex) {
       opponentIndex = (userTeamIndex + 1) % totalTeams;
     }
-    
+
     return teams[opponentIndex];
   }
-  
+
   /// Get all matchups for a league (pairing teams)
-  Future<List<(FantasyTeam, FantasyTeam)>> getLeagueMatchups(String leagueId) async {
+  Future<List<(FantasyTeam, FantasyTeam)>> getLeagueMatchups(
+    String leagueId,
+  ) async {
     await _ensureInitialized();
-    
+
     final teams = await getLeagueTeams(leagueId);
     final matchups = <(FantasyTeam, FantasyTeam)>[];
-    
+
     // Pair teams: 0 vs 1, 2 vs 3, etc.
     for (int i = 0; i < teams.length - 1; i += 2) {
       matchups.add((teams[i], teams[i + 1]));
     }
-    
+
     return matchups;
   }
 
@@ -666,7 +781,7 @@ class LeagueRepository {
   /// Get current user (mock implementation - replace with real auth)
   Future<LeagueMember> getCurrentUser() async {
     await _ensureInitialized();
-    
+
     // Check if we have a stored user
     final userData = _leaguesBoxInstance!.get(_currentUserKey);
     if (userData != null) {
@@ -684,7 +799,7 @@ class LeagueRepository {
         debugPrint('Error parsing user: $e');
       }
     }
-    
+
     // Create a default demo user
     final userId = _uuid.v4();
     final user = {
@@ -694,7 +809,7 @@ class LeagueRepository {
       'userImageUrl': null,
     };
     await _leaguesBoxInstance!.put(_currentUserKey, json.encode(user));
-    
+
     return LeagueMember(
       id: userId,
       leagueId: '',
@@ -710,7 +825,7 @@ class LeagueRepository {
     String? userImageUrl,
   }) async {
     await _ensureInitialized();
-    
+
     final currentUser = await getCurrentUser();
     final user = {
       'id': currentUser.id,
@@ -727,9 +842,9 @@ class LeagueRepository {
   Future<void> _createDemoLeaguesIfNeeded() async {
     final existingLeagues = await getPublicLeagues();
     if (existingLeagues.length >= 5) return; // Already have seed data
-    
+
     debugPrint('Creating comprehensive seed data for leagues...');
-    
+
     final currentUser = await getCurrentUser();
 
     // ==================== 1. ACTIVE LEAGUE (Match in progress) ====================
@@ -743,13 +858,18 @@ class LeagueRepository {
       maxMembers: 50,
       budget: 100.0,
       matchName: 'América vs Guadalajara',
-      matchDateTime: DateTime.now().subtract(const Duration(hours: 1)), // Started 1 hour ago
+      matchDateTime: DateTime.now().subtract(
+        const Duration(hours: 1),
+      ), // Started 1 hour ago
       createdBy: 'system',
       createdAt: DateTime.now().subtract(const Duration(days: 3)),
       memberCount: 12,
     );
-    await _leaguesBoxInstance!.put(activeLeagueId, json.encode(activeLeague.toJson()));
-    
+    await _leaguesBoxInstance!.put(
+      activeLeagueId,
+      json.encode(activeLeague.toJson()),
+    );
+
     // Add current user as member of active league
     final activeUserMember = LeagueMember(
       id: _uuid.v4(),
@@ -761,7 +881,7 @@ class LeagueRepository {
       totalPoints: 47.5,
     );
     await _saveMember(activeUserMember);
-    
+
     // Create user's team for active league with players and points
     final activeUserTeam = FantasyTeam(
       id: _uuid.v4(),
@@ -776,8 +896,11 @@ class LeagueRepository {
       createdAt: DateTime.now().subtract(const Duration(days: 2)),
       isLocked: true,
     );
-    await _teamsBoxInstance!.put(activeUserTeam.id, json.encode(activeUserTeam.toJson()));
-    
+    await _teamsBoxInstance!.put(
+      activeUserTeam.id,
+      json.encode(activeUserTeam.toJson()),
+    );
+
     // Add AI opponents with their teams
     await _addAiMembersWithTeams(activeLeagueId, [
       ('Carlos García', 1, 62.0),
@@ -786,7 +909,7 @@ class LeagueRepository {
       ('Ana Martínez', 5, 38.5),
       ('Pedro Sánchez', 6, 35.0),
     ]);
-    
+
     // ==================== 2. COMPLETED LEAGUE (Final standings) ====================
     final completedLeagueId = _uuid.v4();
     final completedLeague = League(
@@ -805,8 +928,11 @@ class LeagueRepository {
       entryFee: 5.0,
       prizePool: 36.0,
     );
-    await _leaguesBoxInstance!.put(completedLeagueId, json.encode(completedLeague.toJson()));
-    
+    await _leaguesBoxInstance!.put(
+      completedLeagueId,
+      json.encode(completedLeague.toJson()),
+    );
+
     // Add current user - won this league!
     final completedUserMember = LeagueMember(
       id: _uuid.v4(),
@@ -818,7 +944,7 @@ class LeagueRepository {
       totalPoints: 78.5,
     );
     await _saveMember(completedUserMember);
-    
+
     // Create user's winning team
     final completedUserTeam = FantasyTeam(
       id: _uuid.v4(),
@@ -833,20 +959,24 @@ class LeagueRepository {
       createdAt: DateTime.now().subtract(const Duration(days: 4)),
       isLocked: true,
     );
-    await _teamsBoxInstance!.put(completedUserTeam.id, json.encode(completedUserTeam.toJson()));
-    
+    await _teamsBoxInstance!.put(
+      completedUserTeam.id,
+      json.encode(completedUserTeam.toJson()),
+    );
+
     await _addAiMembersWithTeams(completedLeagueId, [
       ('Roberto Díaz', 2, 72.0),
       ('Laura Vega', 3, 65.5),
       ('Miguel Torres', 4, 58.0),
     ]);
-    
+
     // ==================== 3. FULL LEAGUE (20 members, all with teams) ====================
     final fullLeagueId = _uuid.v4();
     final fullLeague = League(
       id: fullLeagueId,
       name: '🏆 Full League: Jornada 5 Classic',
-      description: 'All spots filled! Check standings and prepare for matchday.',
+      description:
+          'All spots filled! Check standings and prepare for matchday.',
       type: LeagueType.public,
       status: LeagueStatus.draft,
       maxMembers: 20,
@@ -857,8 +987,11 @@ class LeagueRepository {
       createdAt: DateTime.now().subtract(const Duration(days: 5)),
       memberCount: 20,
     );
-    await _leaguesBoxInstance!.put(fullLeagueId, json.encode(fullLeague.toJson()));
-    
+    await _leaguesBoxInstance!.put(
+      fullLeagueId,
+      json.encode(fullLeague.toJson()),
+    );
+
     // Add current user to full league
     final fullLeagueUserMember = LeagueMember(
       id: _uuid.v4(),
@@ -869,7 +1002,7 @@ class LeagueRepository {
       rank: 5,
     );
     await _saveMember(fullLeagueUserMember);
-    
+
     // Create user's team with predicted points
     final fullLeagueUserTeam = FantasyTeam(
       id: _uuid.v4(),
@@ -883,22 +1016,37 @@ class LeagueRepository {
       totalPoints: 0,
       createdAt: DateTime.now().subtract(const Duration(days: 3)),
     );
-    await _teamsBoxInstance!.put(fullLeagueUserTeam.id, json.encode(fullLeagueUserTeam.toJson()));
-    
+    await _teamsBoxInstance!.put(
+      fullLeagueUserTeam.id,
+      json.encode(fullLeagueUserTeam.toJson()),
+    );
+
     // Add 19 more AI members with built teams (total 20)
     final fullLeagueMembers = [
-      ('Carlos García', 1), ('María López', 2), ('Juan Hernández', 3),
-      ('Ana Martínez', 4), ('Pedro Sánchez', 6), ('Laura Vega', 7),
-      ('Roberto Díaz', 8), ('Sofia Castro', 9), ('Miguel Torres', 10),
-      ('Andrés Moreno', 11), ('Carmen Flores', 12), ('Diego Ramírez', 13),
-      ('Patricia Gómez', 14), ('Fernando Silva', 15), ('Lucía Ruiz', 16),
-      ('Jorge Medina', 17), ('Isabel Navarro', 18), ('Ricardo Ortiz', 19),
+      ('Carlos García', 1),
+      ('María López', 2),
+      ('Juan Hernández', 3),
+      ('Ana Martínez', 4),
+      ('Pedro Sánchez', 6),
+      ('Laura Vega', 7),
+      ('Roberto Díaz', 8),
+      ('Sofia Castro', 9),
+      ('Miguel Torres', 10),
+      ('Andrés Moreno', 11),
+      ('Carmen Flores', 12),
+      ('Diego Ramírez', 13),
+      ('Patricia Gómez', 14),
+      ('Fernando Silva', 15),
+      ('Lucía Ruiz', 16),
+      ('Jorge Medina', 17),
+      ('Isabel Navarro', 18),
+      ('Ricardo Ortiz', 19),
       ('Elena Vargas', 20),
     ];
     await _addAiMembersWithTeamsAndPredictions(fullLeagueId, fullLeagueMembers);
-    
+
     // ==================== 4. UPCOMING LEAGUES (Draft status - joinable) ====================
-    
+
     // 4a. Free league - user already joined
     await createLeague(
       name: 'Liga MX Jornada 6 - Free Entry',
@@ -909,7 +1057,7 @@ class LeagueRepository {
       matchName: 'León vs Santos',
       matchDateTime: DateTime.now().add(const Duration(days: 3)),
     );
-    
+
     // 4b. Small league with spots available
     final smallLeagueId = _uuid.v4();
     final smallLeague = League(
@@ -926,8 +1074,11 @@ class LeagueRepository {
       createdAt: DateTime.now().subtract(const Duration(hours: 12)),
       memberCount: 6,
     );
-    await _leaguesBoxInstance!.put(smallLeagueId, json.encode(smallLeague.toJson()));
-    
+    await _leaguesBoxInstance!.put(
+      smallLeagueId,
+      json.encode(smallLeague.toJson()),
+    );
+
     // ==================== 4. PRIVATE LEAGUE (with invite code) ====================
     final privateLeagueId = _uuid.v4();
     final privateLeague = League(
@@ -945,8 +1096,11 @@ class LeagueRepository {
       createdAt: DateTime.now().subtract(const Duration(hours: 6)),
       memberCount: 4,
     );
-    await _leaguesBoxInstance!.put(privateLeagueId, json.encode(privateLeague.toJson()));
-    
+    await _leaguesBoxInstance!.put(
+      privateLeagueId,
+      json.encode(privateLeague.toJson()),
+    );
+
     // Add current user as creator
     final privateUserMember = LeagueMember(
       id: _uuid.v4(),
@@ -957,14 +1111,14 @@ class LeagueRepository {
       isCreator: true,
     );
     await _saveMember(privateUserMember);
-    
+
     // Add some friends
     await _addAiMembersWithTeams(privateLeagueId, [
       ('Diego Ramírez', 0, 0.0),
       ('Sofia Castro', 0, 0.0),
       ('Andrés Moreno', 0, 0.0),
     ], withTeams: false);
-    
+
     // ==================== 5. USER'S TEAM IN PROGRESS (draft league) ====================
     final inProgressLeagueId = _uuid.v4();
     final inProgressLeague = League(
@@ -981,8 +1135,11 @@ class LeagueRepository {
       createdAt: DateTime.now().subtract(const Duration(days: 1)),
       memberCount: 15,
     );
-    await _leaguesBoxInstance!.put(inProgressLeagueId, json.encode(inProgressLeague.toJson()));
-    
+    await _leaguesBoxInstance!.put(
+      inProgressLeagueId,
+      json.encode(inProgressLeague.toJson()),
+    );
+
     // Add user with partial team
     final inProgressUserMember = LeagueMember(
       id: _uuid.v4(),
@@ -992,7 +1149,7 @@ class LeagueRepository {
       joinedAt: DateTime.now().subtract(const Duration(hours: 3)),
     );
     await _saveMember(inProgressUserMember);
-    
+
     // Create user's partial team (only 7 players)
     final partialTeam = FantasyTeam(
       id: _uuid.v4(),
@@ -1006,11 +1163,202 @@ class LeagueRepository {
       totalPoints: 0,
       createdAt: DateTime.now().subtract(const Duration(hours: 2)),
     );
-    await _teamsBoxInstance!.put(partialTeam.id, json.encode(partialTeam.toJson()));
-    
-    debugPrint('Comprehensive seed data created: 5+ leagues with various scenarios');
+    await _teamsBoxInstance!.put(
+      partialTeam.id,
+      json.encode(partialTeam.toJson()),
+    );
+
+    debugPrint(
+      'Comprehensive seed data created: 5+ leagues with various scenarios',
+    );
   }
-  
+
+  Future<void> _ensureDraftTodayTestLeagues() async {
+    await _ensureDraftTodayTestLeague(
+      leagueName: _draftTestLeagueName,
+      description:
+          'Quick local draft test. Draft is live today, you pick your team and AI members auto-pick when their timers expire.',
+      aiMembers: const [
+        'Carlos García',
+        'María López',
+        'Juan Hernández',
+        'Ana Martínez',
+        'Pedro Sánchez',
+        'Laura Vega',
+        'Roberto Díaz',
+        'Sofía Castro',
+        'Miguel Torres',
+        'Andrés Moreno',
+        'Carmen Flores',
+        'Diego Ramírez',
+        'Patricia Gómez',
+        'Fernando Silva',
+        'Lucía Ruiz',
+        'Jorge Medina',
+        'Isabel Navarro',
+      ],
+    );
+
+    await _ensureDraftTodayTestLeague(
+      leagueName: _draftQuickTestLeagueName,
+      description:
+          'Fast local draft test with 6 managers total. Draft is live today so you can validate the full flow quickly.',
+      aiMembers: const [
+        'Carlos García',
+        'María López',
+        'Juan Hernández',
+        'Ana Martínez',
+        'Pedro Sánchez',
+      ],
+    );
+  }
+
+  Future<void> _ensureDraftTodayTestLeague({
+    required String leagueName,
+    required String description,
+    required List<String> aiMembers,
+  }) async {
+    final currentUser = await getCurrentUser();
+    final now = DateTime.now();
+
+    String? existingLeagueId;
+    for (final key in _leaguesBoxInstance!.keys) {
+      final data = _leaguesBoxInstance!.get(key);
+      if (data == null) continue;
+
+      try {
+        final league = League.fromJson(
+          json.decode(data) as Map<String, dynamic>,
+        );
+        if (league.name == leagueName) {
+          existingLeagueId = league.id;
+          break;
+        }
+      } catch (e) {
+        debugPrint('Error parsing draft test league seed: $e');
+      }
+    }
+
+    if (existingLeagueId != null) {
+      await _removeLocalLeagueData(existingLeagueId);
+    }
+
+    final leagueId = _uuid.v4();
+    final draftOrder = <String>[currentUser.oderId];
+    final joinedAtBase = now.subtract(const Duration(days: 1));
+
+    final league = League(
+      id: leagueId,
+      name: leagueName,
+      description: description,
+      type: LeagueType.public,
+      status: LeagueStatus.draft,
+      maxMembers: aiMembers.length + 1,
+      budget: 100.0,
+      matchName: 'Test Draft Lobby',
+      matchDateTime: now.add(const Duration(days: 2)),
+      createdBy: currentUser.oderId,
+      createdAt: joinedAtBase,
+      memberCount: aiMembers.length + 1,
+      mode: LeagueMode.draft,
+      draftSettings: DraftSettings(
+        orderType: DraftOrderType.snake,
+        pickTimerSeconds: 8,
+        draftDateTime: now.subtract(const Duration(minutes: 5)),
+        autoPick: true,
+        rosterSize: 18,
+      ),
+      tradeSettings: const TradeSettings(
+        approvalType: TradeApproval.none,
+        allowMultiPlayerTrades: true,
+      ),
+      rosterSize: 18,
+    );
+    await _leaguesBoxInstance!.put(leagueId, json.encode(league.toJson()));
+
+    final currentUserMember = LeagueMember(
+      id: _uuid.v4(),
+      leagueId: leagueId,
+      oderId: currentUser.oderId,
+      userName: currentUser.userName,
+      userImageUrl: currentUser.userImageUrl,
+      joinedAt: joinedAtBase,
+      isCreator: true,
+    );
+    await _membersBoxInstance!.put(
+      currentUserMember.id,
+      json.encode(currentUserMember.toJson()),
+    );
+
+    for (int i = 0; i < aiMembers.length; i++) {
+      final aiUserId = _uuid.v4();
+      draftOrder.add(aiUserId);
+
+      final member = LeagueMember(
+        id: _uuid.v4(),
+        leagueId: leagueId,
+        oderId: aiUserId,
+        userName: aiMembers[i],
+        joinedAt: joinedAtBase.add(Duration(minutes: i + 1)),
+      );
+      await _membersBoxInstance!.put(member.id, json.encode(member.toJson()));
+    }
+
+    final seededLeague = league.copyWith(
+      draftSettings: league.draftSettings?.copyWith(draftOrder: draftOrder),
+    );
+    await _leaguesBoxInstance!.put(
+      leagueId,
+      json.encode(seededLeague.toJson()),
+    );
+
+    debugPrint('Ensured local draft test league for today: $leagueName');
+  }
+
+  Future<void> _removeLocalLeagueData(String leagueId) async {
+    await _leaguesBoxInstance!.delete(leagueId);
+
+    final memberKeysToDelete = <dynamic>[];
+    for (final key in _membersBoxInstance!.keys) {
+      final data = _membersBoxInstance!.get(key);
+      if (data == null) continue;
+
+      try {
+        final member = LeagueMember.fromJson(
+          json.decode(data) as Map<String, dynamic>,
+        );
+        if (member.leagueId == leagueId) {
+          memberKeysToDelete.add(key);
+        }
+      } catch (e) {
+        debugPrint('Error cleaning test league members: $e');
+      }
+    }
+    for (final key in memberKeysToDelete) {
+      await _membersBoxInstance!.delete(key);
+    }
+
+    final teamKeysToDelete = <dynamic>[];
+    for (final key in _teamsBoxInstance!.keys) {
+      final data = _teamsBoxInstance!.get(key);
+      if (data == null) continue;
+
+      try {
+        final team = FantasyTeam.fromJson(
+          json.decode(data) as Map<String, dynamic>,
+        );
+        if (team.leagueId == leagueId) {
+          teamKeysToDelete.add(key);
+        }
+      } catch (e) {
+        debugPrint('Error cleaning test league teams: $e');
+      }
+    }
+    for (final key in teamKeysToDelete) {
+      await _teamsBoxInstance!.delete(key);
+    }
+  }
+
   /// Create demo players for a fantasy team with predicted points
   List<FantasyTeamPlayer> _createDemoPlayers({
     bool withPoints = false,
@@ -1051,10 +1399,10 @@ class LeagueRepository {
       (1234529, 'Uriel Antuna', 'FWD', 'Cruz Azul', 8.5, 6.0, 6.5),
       (1234530, 'Julián Quiñones', 'FWD', 'Atlas', 9.0, 7.5, 7.5),
     ];
-    
+
     final players = <FantasyTeamPlayer>[];
     final usedIndices = <int>{};
-    
+
     // Shuffle based on seed for variation
     final shuffledData = List.from(demoPlayerData);
     if (seed > 0) {
@@ -1063,7 +1411,7 @@ class LeagueRepository {
         shuffledData.add(temp);
       }
     }
-    
+
     // Ensure we have proper formation: 1 GK, 4 DEF, 4 MID, 2 FWD
     final formation = {
       'GK': 1,
@@ -1071,7 +1419,7 @@ class LeagueRepository {
       'MID': count >= 11 ? 4 : (count >= 7 ? 2 : 2),
       'FWD': count >= 11 ? 2 : (count >= 7 ? 2 : 1),
     };
-    
+
     for (final entry in formation.entries) {
       final posCode = entry.key;
       final needed = entry.value;
@@ -1080,7 +1428,7 @@ class LeagueRepository {
           .entries
           .where((e) => e.value.$3 == posCode && !usedIndices.contains(e.key))
           .take(needed);
-      
+
       for (final p in posPlayers) {
         usedIndices.add(p.key);
         final data = p.value;
@@ -1088,51 +1436,67 @@ class LeagueRepository {
         final points = withPoints ? basePoints + (p.key % 5) : 0.0;
         // Add some variation to predicted points
         final predictedPoints = data.$7 + (seed % 3) * 0.5 - 0.5;
-        
-        players.add(FantasyTeamPlayer(
-          playerId: data.$1,
-          playerName: data.$2,
-          position: _stringToPosition(data.$3),
-          teamName: data.$4,
-          price: data.$5,
-          points: points,
-          predictedPoints: predictedPoints > 0 ? predictedPoints : 0.0,
-        ));
+
+        players.add(
+          FantasyTeamPlayer(
+            playerId: data.$1,
+            playerName: data.$2,
+            position: _stringToPosition(data.$3),
+            teamName: data.$4,
+            price: data.$5,
+            points: points,
+            predictedPoints: predictedPoints > 0 ? predictedPoints : 0.0,
+          ),
+        );
       }
     }
-    
+
     // Set captain/VC properly
     if (players.length >= 2) {
       // Find best forward for captain
-      final forwards = players.where((p) => p.position == PlayerPosition.forward || p.position == PlayerPosition.attacker).toList();
-      final mids = players.where((p) => p.position == PlayerPosition.midfielder).toList();
-      
+      final forwards = players
+          .where(
+            (p) =>
+                p.position == PlayerPosition.forward ||
+                p.position == PlayerPosition.attacker,
+          )
+          .toList();
+      final mids = players
+          .where((p) => p.position == PlayerPosition.midfielder)
+          .toList();
+
       int captainIdx = -1;
       int vcIdx = -1;
-      
+
       if (forwards.isNotEmpty) {
         captainIdx = players.indexOf(forwards.first);
       } else if (mids.isNotEmpty) {
         captainIdx = players.indexOf(mids.first);
       }
-      
+
       if (mids.isNotEmpty && players.indexOf(mids.first) != captainIdx) {
         vcIdx = players.indexOf(mids.first);
       } else if (forwards.length > 1) {
         vcIdx = players.indexOf(forwards[1]);
       }
-      
+
       if (captainIdx >= 0) {
-        players[captainIdx] = players[captainIdx].copyWith(isCaptain: true, isViceCaptain: false);
+        players[captainIdx] = players[captainIdx].copyWith(
+          isCaptain: true,
+          isViceCaptain: false,
+        );
       }
       if (vcIdx >= 0 && vcIdx != captainIdx) {
-        players[vcIdx] = players[vcIdx].copyWith(isViceCaptain: true, isCaptain: false);
+        players[vcIdx] = players[vcIdx].copyWith(
+          isViceCaptain: true,
+          isCaptain: false,
+        );
       }
     }
-    
+
     return players.take(count).toList();
   }
-  
+
   PlayerPosition _stringToPosition(String code) {
     switch (code) {
       case 'GK':
@@ -1147,7 +1511,7 @@ class LeagueRepository {
         return PlayerPosition.midfielder;
     }
   }
-  
+
   /// Add AI members with optional teams
   Future<void> _addAiMembersWithTeams(
     String leagueId,
@@ -1155,7 +1519,7 @@ class LeagueRepository {
     bool withTeams = true,
   }) async {
     final teamNames = _getFantasyTeamNames();
-    
+
     for (int i = 0; i < members.length; i++) {
       final m = members[i];
       final oderId = _uuid.v4();
@@ -1169,7 +1533,7 @@ class LeagueRepository {
         totalPoints: m.$3,
       );
       await _saveMember(member);
-      
+
       if (withTeams && m.$3 > 0) {
         final team = FantasyTeam(
           id: _uuid.v4(),
@@ -1188,14 +1552,14 @@ class LeagueRepository {
       }
     }
   }
-  
+
   /// Add AI members with teams that have predicted points (for upcoming leagues)
   Future<void> _addAiMembersWithTeamsAndPredictions(
     String leagueId,
     List<(String name, int rank)> members,
   ) async {
     final teamNames = _getFantasyTeamNames();
-    
+
     for (int i = 0; i < members.length; i++) {
       final m = members[i];
       final oderId = _uuid.v4();
@@ -1209,7 +1573,7 @@ class LeagueRepository {
         totalPoints: 0, // No points yet - league hasn't started
       );
       await _saveMember(member);
-      
+
       // Create team with predicted points (different seed for each player)
       final team = FantasyTeam(
         id: _uuid.v4(),
@@ -1226,7 +1590,7 @@ class LeagueRepository {
       await _teamsBoxInstance!.put(team.id, json.encode(team.toJson()));
     }
   }
-  
+
   /// Get a list of creative fantasy team names
   List<String> _getFantasyTeamNames() {
     return [
@@ -1252,7 +1616,7 @@ class LeagueRepository {
       'Chivas Pride',
     ];
   }
-  
+
   /// Force recreate all seed data (for testing)
   Future<void> resetSeedData() async {
     await _ensureInitialized();
@@ -1272,4 +1636,3 @@ class LeagueRepository {
   /// Generate new ID
   String generateId() => _uuid.v4();
 }
-

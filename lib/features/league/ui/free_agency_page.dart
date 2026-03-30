@@ -14,7 +14,7 @@ class FreeAgencyPage extends StatefulWidget {
   final List<RosterPlayer> allPlayers;
   final String currentUserId;
   final Map<int, String> playerOwnership; // playerId -> userId
-  
+
   const FreeAgencyPage({
     super.key,
     required this.league,
@@ -27,19 +27,20 @@ class FreeAgencyPage extends StatefulWidget {
   State<FreeAgencyPage> createState() => _FreeAgencyPageState();
 }
 
-class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProviderStateMixin {
+class _FreeAgencyPageState extends State<FreeAgencyPage>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late FreeAgencyService _freeAgencyService;
-  
+
   // Filters
   PlayerPosition? _positionFilter;
   String _searchQuery = '';
   final _searchController = TextEditingController();
-  
+
   // For swap mode
   bool _isSwapMode = false;
   RosterPlayer? _playerToAdd;
-  
+
   @override
   void initState() {
     super.initState();
@@ -52,11 +53,11 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
     );
     _freeAgencyService.addListener(_onServiceUpdate);
   }
-  
+
   void _onServiceUpdate() {
     if (mounted) setState(() {});
   }
-  
+
   @override
   void dispose() {
     _tabController.dispose();
@@ -64,11 +65,11 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
     _freeAgencyService.removeListener(_onServiceUpdate);
     super.dispose();
   }
-  
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Free Agency'),
@@ -85,14 +86,14 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
         children: [
           // Roster status banner
           _buildRosterBanner(theme),
-          
+
           // Search and filter (for available tab)
           AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             height: _tabController.index == 0 ? null : 0,
             child: _buildSearchAndFilter(theme),
           ),
-          
+
           Expanded(
             child: TabBarView(
               controller: _tabController,
@@ -107,12 +108,12 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
     );
   }
-  
+
   Widget _buildRosterBanner(ThemeData theme) {
     final rosterSize = _freeAgencyService.myRosterSize;
     final maxSize = _freeAgencyService.maxRosterSize;
     final isFull = rosterSize >= maxSize;
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       color: theme.colorScheme.surface,
@@ -134,30 +135,24 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
           if (isFull)
             Text(
               'Roster Full - Drop a player to add',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: Colors.orange,
-              ),
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.orange),
             )
           else
             Text(
               '${maxSize - rosterSize} spots available',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: Colors.green,
-              ),
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.green),
             ),
         ],
       ),
     );
   }
-  
+
   Widget _buildSearchAndFilter(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        border: Border(
-          bottom: BorderSide(color: Colors.grey.shade800),
-        ),
+        border: Border(bottom: BorderSide(color: Colors.grey.shade800)),
       ),
       child: Column(
         children: [
@@ -183,9 +178,9 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
             ),
             onChanged: (value) => setState(() => _searchQuery = value),
           ),
-          
+
           const SizedBox(height: 8),
-          
+
           // Position filter
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -207,10 +202,14 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
     );
   }
-  
-  Widget _buildFilterChip(ThemeData theme, PlayerPosition? position, String label) {
+
+  Widget _buildFilterChip(
+    ThemeData theme,
+    PlayerPosition? position,
+    String label,
+  ) {
     final isSelected = _positionFilter == position;
-    
+
     return FilterChip(
       label: Text(label),
       selected: isSelected,
@@ -222,20 +221,23 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
     );
   }
-  
+
   Widget _buildAvailableTab(ThemeData theme) {
     var players = _freeAgencyService.getAvailableByPosition(_positionFilter);
-    
+
     // Apply search filter
     if (_searchQuery.isNotEmpty) {
       final query = _searchQuery.toLowerCase();
-      players = players.where((p) =>
-          p.name.toLowerCase().contains(query) ||
-          p.displayName.toLowerCase().contains(query) ||
-          p.teamName.toLowerCase().contains(query)
-      ).toList();
+      players = players
+          .where(
+            (p) =>
+                p.name.toLowerCase().contains(query) ||
+                p.displayName.toLowerCase().contains(query) ||
+                p.teamName.toLowerCase().contains(query),
+          )
+          .toList();
     }
-    
+
     if (players.isEmpty) {
       return Center(
         child: Column(
@@ -251,7 +253,7 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
         ),
       );
     }
-    
+
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: players.length,
@@ -261,10 +263,10 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       },
     );
   }
-  
+
   Widget _buildAvailablePlayerCard(ThemeData theme, RosterPlayer player) {
     final canAdd = _freeAgencyService.canAddPlayer;
-    
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       color: theme.colorScheme.surface,
@@ -278,7 +280,7 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
               // Player image
               _buildPlayerAvatar(player, 40),
               const SizedBox(width: 12),
-              
+
               // Player info
               Expanded(
                 child: Column(
@@ -306,20 +308,27 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
                   ],
                 ),
               ),
-              
+
               // Projected points
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '${player.projectedPoints?.toStringAsFixed(1) ?? "-"} pts',
+                    '${player.projectedPoints?.toStringAsFixed(1) ?? "-"} next',
                     style: theme.textTheme.titleSmall?.copyWith(
                       color: theme.primaryColor,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   Text(
-                    'projected',
+                    '${player.projectedSeasonPoints.toStringAsFixed(1)} season',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.orange,
+                      fontSize: 10,
+                    ),
+                  ),
+                  Text(
+                    'projection',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: Colors.grey,
                       fontSize: 10,
@@ -327,12 +336,12 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
                   ),
                 ],
               ),
-              
+
               const SizedBox(width: 8),
-              
+
               // Add button
               ElevatedButton(
-                onPressed: canAdd 
+                onPressed: canAdd
                     ? () => _addPlayer(player)
                     : () => _showSwapDialog(player),
                 style: ElevatedButton.styleFrom(
@@ -348,10 +357,10 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
     );
   }
-  
+
   Widget _buildMyRosterTab(ThemeData theme) {
     final roster = _freeAgencyService.myRoster;
-    
+
     if (roster.isEmpty) {
       return Center(
         child: Column(
@@ -372,14 +381,14 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
         ),
       );
     }
-    
+
     // Group by position
     final byPosition = <PlayerPosition, List<RosterPlayer>>{};
     for (final player in roster) {
       final pos = _mapPosition(player.position);
       byPosition.putIfAbsent(pos, () => []).add(player);
     }
-    
+
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -391,14 +400,20 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
         ])
           if (byPosition.containsKey(position)) ...[
             _buildPositionHeader(theme, position, byPosition[position]!.length),
-            ...byPosition[position]!.map((p) => _buildRosterPlayerCard(theme, p)),
+            ...byPosition[position]!.map(
+              (p) => _buildRosterPlayerCard(theme, p),
+            ),
             const SizedBox(height: 16),
           ],
       ],
     );
   }
-  
-  Widget _buildPositionHeader(ThemeData theme, PlayerPosition position, int count) {
+
+  Widget _buildPositionHeader(
+    ThemeData theme,
+    PlayerPosition position,
+    int count,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8, top: 8),
       child: Row(
@@ -426,7 +441,7 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
     );
   }
-  
+
   Widget _buildRosterPlayerCard(ThemeData theme, RosterPlayer player) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -435,7 +450,9 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
         leading: _buildPlayerAvatar(player, 36),
         title: Text(
           player.displayName,
-          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
         ),
         subtitle: Text(
           player.teamName,
@@ -456,7 +473,7 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
                   ),
                 ),
                 Text(
-                  'pts',
+                  '${player.projectedSeasonPoints.toStringAsFixed(0)} season',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: Colors.grey,
                     fontSize: 10,
@@ -475,10 +492,10 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
     );
   }
-  
+
   Widget _buildTransactionsTab(ThemeData theme) {
     final transactions = _freeAgencyService.transactions;
-    
+
     if (transactions.isEmpty) {
       return Center(
         child: Column(
@@ -494,7 +511,7 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
         ),
       );
     }
-    
+
     return ListView.builder(
       padding: const EdgeInsets.all(12),
       itemCount: transactions.length,
@@ -504,11 +521,14 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       },
     );
   }
-  
-  Widget _buildTransactionCard(ThemeData theme, FreeAgentTransaction transaction) {
+
+  Widget _buildTransactionCard(
+    ThemeData theme,
+    FreeAgentTransaction transaction,
+  ) {
     IconData icon;
     Color color;
-    
+
     if (transaction.isSwap) {
       icon = Icons.swap_horiz;
       color = Colors.blue;
@@ -519,7 +539,7 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       icon = Icons.remove_circle;
       color = Colors.red;
     }
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       color: theme.colorScheme.surface,
@@ -528,10 +548,7 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
           backgroundColor: color.withValues(alpha: 0.2),
           child: Icon(icon, color: color, size: 20),
         ),
-        title: Text(
-          transaction.description,
-          style: theme.textTheme.bodyMedium,
-        ),
+        title: Text(transaction.description, style: theme.textTheme.bodyMedium),
         subtitle: Text(
           DateFormat('MMM d, yyyy HH:mm').format(transaction.transactionAt),
           style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
@@ -546,7 +563,7 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
     );
   }
-  
+
   Widget _buildPlayerAvatar(RosterPlayer player, double size) {
     if (player.imagePath != null && player.imagePath!.isNotEmpty) {
       return ClipOval(
@@ -562,13 +579,17 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
     }
     return _buildDefaultAvatar(player, size);
   }
-  
+
   Widget _buildDefaultAvatar(RosterPlayer player, double size) {
     return CircleAvatar(
       radius: size / 2,
-      backgroundColor: _getPositionColor(_mapPosition(player.position)).withValues(alpha: 0.2),
+      backgroundColor: _getPositionColor(
+        _mapPosition(player.position),
+      ).withValues(alpha: 0.2),
       child: Text(
-        player.displayName.isNotEmpty ? player.displayName[0].toUpperCase() : '?',
+        player.displayName.isNotEmpty
+            ? player.displayName[0].toUpperCase()
+            : '?',
         style: TextStyle(
           color: _getPositionColor(_mapPosition(player.position)),
           fontWeight: FontWeight.bold,
@@ -576,7 +597,7 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
     );
   }
-  
+
   Widget _buildPositionBadge(ThemeData theme, String position) {
     final pos = _mapPosition(position);
     return Container(
@@ -595,7 +616,7 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
     );
   }
-  
+
   void _showPlayerDetails(RosterPlayer player) {
     showModalBottomSheet(
       context: context,
@@ -605,15 +626,19 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
       builder: (context) => _PlayerDetailsSheet(
         player: player,
-        onAdd: _freeAgencyService.canAddPlayer ? () => _addPlayer(player) : null,
+        onAdd: _freeAgencyService.canAddPlayer
+            ? () => _addPlayer(player)
+            : null,
         onSwap: () => _showSwapDialog(player),
       ),
     );
   }
-  
+
   Future<void> _addPlayer(RosterPlayer player) async {
-    Navigator.of(context).popUntil((route) => route.isFirst || route.settings.name != null);
-    
+    Navigator.of(
+      context,
+    ).popUntil((route) => route.isFirst || route.settings.name != null);
+
     final locked = await _freeAgencyService.isPlayerLocked(player.id);
     if (locked && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -624,18 +649,18 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       );
       return;
     }
-    
+
     final result = await _freeAgencyService.addPlayer(player.id);
     if (result != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Added ${player.displayName}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Added ${player.displayName}')));
     }
   }
-  
+
   void _showSwapDialog(RosterPlayer playerToAdd) {
     final roster = _freeAgencyService.myRoster;
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -652,7 +677,10 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
                 leading: _buildPlayerAvatar(player, 32),
                 title: Text(player.displayName),
                 subtitle: Text(player.teamName),
-                trailing: _buildPositionBadge(Theme.of(context), player.position),
+                trailing: _buildPositionBadge(
+                  Theme.of(context),
+                  player.position,
+                ),
                 onTap: () async {
                   Navigator.of(context).pop();
                   await _swapPlayers(player, playerToAdd);
@@ -670,16 +698,23 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
     );
   }
-  
-  Future<void> _swapPlayers(RosterPlayer dropPlayer, RosterPlayer addPlayer) async {
+
+  Future<void> _swapPlayers(
+    RosterPlayer dropPlayer,
+    RosterPlayer addPlayer,
+  ) async {
     final result = await _freeAgencyService.swapPlayers(
       dropPlayerId: dropPlayer.id,
       addPlayerId: addPlayer.id,
     );
-    
+
     if (result != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Swapped ${dropPlayer.displayName} for ${addPlayer.displayName}')),
+        SnackBar(
+          content: Text(
+            'Swapped ${dropPlayer.displayName} for ${addPlayer.displayName}',
+          ),
+        ),
       );
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -690,7 +725,7 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       );
     }
   }
-  
+
   void _confirmDropPlayer(RosterPlayer player) {
     showDialog(
       context: context,
@@ -717,31 +752,35 @@ class _FreeAgencyPageState extends State<FreeAgencyPage> with SingleTickerProvid
       ),
     );
   }
-  
+
   Future<void> _dropPlayer(RosterPlayer player) async {
     final result = await _freeAgencyService.dropPlayer(player.id);
     if (result != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Dropped ${player.displayName}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Dropped ${player.displayName}')));
     }
   }
-  
+
   PlayerPosition _mapPosition(String positionName) {
     final lower = positionName.toLowerCase();
     if (lower.contains('goalkeeper') || lower.contains('gk')) {
       return PlayerPosition.goalkeeper;
-    } else if (lower.contains('defender') || lower.contains('def') || lower.contains('back')) {
+    } else if (lower.contains('defender') ||
+        lower.contains('def') ||
+        lower.contains('back')) {
       return PlayerPosition.defender;
     } else if (lower.contains('midfielder') || lower.contains('mid')) {
       return PlayerPosition.midfielder;
-    } else if (lower.contains('forward') || lower.contains('fwd') || 
-               lower.contains('attacker') || lower.contains('striker')) {
+    } else if (lower.contains('forward') ||
+        lower.contains('fwd') ||
+        lower.contains('attacker') ||
+        lower.contains('striker')) {
       return PlayerPosition.attacker;
     }
     return PlayerPosition.midfielder;
   }
-  
+
   Color _getPositionColor(PlayerPosition position) {
     switch (position) {
       case PlayerPosition.goalkeeper:
@@ -762,17 +801,13 @@ class _PlayerDetailsSheet extends StatelessWidget {
   final RosterPlayer player;
   final VoidCallback? onAdd;
   final VoidCallback? onSwap;
-  
-  const _PlayerDetailsSheet({
-    required this.player,
-    this.onAdd,
-    this.onSwap,
-  });
-  
+
+  const _PlayerDetailsSheet({required this.player, this.onAdd, this.onSwap});
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Container(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -788,7 +823,7 @@ class _PlayerDetailsSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          
+
           // Player info
           Row(
             children: [
@@ -828,21 +863,30 @@ class _PlayerDetailsSheet extends StatelessWidget {
               ),
             ],
           ),
-          
+
           const SizedBox(height: 24),
-          
+
           // Stats
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildStatItem(theme, 'Projected', '${player.projectedPoints?.toStringAsFixed(1) ?? "-"}'),
+              _buildStatItem(
+                theme,
+                'Next Match',
+                '${player.projectedPoints?.toStringAsFixed(1) ?? "-"}',
+              ),
+              _buildStatItem(
+                theme,
+                'Season',
+                player.projectedSeasonPoints.toStringAsFixed(1),
+              ),
               _buildStatItem(theme, 'Price', '\$${player.price}M'),
               _buildStatItem(theme, 'Position', player.position),
             ],
           ),
-          
+
           const SizedBox(height: 24),
-          
+
           // Actions
           Row(
             children: [
@@ -857,8 +901,7 @@ class _PlayerDetailsSheet extends StatelessWidget {
                     label: const Text('Swap'),
                   ),
                 ),
-              if (onSwap != null && onAdd != null)
-                const SizedBox(width: 12),
+              if (onSwap != null && onAdd != null) const SizedBox(width: 12),
               if (onAdd != null)
                 Expanded(
                   child: ElevatedButton.icon(
@@ -875,13 +918,13 @@ class _PlayerDetailsSheet extends StatelessWidget {
                 ),
             ],
           ),
-          
+
           const SizedBox(height: 12),
         ],
       ),
     );
   }
-  
+
   Widget _buildStatItem(ThemeData theme, String label, String value) {
     return Column(
       children: [
@@ -894,12 +937,9 @@ class _PlayerDetailsSheet extends StatelessWidget {
         ),
         Text(
           label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: Colors.grey,
-          ),
+          style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
         ),
       ],
     );
   }
 }
-
