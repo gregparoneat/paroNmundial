@@ -6,6 +6,7 @@ import 'package:fantacy11/features/league/models/league_models_ui.dart';
 import 'package:fantacy11/features/league/ui/create_league_page.dart';
 import 'package:fantacy11/features/league/ui/join_league_dialog.dart';
 import 'package:fantacy11/features/league/ui/league_details_page.dart';
+import 'package:fantacy11/generated/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -60,7 +61,7 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Failed to load leagues: $e';
+          _error = S.of(context).failedToLoadLeagues(e.toString());
           _isLoading = false;
         });
       }
@@ -104,18 +105,19 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
     final theme = Theme.of(context);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('paroNfantasyMx Leagues'),
+        title: Text(s.leaguesTitle),
         centerTitle: false,
         elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.add_link),
-            tooltip: 'Join with code',
+            tooltip: s.joinWithCode,
             onPressed: _showJoinLeagueDialog,
           ),
           IconButton(
@@ -129,8 +131,8 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
           labelColor: Colors.white,
           unselectedLabelColor: bgTextColor,
           tabs: [
-            Tab(text: 'Public Leagues (${_publicLeagues.length})'),
-            Tab(text: 'My Leagues (${_myLeagues.length})'),
+            Tab(text: '${s.publicLeagues} (${_publicLeagues.length})'),
+            Tab(text: '${s.myLeagues} (${_myLeagues.length})'),
           ],
         ),
       ),
@@ -149,7 +151,7 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
         onPressed: _navigateToCreateLeague,
         backgroundColor: theme.primaryColor,
         icon: const Icon(Icons.add),
-        label: const Text('Create League'),
+        label: Text(s.createLeagueLabel),
       ),
     );
   }
@@ -171,7 +173,7 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _loadLeagues,
-              child: const Text('Retry'),
+              child: Text(S.of(context).retry),
             ),
           ],
         ),
@@ -202,6 +204,7 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
   }
 
   Widget _buildEmptyState(bool isPublic) {
+    final s = S.of(context);
     final theme = Theme.of(context);
     
     return Center(
@@ -217,7 +220,7 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
             ),
             const SizedBox(height: 24),
             Text(
-              isPublic ? 'No Public Leagues Available' : 'No Leagues Yet',
+              isPublic ? s.noPublicLeaguesAvailable : s.noLeaguesYet,
               style: theme.textTheme.titleLarge?.copyWith(
                 color: Colors.white,
               ),
@@ -225,8 +228,8 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
             const SizedBox(height: 8),
             Text(
               isPublic
-                  ? 'Create a public league or wait for others to create one'
-                  : 'Create your first league or join an existing one',
+                  ? s.createPublicLeagueOrWait
+                  : s.createOrJoinFirstLeague,
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey[500]),
             ),
@@ -237,13 +240,13 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
                 ElevatedButton.icon(
                   onPressed: _navigateToCreateLeague,
                   icon: const Icon(Icons.add),
-                  label: const Text('Create'),
+                  label: Text(s.create),
                 ),
                 const SizedBox(width: 12),
                 OutlinedButton.icon(
                   onPressed: _showJoinLeagueDialog,
                   icon: const Icon(Icons.link),
-                  label: const Text('Join'),
+                  label: Text(s.join),
                 ),
               ],
             ),
@@ -254,6 +257,7 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
   }
 
   Widget _buildLeagueCard(League league) {
+    final s = S.of(context);
     final theme = Theme.of(context);
     
     return Card(
@@ -316,7 +320,7 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
-                                league.status.displayName,
+                                _localizedLeagueStatus(league.status, s),
                                 style: TextStyle(
                                   color: league.status.color,
                                   fontSize: 10,
@@ -326,7 +330,7 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              '${league.memberCount}/${league.maxMembers} members',
+                              s.membersCount(league.memberCount, league.maxMembers),
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: bgTextColor,
                               ),
@@ -383,7 +387,7 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      league.matchName ?? 'Match TBD',
+                      league.matchName ?? s.matchTbd,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: Colors.white70,
                       ),
@@ -421,16 +425,16 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
                       style: TextButton.styleFrom(
                         foregroundColor: Colors.green,
                       ),
-                      child: const Text('View →'),
+                      child: Text(s.viewArrow),
                     )
                   else if (league.canJoin)
                     TextButton(
                       onPressed: () => _navigateToLeague(league),
-                      child: const Text('Join →'),
+                      child: Text(s.joinArrow),
                     )
                   else if (league.isFull)
                     Text(
-                      'Full',
+                      s.full,
                       style: TextStyle(
                         color: Colors.red[400],
                         fontWeight: FontWeight.w500,
@@ -468,23 +472,36 @@ class _LeaguesPageState extends State<LeaguesPage> with SingleTickerProviderStat
   }
 
   String _formatMatchTime(DateTime dateTime) {
+    final s = S.of(context);
     final now = DateTime.now();
     final difference = dateTime.difference(now);
     
     if (difference.isNegative) {
-      return 'Started';
+      return s.started;
     } else if (difference.inDays == 0) {
       if (difference.inHours == 0) {
-        return '${difference.inMinutes}m';
+        return s.minutesShort(difference.inMinutes);
       }
-      return '${difference.inHours}h ${difference.inMinutes % 60}m';
+      return s.hoursMinutesShort(difference.inHours, difference.inMinutes % 60);
     } else if (difference.inDays == 1) {
-      return 'Tomorrow';
+      return s.tomorrow;
     } else if (difference.inDays < 7) {
-      return '${difference.inDays}d';
+      return s.daysShort(difference.inDays);
     } else {
       return DateFormat('MMM d').format(dateTime);
     }
   }
-}
 
+  String _localizedLeagueStatus(LeagueStatus status, S s) {
+    switch (status) {
+      case LeagueStatus.draft:
+        return s.upcoming;
+      case LeagueStatus.active:
+        return s.live;
+      case LeagueStatus.completed:
+        return s.completed;
+      case LeagueStatus.cancelled:
+        return s.cancelled;
+    }
+  }
+}

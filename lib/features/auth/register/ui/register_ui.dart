@@ -1,13 +1,29 @@
 import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:fantacy11/features/auth/register/ui/register_column.dart';
+import 'package:fantacy11/features/auth/widgets/country_code_picker_sheet.dart';
 import 'package:flutter/material.dart';
 
 import 'register_interactor.dart';
 
 class RegisterUi extends StatelessWidget {
   final RegisterInteractor registerInteractor;
+  final TextEditingController? nameController;
+  final TextEditingController? emailController;
+  final TextEditingController? phoneController;
+  final TextEditingController? birthdateController;
+  final CountryDialCode selectedCountry;
+  final VoidCallback? onSelectCountry;
 
-  const RegisterUi(this.registerInteractor, {super.key});
+  const RegisterUi(
+    this.registerInteractor, {
+    super.key,
+    this.nameController,
+    this.emailController,
+    this.phoneController,
+    this.birthdateController,
+    required this.selectedCountry,
+    this.onSelectCountry,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +46,15 @@ class RegisterUi extends StatelessWidget {
                   width: MediaQuery.of(context).size.width,
                   fit: BoxFit.fill,
                 ),
-                RegisterColumn(registerInteractor),
+                RegisterColumn(
+                  registerInteractor,
+                  nameController: nameController,
+                  emailController: emailController,
+                  phoneController: phoneController,
+                  birthdateController: birthdateController,
+                  selectedCountry: selectedCountry,
+                  onSelectCountry: onSelectCountry,
+                ),
               ],
             ),
           ),

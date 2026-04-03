@@ -11,7 +11,7 @@ class AdvancedStats {
   final int longBallsWon;
   final int throughBalls;
   final int throughBallsWon;
-  
+
   // Attacking
   final int shotsTotal;
   final int shotsOnTarget;
@@ -21,17 +21,17 @@ class AdvancedStats {
   final int keyPasses;
   final int hitWoodwork;
   final int hattricks;
-  
+
   // Dribbling & Possession
   final int successfulDribbles;
   final int dispossessed;
   final int foulsDrawn;
-  
+
   // Crossing
   final int accurateCrosses;
   final int totalCrosses;
   final int crossesBlocked;
-  
+
   // Defensive
   final int tackles;
   final int interceptions;
@@ -42,16 +42,16 @@ class AdvancedStats {
   final int totalDuels;
   final int dribbledPast;
   final int errorLeadToGoal;
-  
+
   // Goalkeeper specific
   final int saves;
   final int savesInsideBox;
   final int goalsConceeded;
-  
+
   // Discipline
   final int fouls;
   final int offsides;
-  
+
   // Overall
   final List<double> ratings; // Ratings per match for averaging
 
@@ -101,19 +101,24 @@ class AdvancedStats {
   }
 
   /// Pass accuracy percentage
-  double get passAccuracy => totalPasses > 0 ? (accuratePasses / totalPasses) * 100 : 0;
+  double get passAccuracy =>
+      totalPasses > 0 ? (accuratePasses / totalPasses) * 100 : 0;
 
   /// Shot accuracy percentage
-  double get shotAccuracy => shotsTotal > 0 ? (shotsOnTarget / shotsTotal) * 100 : 0;
+  double get shotAccuracy =>
+      shotsTotal > 0 ? (shotsOnTarget / shotsTotal) * 100 : 0;
 
   /// Duel success rate
-  double get duelSuccessRate => totalDuels > 0 ? (duelsWon / totalDuels) * 100 : 0;
+  double get duelSuccessRate =>
+      totalDuels > 0 ? (duelsWon / totalDuels) * 100 : 0;
 
   /// Cross accuracy
-  double get crossAccuracy => totalCrosses > 0 ? (accurateCrosses / totalCrosses) * 100 : 0;
+  double get crossAccuracy =>
+      totalCrosses > 0 ? (accurateCrosses / totalCrosses) * 100 : 0;
 
   /// Long ball success rate
-  double get longBallSuccessRate => longBalls > 0 ? (longBallsWon / longBalls) * 100 : 0;
+  double get longBallSuccessRate =>
+      longBalls > 0 ? (longBallsWon / longBalls) * 100 : 0;
 
   /// Merge stats from a single match into cumulative stats
   AdvancedStats mergeWith(AdvancedStats other) {
@@ -163,25 +168,37 @@ class AdvancedStats {
     int accuratePasses = 0, totalPasses = 0, longBalls = 0, longBallsWon = 0;
     int throughBalls = 0, throughBallsWon = 0;
     int shotsTotal = 0, shotsOnTarget = 0, shotsOffTarget = 0;
-    int bigChancesCreated = 0, bigChancesMissed = 0, keyPasses = 0, hitWoodwork = 0, hattricks = 0;
+    int bigChancesCreated = 0,
+        bigChancesMissed = 0,
+        keyPasses = 0,
+        hitWoodwork = 0,
+        hattricks = 0;
     int successfulDribbles = 0, dispossessed = 0, foulsDrawn = 0;
     int accurateCrosses = 0, totalCrosses = 0, crossesBlocked = 0;
     int tackles = 0, interceptions = 0, clearances = 0, blocks = 0;
-    int aerialsWon = 0, duelsWon = 0, totalDuels = 0, dribbledPast = 0, errorLeadToGoal = 0;
-    int saves = 0, savesInsideBox = 0, goalsConceeded = 0, fouls = 0, offsides = 0;
+    int aerialsWon = 0,
+        duelsWon = 0,
+        totalDuels = 0,
+        dribbledPast = 0,
+        errorLeadToGoal = 0;
+    int saves = 0,
+        savesInsideBox = 0,
+        goalsConceeded = 0,
+        fouls = 0,
+        offsides = 0;
     double? rating;
-    
+
     final foundCodes = <String>[];
 
     for (final detail in details) {
       final type = detail['type'] as Map<String, dynamic>?;
       // Use developer_name which is uppercase with underscores (e.g., "KEY_PASSES")
       final code = type?['developer_name']?.toString().toUpperCase() ?? '';
-      
+
       // Value is inside data.value, not directly on detail
       final data = detail['data'] as Map<String, dynamic>?;
       final rawValue = data?['value'];
-      
+
       // Parse the value - can be int, double, or nested map with 'total'
       int intValue = 0;
       double? doubleValue;
@@ -193,7 +210,7 @@ class AdvancedStats {
       } else if (rawValue is Map) {
         intValue = (rawValue['total'] as num?)?.toInt() ?? 0;
       }
-      
+
       if (code.isNotEmpty) {
         foundCodes.add('$code=$intValue');
       }
@@ -304,10 +321,14 @@ class AdvancedStats {
           break;
       }
     }
-    
-    print('DEBUG AdvancedStats.fromLineupDetails: Found ${foundCodes.length} stat codes');
+
+    print(
+      'DEBUG AdvancedStats.fromLineupDetails: Found ${foundCodes.length} stat codes',
+    );
     if (foundCodes.isNotEmpty) {
-      print('DEBUG AdvancedStats codes: ${foundCodes.take(10).join(', ')}${foundCodes.length > 10 ? '...' : ''}');
+      print(
+        'DEBUG AdvancedStats codes: ${foundCodes.take(10).join(', ')}${foundCodes.length > 10 ? '...' : ''}',
+      );
     }
 
     return AdvancedStats(
@@ -361,9 +382,11 @@ class RecentMatchStats {
   final int redCards;
   final int saves;
   final double? averageRating;
+
   /// Number of fixtures analyzed to get these stats (may differ from matchesPlayed)
   /// A low fixturesAnalyzed with 0 matchesPlayed indicates injured/bench player
   final int? fixturesAnalyzed;
+
   /// Advanced statistics from lineup details (last 6 weeks)
   final AdvancedStats? advancedStats;
 
@@ -380,10 +403,10 @@ class RecentMatchStats {
     this.fixturesAnalyzed,
     this.advancedStats,
   });
-  
+
   /// Returns true if player appears to be injured or warming the bench
   /// (fixtures were analyzed but player didn't play in any)
-  bool get isLikelyInjuredOrBench => 
+  bool get isLikelyInjuredOrBench =>
       fixturesAnalyzed != null && fixturesAnalyzed! > 0 && matchesPlayed == 0;
 
   /// Check if we have advanced stats available
@@ -391,7 +414,10 @@ class RecentMatchStats {
 
   /// Create from a list of match data (simulated from season stats)
   /// In a real scenario, this would come from per-match API data
-  factory RecentMatchStats.fromSeasonStats(PlayerStatistics stats, {int recentMatches = 5}) {
+  factory RecentMatchStats.fromSeasonStats(
+    PlayerStatistics stats, {
+    int recentMatches = 5,
+  }) {
     if (stats.appearances == null || stats.appearances == 0) {
       return const RecentMatchStats(matchesPlayed: 0);
     }
@@ -425,85 +451,107 @@ class RecentMatchStats {
   double get contributionsPerMatch => goalsPerMatch + assistsPerMatch;
 
   /// Minutes per match (out of 90)
-  double get minutesPerMatch => matchesPlayed > 0 ? minutesPlayed / matchesPlayed : 0;
+  double get minutesPerMatch =>
+      matchesPlayed > 0 ? minutesPlayed / matchesPlayed : 0;
 
   /// Clean sheet rate
-  double get cleanSheetRate => matchesPlayed > 0 ? cleanSheets / matchesPlayed : 0;
+  double get cleanSheetRate =>
+      matchesPlayed > 0 ? cleanSheets / matchesPlayed : 0;
 
   /// Cards per match (weighted: yellow=1, red=3)
-  double get cardsPerMatch => matchesPlayed > 0 ? (yellowCards + redCards * 3) / matchesPlayed : 0;
-  
+  double get cardsPerMatch =>
+      matchesPlayed > 0 ? (yellowCards + redCards * 3) / matchesPlayed : 0;
+
   // ========== ADVANCED STATS GETTERS ==========
-  
+
   /// Key passes per match (chance creation)
-  double get keyPassesPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.keyPasses / matchesPlayed : 0;
-  
+  double get keyPassesPerMatch => matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.keyPasses / matchesPlayed
+      : 0;
+
   /// Big chances created per match
-  double get bigChancesCreatedPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.bigChancesCreated / matchesPlayed : 0;
-  
+  double get bigChancesCreatedPerMatch =>
+      matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.bigChancesCreated / matchesPlayed
+      : 0;
+
   /// Shots per match
-  double get shotsPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.shotsTotal / matchesPlayed : 0;
-  
+  double get shotsPerMatch => matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.shotsTotal / matchesPlayed
+      : 0;
+
   /// Shots on target per match
-  double get shotsOnTargetPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.shotsOnTarget / matchesPlayed : 0;
-  
+  double get shotsOnTargetPerMatch => matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.shotsOnTarget / matchesPlayed
+      : 0;
+
   /// Tackles per match
-  double get tacklesPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.tackles / matchesPlayed : 0;
-  
+  double get tacklesPerMatch => matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.tackles / matchesPlayed
+      : 0;
+
   /// Interceptions per match
-  double get interceptionsPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.interceptions / matchesPlayed : 0;
-  
+  double get interceptionsPerMatch => matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.interceptions / matchesPlayed
+      : 0;
+
   /// Clearances per match
-  double get clearancesPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.clearances / matchesPlayed : 0;
-  
+  double get clearancesPerMatch => matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.clearances / matchesPlayed
+      : 0;
+
   /// Blocks per match
-  double get blocksPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.blocks / matchesPlayed : 0;
-  
+  double get blocksPerMatch => matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.blocks / matchesPlayed
+      : 0;
+
   /// Duels won per match
-  double get duelsWonPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.duelsWon / matchesPlayed : 0;
-  
+  double get duelsWonPerMatch => matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.duelsWon / matchesPlayed
+      : 0;
+
   /// Aerials won per match
-  double get aerialsWonPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.aerialsWon / matchesPlayed : 0;
-  
+  double get aerialsWonPerMatch => matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.aerialsWon / matchesPlayed
+      : 0;
+
   /// Accurate crosses per match
-  double get accurateCrossesPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.accurateCrosses / matchesPlayed : 0;
-  
+  double get accurateCrossesPerMatch =>
+      matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.accurateCrosses / matchesPlayed
+      : 0;
+
   /// Fouls drawn per match (good - wins free kicks)
-  double get foulsDrawnPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.foulsDrawn / matchesPlayed : 0;
-  
+  double get foulsDrawnPerMatch => matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.foulsDrawn / matchesPlayed
+      : 0;
+
   /// Fouls committed per match (bad)
-  double get foulsCommittedPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.fouls / matchesPlayed : 0;
-  
+  double get foulsCommittedPerMatch =>
+      matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.fouls / matchesPlayed
+      : 0;
+
   /// Pass accuracy from advanced stats
   double? get passAccuracy => advancedStats?.passAccuracy;
-  
-  /// Shot accuracy from advanced stats  
+
+  /// Shot accuracy from advanced stats
   double? get shotAccuracy => advancedStats?.shotAccuracy;
-  
+
   /// Duel success rate from advanced stats
   double? get duelSuccessRate => advancedStats?.duelSuccessRate;
-  
+
   /// Saves inside box per match (GK specific)
-  double get savesInsideBoxPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.savesInsideBox / matchesPlayed : 0;
-  
+  double get savesInsideBoxPerMatch =>
+      matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.savesInsideBox / matchesPlayed
+      : 0;
+
   /// Times dribbled past per match (bad for defenders)
-  double get dribbledPastPerMatch => 
-      matchesPlayed > 0 && advancedStats != null ? advancedStats!.dribbledPast / matchesPlayed : 0;
-  
+  double get dribbledPastPerMatch => matchesPlayed > 0 && advancedStats != null
+      ? advancedStats!.dribbledPast / matchesPlayed
+      : 0;
+
   /// Errors leading to goal (very bad)
   int get errorsLeadingToGoal => advancedStats?.errorLeadToGoal ?? 0;
 }
@@ -512,17 +560,17 @@ class RecentMatchStats {
 class OpponentInfo {
   final String name;
   final String? logoUrl;
-  final int? leaguePosition;        // 1 = top of league
+  final int? leaguePosition; // 1 = top of league
   final int? gamesPlayed;
-  final int? goalsScored;           // Total goals scored
-  final int? goalsConceded;         // Total goals conceded
-  final int? cleanSheets;           // Clean sheets kept
+  final int? goalsScored; // Total goals scored
+  final int? goalsConceded; // Total goals conceded
+  final int? cleanSheets; // Clean sheets kept
   final int? wins;
   final int? draws;
   final int? losses;
-  final bool isHomeGame;            // Is the player's team playing at home?
-  final DateTime? matchDateTime;    // When the match is scheduled
-  final String? venueName;          // Stadium name
+  final bool isHomeGame; // Is the player's team playing at home?
+  final DateTime? matchDateTime; // When the match is scheduled
+  final String? venueName; // Stadium name
 
   const OpponentInfo({
     required this.name,
@@ -545,7 +593,7 @@ class OpponentInfo {
     if (matchDateTime == null) return 'TBD';
     final now = DateTime.now();
     final diff = matchDateTime!.difference(now);
-    
+
     if (diff.inDays > 1) {
       return '${_dayName(matchDateTime!.weekday)}, ${_monthName(matchDateTime!.month)} ${matchDateTime!.day}';
     } else if (diff.inDays == 1) {
@@ -561,7 +609,7 @@ class OpponentInfo {
     if (matchDateTime == null) return '';
     final now = DateTime.now();
     final diff = matchDateTime!.difference(now);
-    
+
     if (diff.isNegative) return 'LIVE';
     if (diff.inDays > 0) return '${diff.inDays}d ${diff.inHours % 24}h';
     if (diff.inHours > 0) return '${diff.inHours}h ${diff.inMinutes % 60}m';
@@ -575,7 +623,20 @@ class OpponentInfo {
   }
 
   static String _monthName(int month) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return months[month - 1];
   }
 
@@ -585,19 +646,22 @@ class OpponentInfo {
 
   /// Goals conceded per game (defensive strength - lower is better defense)
   double get goalsConcededPerGame {
-    if (gamesPlayed == null || gamesPlayed == 0 || goalsConceded == null) return 1.0;
+    if (gamesPlayed == null || gamesPlayed == 0 || goalsConceded == null)
+      return 1.0;
     return goalsConceded! / gamesPlayed!;
   }
 
   /// Goals scored per game (attacking strength)
   double get goalsScoredPerGame {
-    if (gamesPlayed == null || gamesPlayed == 0 || goalsScored == null) return 1.0;
+    if (gamesPlayed == null || gamesPlayed == 0 || goalsScored == null)
+      return 1.0;
     return goalsScored! / gamesPlayed!;
   }
 
   /// Clean sheet rate (higher = better defense)
   double get cleanSheetRate {
-    if (gamesPlayed == null || gamesPlayed == 0 || cleanSheets == null) return 0.3;
+    if (gamesPlayed == null || gamesPlayed == 0 || cleanSheets == null)
+      return 0.3;
     return cleanSheets! / gamesPlayed!;
   }
 
@@ -610,15 +674,15 @@ class OpponentInfo {
   /// Defensive difficulty rating (0-100, higher = harder to score against)
   int get defensiveRating {
     double rating = 50.0;
-    
+
     // Goals conceded factor (fewer = better defense)
     // Liga MX average is about 1.2 goals conceded per game
     rating += (1.2 - goalsConcededPerGame) * 20;
-    
+
     // Clean sheet factor
     // Liga MX average clean sheet rate is about 25%
     rating += (cleanSheetRate - 0.25) * 40;
-    
+
     // League position factor (if available)
     if (leaguePosition != null) {
       // Top 4 = strong, bottom 4 = weak (18 teams in Liga MX)
@@ -632,21 +696,21 @@ class OpponentInfo {
         rating -= 5;
       }
     }
-    
+
     return rating.clamp(0.0, 100.0).round();
   }
 
   /// Attacking threat rating (0-100, higher = more dangerous attack)
   int get attackingRating {
     double rating = 50.0;
-    
+
     // Goals scored factor
     // Liga MX average is about 1.2 goals scored per game
     rating += (goalsScoredPerGame - 1.2) * 20;
-    
+
     // Win rate factor
     rating += (winRate - 0.33) * 30;
-    
+
     // League position factor
     if (leaguePosition != null) {
       if (leaguePosition! <= 4) {
@@ -659,12 +723,13 @@ class OpponentInfo {
         rating -= 5;
       }
     }
-    
+
     return rating.clamp(0.0, 100.0).round();
   }
 
   /// Overall difficulty rating (0-100)
-  int get overallDifficulty => ((defensiveRating + attackingRating) / 2).round();
+  int get overallDifficulty =>
+      ((defensiveRating + attackingRating) / 2).round();
 
   /// Get difficulty label
   String get difficultyLabel {
@@ -692,7 +757,7 @@ class OpponentInfo {
 class FantasyPointsPredictor {
   /// Weight for recent form vs season stats (0.0 = all season, 1.0 = all recent)
   static const double recentFormWeight = 0.6;
-  
+
   /// Number of recent matches to consider
   static const int recentMatchesCount = 5;
 
@@ -700,7 +765,7 @@ class FantasyPointsPredictor {
   static const double maxOpponentAdjustment = 12.0;
 
   /// Predict fantasy points for a player (0-100 scale)
-  /// 
+  ///
   /// [player] - The player to predict for
   /// [recentForm] - Optional recent match statistics (last 5 matches)
   /// [opponent] - Optional next opponent info for matchup analysis
@@ -712,18 +777,16 @@ class FantasyPointsPredictor {
     int? currentSeasonId,
   }) {
     // Use current season stats if available, otherwise fall back to latest
-    final stats = currentSeasonId != null 
+    final stats = currentSeasonId != null
         ? player.getStatsForCurrentSeason(currentSeasonId)
         : player.latestStats;
     final position = player.position?.name.toLowerCase() ?? '';
-    
+
     // If no stats available, return a base prediction
     if (stats == null || !stats.hasData) {
       return FantasyPrediction(
         totalPoints: 5.0, // Average default (0-10 scale)
-        breakdown: {
-          'No statistics available': 5.0,
-        },
+        breakdown: {'No statistics available': 5.0},
         confidence: 0.3,
         playerName: player.displayName,
         position: player.position?.name ?? 'Unknown',
@@ -733,11 +796,19 @@ class FantasyPointsPredictor {
     }
 
     // Calculate recent form from season stats if not provided
-    final recent = recentForm ?? RecentMatchStats.fromSeasonStats(stats, recentMatches: recentMatchesCount);
+    final recent =
+        recentForm ??
+        RecentMatchStats.fromSeasonStats(
+          stats,
+          recentMatches: recentMatchesCount,
+        );
 
     // Determine position category
-    final positionCategory = _getPositionCategory(position, player.position?.code);
-    
+    final positionCategory = _getPositionCategory(
+      position,
+      player.position?.code,
+    );
+
     // Calculate points based on position
     switch (positionCategory) {
       case PositionCategory.goalkeeper:
@@ -755,45 +826,56 @@ class FantasyPointsPredictor {
   /// Negative adjustment for tough defenses, positive for weak defenses
   static double _calculateAttackingOpponentAdjustment(OpponentInfo? opponent) {
     if (opponent == null) return 0.0;
-    
+
     // Defense rating: 50 = average, higher = better defense = harder to score
     final defenseRating = opponent.defensiveRating;
-    
+
     // Convert to adjustment: 50 = no adjustment, 80 = -max, 20 = +max
     final adjustment = (50 - defenseRating) / 30 * maxOpponentAdjustment;
-    
+
     // Home advantage: +2 points if playing at home
     final homeBonus = opponent.isHomeGame ? 2.0 : -1.0;
-    
-    return (adjustment + homeBonus).clamp(-maxOpponentAdjustment, maxOpponentAdjustment);
+
+    return (adjustment + homeBonus).clamp(
+      -maxOpponentAdjustment,
+      maxOpponentAdjustment,
+    );
   }
 
   /// Calculate opponent adjustment for defensive players
   /// Negative adjustment for strong attacks, positive for weak attacks
   static double _calculateDefensiveOpponentAdjustment(OpponentInfo? opponent) {
     if (opponent == null) return 0.0;
-    
+
     // Attack rating: 50 = average, higher = stronger attack = harder to keep clean sheet
     final attackRating = opponent.attackingRating;
-    
+
     // Convert to adjustment
     final adjustment = (50 - attackRating) / 30 * maxOpponentAdjustment;
-    
+
     // Home advantage for clean sheets
     final homeBonus = opponent.isHomeGame ? 1.5 : -0.5;
-    
-    return (adjustment + homeBonus).clamp(-maxOpponentAdjustment, maxOpponentAdjustment);
+
+    return (adjustment + homeBonus).clamp(
+      -maxOpponentAdjustment,
+      maxOpponentAdjustment,
+    );
   }
 
   static PositionCategory _getPositionCategory(String position, String? code) {
     final pos = position.toLowerCase();
     final c = code?.toLowerCase() ?? '';
-    
+
     if (c == 'g' || pos.contains('goalkeeper') || pos.contains('portero')) {
       return PositionCategory.goalkeeper;
-    } else if (c == 'd' || pos.contains('defender') || pos.contains('back') || pos.contains('defensa')) {
+    } else if (c == 'd' ||
+        pos.contains('defender') ||
+        pos.contains('back') ||
+        pos.contains('defensa')) {
       return PositionCategory.defender;
-    } else if (c == 'm' || pos.contains('midfielder') || pos.contains('medio')) {
+    } else if (c == 'm' ||
+        pos.contains('midfielder') ||
+        pos.contains('medio')) {
       return PositionCategory.midfielder;
     } else {
       return PositionCategory.forward;
@@ -802,41 +884,46 @@ class FantasyPointsPredictor {
 
   /// Blend season and recent form stats
   static double _blendStats(double seasonValue, double recentValue) {
-    return (seasonValue * (1 - recentFormWeight)) + (recentValue * recentFormWeight);
+    return (seasonValue * (1 - recentFormWeight)) +
+        (recentValue * recentFormWeight);
   }
 
   /// Calculate recent form score (0-100)
-  /// 
+  ///
   /// Form scoring using ADVANCED STATISTICS:
   /// - 0: Player is injured or bench warmer (no playtime in last 6 weeks)
   /// - 25: Very low form (few minutes, no contributions)
   /// - 50: Average/neutral form
   /// - 75+: Great form (regular starter with good contributions)
-  /// 
+  ///
   /// Position-specific weighting with advanced stats:
   /// - Forwards: Goals, shots on target, big chances, xG-related metrics
   /// - Midfielders: Key passes, big chances created, pass accuracy, assists
   /// - Defenders: Tackles, interceptions, clearances, aerial duels, clean sheets
   /// - Goalkeepers: Saves, saves inside box, clean sheets, distribution
-  static double _calculateFormScore(RecentMatchStats recent, PositionCategory position) {
+  static double _calculateFormScore(
+    RecentMatchStats recent,
+    PositionCategory position,
+  ) {
     // Check if player is injured or bench warmer (fixtures analyzed but didn't play)
     if (recent.isLikelyInjuredOrBench) {
       return 0.0; // Severely penalize - player unlikely to play
     }
-    
+
     // No data available - use neutral score
     if (recent.matchesPlayed == 0) {
       return 50.0;
     }
 
-    double score = 35.0; // Base score (lower to allow more room for advanced stats bonuses)
+    double score =
+        35.0; // Base score (lower to allow more room for advanced stats bonuses)
     final hasAdvanced = recent.hasAdvancedStats;
 
     // Playing time factor - heavily weighted
     // Regular starter (80+ mins avg) = +10, sub (30 mins avg) = +3
     final playingTimeFactor = (recent.minutesPerMatch / 90).clamp(0.0, 1.0);
     score += playingTimeFactor * 10;
-    
+
     // Participation rate bonus (played in most of the analyzed fixtures)
     if (recent.fixturesAnalyzed != null && recent.fixturesAnalyzed! > 0) {
       final participationRate = recent.matchesPlayed / recent.fixturesAnalyzed!;
@@ -850,26 +937,28 @@ class FantasyPointsPredictor {
         score += recent.cleanSheetRate * 20;
         // Saves bonus (normalized: 4+ saves per game is excellent)
         score += (recent.saves / recent.matchesPlayed / 4).clamp(0.0, 1.0) * 12;
-        
+
         // ADVANCED: Saves inside box (crucial, shows reflexes)
         if (hasAdvanced) {
-          score += recent.savesInsideBoxPerMatch * 10; // Max ~10 for 1 save inside box/match
+          score +=
+              recent.savesInsideBoxPerMatch *
+              10; // Max ~10 for 1 save inside box/match
         }
-        
+
         // Rating bonus
         if (recent.averageRating != null && recent.averageRating! > 6.5) {
           score += (recent.averageRating! - 6.5) * 6;
         }
         break;
-        
+
       case PositionCategory.defender:
         // Clean sheets are crucial for defenders
         score += recent.cleanSheetRate * 15;
         // Goals from defenders are RARE and HUGE
-        score += recent.goalsPerMatch * 40; 
+        score += recent.goalsPerMatch * 40;
         // Assists from defenders are also very valuable
         score += recent.assistsPerMatch * 25;
-        
+
         // ADVANCED DEFENSIVE STATS
         if (hasAdvanced) {
           // Tackles (good - 2+ per game is solid)
@@ -884,25 +973,26 @@ class FantasyPointsPredictor {
           score += (recent.aerialsWonPerMatch / 3).clamp(0.0, 1.0) * 6;
           // Duel success rate bonus
           final duelRate = recent.duelSuccessRate ?? 0;
-          if (duelRate > 55) score += (duelRate - 55) / 5 * 5; // Max +9 for 100%
+          if (duelRate > 55)
+            score += (duelRate - 55) / 5 * 5; // Max +9 for 100%
           // PENALTY: Dribbled past (bad for defenders)
           score -= recent.dribbledPastPerMatch * 5;
           // PENALTY: Errors leading to goals (very bad)
           score -= recent.errorsLeadingToGoal * 15;
         }
-        
+
         // Rating bonus for solid performances
         if (recent.averageRating != null && recent.averageRating! > 6.5) {
           score += (recent.averageRating! - 6.5) * 6;
         }
         break;
-        
+
       case PositionCategory.midfielder:
         // Assists are the bread and butter for midfielders
         score += recent.assistsPerMatch * 30;
         // Goals are a SUPER bonus for midfielders
         score += recent.goalsPerMatch * 35;
-        
+
         // ADVANCED CREATIVE STATS (key for midfielders!)
         if (hasAdvanced) {
           // Key passes (chance creation - most important for mids)
@@ -923,7 +1013,7 @@ class FantasyPointsPredictor {
             score -= 3; // Loses ball too often
           }
         }
-        
+
         // Rating bonus for playmakers
         if (recent.averageRating != null) {
           if (recent.averageRating! >= 7.0) {
@@ -932,17 +1022,17 @@ class FantasyPointsPredictor {
             score -= (6.0 - recent.averageRating!) * 4;
           }
         }
-        
+
         // Small clean sheet contribution for defensive midfielders
         score += recent.cleanSheetRate * 4;
         break;
-        
+
       case PositionCategory.forward:
         // Goals are KING for strikers
         score += recent.goalsPerMatch * 40;
         // Assists are important but secondary
         score += recent.assistsPerMatch * 22;
-        
+
         // ADVANCED ATTACKING STATS
         if (hasAdvanced) {
           // Shots on target (shows threat even without scoring)
@@ -965,7 +1055,7 @@ class FantasyPointsPredictor {
           // Fouls drawn (wins penalties, free kicks)
           score += (recent.foulsDrawnPerMatch / 2).clamp(0.0, 1.0) * 3;
         }
-        
+
         // Rating bonus
         if (recent.averageRating != null && recent.averageRating! >= 7.0) {
           score += (recent.averageRating! - 6.5) * 4;
@@ -975,7 +1065,7 @@ class FantasyPointsPredictor {
 
     // Card penalty (affects all positions)
     score -= recent.cardsPerMatch * 4;
-    
+
     // ADVANCED: Extra foul penalty if committing too many fouls
     if (hasAdvanced && recent.foulsCommittedPerMatch > 2) {
       score -= (recent.foulsCommittedPerMatch - 2) * 2;
@@ -985,36 +1075,51 @@ class FantasyPointsPredictor {
   }
 
   /// Predict for Goalkeeper
-  static FantasyPrediction _predictGoalkeeper(Player player, PlayerStatistics stats, RecentMatchStats recent, OpponentInfo? opponent) {
+  static FantasyPrediction _predictGoalkeeper(
+    Player player,
+    PlayerStatistics stats,
+    RecentMatchStats recent,
+    OpponentInfo? opponent,
+  ) {
     final breakdown = <String, double>{};
     double total = 0;
 
     // Calculate form score
     final formScore = _calculateFormScore(recent, PositionCategory.goalkeeper);
-    
+
     // Calculate opponent adjustment (defensive-focused for GK)
     final opponentAdjustment = _calculateDefensiveOpponentAdjustment(opponent);
 
     // Base points for playing (max 15)
     final seasonAppearanceRate = _calculateAppearanceRate(stats);
-    final recentPlayingRate = recent.matchesPlayed > 0 ? (recent.minutesPerMatch / 90).clamp(0.0, 1.0) : seasonAppearanceRate;
-    final playingPoints = _blendStats(seasonAppearanceRate, recentPlayingRate) * 15;
+    final recentPlayingRate = recent.matchesPlayed > 0
+        ? (recent.minutesPerMatch / 90).clamp(0.0, 1.0)
+        : seasonAppearanceRate;
+    final playingPoints =
+        _blendStats(seasonAppearanceRate, recentPlayingRate) * 15;
     breakdown['Playing Time'] = playingPoints;
     total += playingPoints;
 
     // Clean sheets (max 35) - most important for GK
-    if (stats.cleanSheets != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.cleanSheets != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final seasonCleanSheetRate = stats.cleanSheets! / stats.appearances!;
       final recentCleanSheetRate = recent.cleanSheetRate;
-      final cleanSheetPoints = _blendStats(seasonCleanSheetRate, recentCleanSheetRate) * 35;
+      final cleanSheetPoints =
+          _blendStats(seasonCleanSheetRate, recentCleanSheetRate) * 35;
       breakdown['Clean Sheets'] = cleanSheetPoints;
       total += cleanSheetPoints;
     }
 
     // Saves (max 25)
-    if (stats.saves != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.saves != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final seasonSavesPerGame = stats.saves! / stats.appearances!;
-      final recentSavesPerGame = recent.matchesPlayed > 0 ? recent.saves / recent.matchesPlayed : seasonSavesPerGame;
+      final recentSavesPerGame = recent.matchesPlayed > 0
+          ? recent.saves / recent.matchesPlayed
+          : seasonSavesPerGame;
       final savesPerGame = _blendStats(seasonSavesPerGame, recentSavesPerGame);
       final savePoints = (savesPerGame / 4).clamp(0.0, 1.0) * 25;
       breakdown['Saves'] = savePoints;
@@ -1027,7 +1132,9 @@ class FantasyPointsPredictor {
     total += formBonus;
 
     // Consistency bonus (max 10)
-    if (stats.lineups != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.lineups != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final startRate = stats.lineups! / stats.appearances!;
       final consistencyPoints = startRate * 10;
       breakdown['Consistency'] = consistencyPoints;
@@ -1063,37 +1170,55 @@ class FantasyPointsPredictor {
   /// Predict for Defender
   /// - Clean sheets are crucial
   /// - Goals/assists are RARE so they're worth MORE than for attackers
-  static FantasyPrediction _predictDefender(Player player, PlayerStatistics stats, RecentMatchStats recent, OpponentInfo? opponent) {
+  static FantasyPrediction _predictDefender(
+    Player player,
+    PlayerStatistics stats,
+    RecentMatchStats recent,
+    OpponentInfo? opponent,
+  ) {
     final breakdown = <String, double>{};
     double total = 0;
 
     final formScore = _calculateFormScore(recent, PositionCategory.defender);
-    
+
     // Defenders benefit from both defensive and some attacking adjustments
-    final defenseAdjustment = _calculateDefensiveOpponentAdjustment(opponent) * 0.7;
-    final attackAdjustment = _calculateAttackingOpponentAdjustment(opponent) * 0.3;
+    final defenseAdjustment =
+        _calculateDefensiveOpponentAdjustment(opponent) * 0.7;
+    final attackAdjustment =
+        _calculateAttackingOpponentAdjustment(opponent) * 0.3;
     final opponentAdjustment = defenseAdjustment + attackAdjustment;
 
     // Base points for playing (max 10)
     final seasonAppearanceRate = _calculateAppearanceRate(stats);
-    final recentPlayingRate = recent.matchesPlayed > 0 ? (recent.minutesPerMatch / 90).clamp(0.0, 1.0) : seasonAppearanceRate;
-    final playingPoints = _blendStats(seasonAppearanceRate, recentPlayingRate) * 10;
+    final recentPlayingRate = recent.matchesPlayed > 0
+        ? (recent.minutesPerMatch / 90).clamp(0.0, 1.0)
+        : seasonAppearanceRate;
+    final playingPoints =
+        _blendStats(seasonAppearanceRate, recentPlayingRate) * 10;
     breakdown['Playing Time'] = playingPoints;
     total += playingPoints;
 
     // Clean sheets (max 30) - CRUCIAL for defenders
-    if (stats.cleanSheets != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.cleanSheets != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final seasonCleanSheetRate = stats.cleanSheets! / stats.appearances!;
-      final cleanSheetPoints = _blendStats(seasonCleanSheetRate, recent.cleanSheetRate) * 30;
+      final cleanSheetPoints =
+          _blendStats(seasonCleanSheetRate, recent.cleanSheetRate) * 30;
       breakdown['Clean Sheets'] = cleanSheetPoints;
       total += cleanSheetPoints;
     }
 
     // Goals (max 25) - RARE for defenders, so worth MORE than strikers!
     // A defender scoring 0.1 goals/game is exceptional
-    if (stats.goals != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.goals != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final seasonGoalsPerGame = stats.goals! / stats.appearances!;
-      final goalsPerGame = _blendStats(seasonGoalsPerGame, recent.goalsPerMatch);
+      final goalsPerGame = _blendStats(
+        seasonGoalsPerGame,
+        recent.goalsPerMatch,
+      );
       // 0.1 goals/game = max points (1 goal in 10 games is great for a defender)
       final goalPoints = (goalsPerGame / 0.1).clamp(0.0, 1.0) * 25;
       breakdown['Goals'] = goalPoints;
@@ -1101,9 +1226,14 @@ class FantasyPointsPredictor {
     }
 
     // Assists (max 18) - Also valuable for defenders
-    if (stats.assists != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.assists != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final seasonAssistsPerGame = stats.assists! / stats.appearances!;
-      final assistsPerGame = _blendStats(seasonAssistsPerGame, recent.assistsPerMatch);
+      final assistsPerGame = _blendStats(
+        seasonAssistsPerGame,
+        recent.assistsPerMatch,
+      );
       // 0.1 assists/game = max points
       final assistPoints = (assistsPerGame / 0.1).clamp(0.0, 1.0) * 18;
       breakdown['Assists'] = assistPoints;
@@ -1112,11 +1242,16 @@ class FantasyPointsPredictor {
 
     // Recent Form Bonus/Penalty (max ±12)
     final formBonus = (formScore - 50) / 4;
-    breakdown['Recent Form (Last $recentMatchesCount)'] = formBonus.clamp(-12.0, 12.0);
+    breakdown['Recent Form (Last $recentMatchesCount)'] = formBonus.clamp(
+      -12.0,
+      12.0,
+    );
     total += formBonus.clamp(-12.0, 12.0);
 
     // Consistency bonus (max 8)
-    if (stats.lineups != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.lineups != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final startRate = stats.lineups! / stats.appearances!;
       final consistencyPoints = startRate * 8;
       breakdown['Consistency'] = consistencyPoints;
@@ -1153,28 +1288,43 @@ class FantasyPointsPredictor {
   /// - Assists are the bread and butter
   /// - Goals are a SUPER bonus (not their main job)
   /// - Rating matters for playmakers who control games without G/A
-  static FantasyPrediction _predictMidfielder(Player player, PlayerStatistics stats, RecentMatchStats recent, OpponentInfo? opponent) {
+  static FantasyPrediction _predictMidfielder(
+    Player player,
+    PlayerStatistics stats,
+    RecentMatchStats recent,
+    OpponentInfo? opponent,
+  ) {
     final breakdown = <String, double>{};
     double total = 0;
 
     final formScore = _calculateFormScore(recent, PositionCategory.midfielder);
-    
+
     // Midfielders: balanced between attacking and defensive adjustments
-    final attackAdjustment = _calculateAttackingOpponentAdjustment(opponent) * 0.6;
-    final defenseAdjustment = _calculateDefensiveOpponentAdjustment(opponent) * 0.4;
+    final attackAdjustment =
+        _calculateAttackingOpponentAdjustment(opponent) * 0.6;
+    final defenseAdjustment =
+        _calculateDefensiveOpponentAdjustment(opponent) * 0.4;
     final opponentAdjustment = attackAdjustment + defenseAdjustment;
 
     // Base points for playing (max 8)
     final seasonAppearanceRate = _calculateAppearanceRate(stats);
-    final recentPlayingRate = recent.matchesPlayed > 0 ? (recent.minutesPerMatch / 90).clamp(0.0, 1.0) : seasonAppearanceRate;
-    final playingPoints = _blendStats(seasonAppearanceRate, recentPlayingRate) * 8;
+    final recentPlayingRate = recent.matchesPlayed > 0
+        ? (recent.minutesPerMatch / 90).clamp(0.0, 1.0)
+        : seasonAppearanceRate;
+    final playingPoints =
+        _blendStats(seasonAppearanceRate, recentPlayingRate) * 8;
     breakdown['Playing Time'] = playingPoints;
     total += playingPoints;
 
     // Assists (max 30) - PRIMARY stat for midfielders
-    if (stats.assists != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.assists != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final seasonAssistsPerGame = stats.assists! / stats.appearances!;
-      final assistsPerGame = _blendStats(seasonAssistsPerGame, recent.assistsPerMatch);
+      final assistsPerGame = _blendStats(
+        seasonAssistsPerGame,
+        recent.assistsPerMatch,
+      );
       // 0.3 assists/game = max points (very good for a midfielder)
       final assistPoints = (assistsPerGame / 0.3).clamp(0.0, 1.0) * 30;
       breakdown['Assists'] = assistPoints;
@@ -1182,9 +1332,14 @@ class FantasyPointsPredictor {
     }
 
     // Goals (max 25) - SUPER BONUS for midfielders
-    if (stats.goals != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.goals != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final seasonGoalsPerGame = stats.goals! / stats.appearances!;
-      final goalsPerGame = _blendStats(seasonGoalsPerGame, recent.goalsPerMatch);
+      final goalsPerGame = _blendStats(
+        seasonGoalsPerGame,
+        recent.goalsPerMatch,
+      );
       // 0.25 goals/game = max points (scoring mids are very valuable)
       final goalPoints = (goalsPerGame / 0.25).clamp(0.0, 1.0) * 25;
       breakdown['Goals'] = goalPoints;
@@ -1199,7 +1354,8 @@ class FantasyPointsPredictor {
       final avgRating = _blendStats(seasonRating, recentRating);
       // Rating above 6.5 gives bonus, below gives penalty
       if (avgRating >= 6.5) {
-        final ratingPoints = ((avgRating - 6.5) / 1.5).clamp(0.0, 1.0) * 15; // 8.0 rating = max
+        final ratingPoints =
+            ((avgRating - 6.5) / 1.5).clamp(0.0, 1.0) * 15; // 8.0 rating = max
         breakdown['Game Control'] = ratingPoints;
         total += ratingPoints;
       } else {
@@ -1211,11 +1367,16 @@ class FantasyPointsPredictor {
 
     // Recent Form Bonus/Penalty (max ±12)
     final formBonus = (formScore - 50) / 4;
-    breakdown['Recent Form (Last $recentMatchesCount)'] = formBonus.clamp(-12.0, 12.0);
+    breakdown['Recent Form (Last $recentMatchesCount)'] = formBonus.clamp(
+      -12.0,
+      12.0,
+    );
     total += formBonus.clamp(-12.0, 12.0);
 
     // Consistency bonus (max 6)
-    if (stats.lineups != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.lineups != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final startRate = stats.lineups! / stats.appearances!;
       final consistencyPoints = startRate * 6;
       breakdown['Consistency'] = consistencyPoints;
@@ -1252,26 +1413,39 @@ class FantasyPointsPredictor {
   /// - Goals are KING - this is their primary job
   /// - Assists are important but secondary
   /// - Form matters a lot for strikers
-  static FantasyPrediction _predictForward(Player player, PlayerStatistics stats, RecentMatchStats recent, OpponentInfo? opponent) {
+  static FantasyPrediction _predictForward(
+    Player player,
+    PlayerStatistics stats,
+    RecentMatchStats recent,
+    OpponentInfo? opponent,
+  ) {
     final breakdown = <String, double>{};
     double total = 0;
 
     final formScore = _calculateFormScore(recent, PositionCategory.forward);
-    
+
     // Forwards: primarily affected by opponent's defensive strength
     final opponentAdjustment = _calculateAttackingOpponentAdjustment(opponent);
 
     // Base points for playing (max 6) - less base for forwards, they need to produce
     final seasonAppearanceRate = _calculateAppearanceRate(stats);
-    final recentPlayingRate = recent.matchesPlayed > 0 ? (recent.minutesPerMatch / 90).clamp(0.0, 1.0) : seasonAppearanceRate;
-    final playingPoints = _blendStats(seasonAppearanceRate, recentPlayingRate) * 6;
+    final recentPlayingRate = recent.matchesPlayed > 0
+        ? (recent.minutesPerMatch / 90).clamp(0.0, 1.0)
+        : seasonAppearanceRate;
+    final playingPoints =
+        _blendStats(seasonAppearanceRate, recentPlayingRate) * 6;
     breakdown['Playing Time'] = playingPoints;
     total += playingPoints;
 
     // Goals (max 40) - THE most important stat for forwards
-    if (stats.goals != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.goals != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final seasonGoalsPerGame = stats.goals! / stats.appearances!;
-      final goalsPerGame = _blendStats(seasonGoalsPerGame, recent.goalsPerMatch);
+      final goalsPerGame = _blendStats(
+        seasonGoalsPerGame,
+        recent.goalsPerMatch,
+      );
       // 0.5 goals/game = max points (world class striker level)
       final goalPoints = (goalsPerGame / 0.5).clamp(0.0, 1.0) * 40;
       breakdown['Goals'] = goalPoints;
@@ -1279,9 +1453,14 @@ class FantasyPointsPredictor {
     }
 
     // Assists (max 20) - important but secondary to goals
-    if (stats.assists != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.assists != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final seasonAssistsPerGame = stats.assists! / stats.appearances!;
-      final assistsPerGame = _blendStats(seasonAssistsPerGame, recent.assistsPerMatch);
+      final assistsPerGame = _blendStats(
+        seasonAssistsPerGame,
+        recent.assistsPerMatch,
+      );
       // 0.25 assists/game = max points
       final assistPoints = (assistsPerGame / 0.25).clamp(0.0, 1.0) * 20;
       breakdown['Assists'] = assistPoints;
@@ -1290,14 +1469,17 @@ class FantasyPointsPredictor {
 
     // Recent Form Bonus/Penalty (max ±15) - crucial for forwards
     final formBonus = (formScore - 50) / 3.3;
-    breakdown['Recent Form (Last $recentMatchesCount)'] = formBonus.clamp(-15.0, 15.0);
+    breakdown['Recent Form (Last $recentMatchesCount)'] = formBonus.clamp(
+      -15.0,
+      15.0,
+    );
     total += formBonus.clamp(-15.0, 15.0);
 
     // Goal contributions per 90 bonus (max 12) - efficiency metric
     if (stats.minutesPlayed != null && stats.minutesPlayed! > 0) {
       final seasonContributions = (stats.goals ?? 0) + (stats.assists ?? 0);
       final seasonPer90 = seasonContributions / (stats.minutesPlayed! / 90);
-      final recentPer90 = recent.minutesPerMatch > 0 
+      final recentPer90 = recent.minutesPerMatch > 0
           ? recent.contributionsPerMatch * (90 / recent.minutesPerMatch)
           : seasonPer90;
       final per90 = _blendStats(seasonPer90, recentPer90);
@@ -1308,7 +1490,9 @@ class FantasyPointsPredictor {
     }
 
     // Consistency bonus (max 5) - less important for strikers if they're scoring
-    if (stats.lineups != null && stats.appearances != null && stats.appearances! > 0) {
+    if (stats.lineups != null &&
+        stats.appearances != null &&
+        stats.appearances! > 0) {
       final startRate = stats.lineups! / stats.appearances!;
       final consistencyPoints = startRate * 5;
       breakdown['Consistency'] = consistencyPoints;
@@ -1353,42 +1537,50 @@ class FantasyPointsPredictor {
     final yellows = stats.yellowCards ?? 0;
     final reds = stats.redCards ?? 0;
     final yellowReds = stats.yellowRedCards ?? 0;
-    
+
     final penalty = (yellows * 1.0) + (yellowReds * 2.5) + (reds * 3.0);
     return penalty.clamp(0.0, 10.0);
   }
 
   /// Calculate prediction confidence based on sample size
-  static double _calculateConfidence(PlayerStatistics stats, RecentMatchStats recent) {
+  static double _calculateConfidence(
+    PlayerStatistics stats,
+    RecentMatchStats recent,
+  ) {
     final appearances = stats.appearances ?? 0;
     final minutes = stats.minutesPlayed ?? 0;
     final recentMatches = recent.matchesPlayed;
-    
+
     double confidence = 0.25; // Base confidence
-    
+
+    if (recent.isLikelyInjuredOrBench) {
+      return 0.35;
+    }
+
     // Season stats confidence
     if (appearances >= 5) confidence += 0.1;
     if (appearances >= 10) confidence += 0.1;
     if (appearances >= 15) confidence += 0.05;
-    
+
     if (minutes >= 450) confidence += 0.05;
     if (minutes >= 900) confidence += 0.05;
-    
+
     // Recent form confidence boost
     if (recentMatches >= 3) confidence += 0.15;
     if (recentMatches >= 5) confidence += 0.15;
-    
-    return confidence.clamp(0.25, 1.0);
+
+    // Strong recent-form signal should increase reliability even if the
+    // upcoming matchup suppresses the final next-match projection.
+    if (recentMatches >= 3 && recent.minutesPerMatch >= 60) confidence += 0.1;
+    if ((recent.averageRating ?? 0) >= 7.2) confidence += 0.05;
+    if ((recent.averageRating ?? 0) >= 7.8) confidence += 0.05;
+
+    return confidence.clamp(0.35, 1.0);
   }
 }
 
 /// Position categories for prediction
-enum PositionCategory {
-  goalkeeper,
-  defender,
-  midfielder,
-  forward,
-}
+enum PositionCategory { goalkeeper, defender, midfielder, forward }
 
 /// Fantasy points prediction result (0-10 scale)
 class FantasyPrediction {
@@ -1440,6 +1632,20 @@ class FantasyPrediction {
     if (confidence >= 0.4) return 'Low';
     return 'Very Low';
   }
+
+  double get opponentImpact {
+    if (opponent == null) return 0.0;
+
+    for (final entry in breakdown.entries) {
+      if (entry.key.startsWith('vs ')) return entry.value;
+    }
+    return 0.0;
+  }
+
+  bool get hasNegativeOpponentImpact => opponentImpact < -0.4;
+
+  bool get hasStrongRecentForm =>
+      recentFormScore != null && recentFormScore! >= 70;
 
   /// Get recent form description
   String get formDescription {

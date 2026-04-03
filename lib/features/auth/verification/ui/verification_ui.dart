@@ -5,8 +5,17 @@ import 'package:flutter/material.dart';
 
 class VerificationUi extends StatelessWidget {
   final VerificationInteractor verificationInteractor;
+  final TextEditingController? otpController;
+  final int resendCooldownSeconds;
+  final ValueChanged<String>? onOtpChanged;
 
-  const VerificationUi(this.verificationInteractor, {super.key});
+  const VerificationUi(
+    this.verificationInteractor, {
+    super.key,
+    this.otpController,
+    this.resendCooldownSeconds = 0,
+    this.onOtpChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +37,12 @@ class VerificationUi extends StatelessWidget {
                   width: MediaQuery.of(context).size.width,
                   fit: BoxFit.fill,
                 ),
-                VerificationColumn(verificationInteractor),
+                VerificationColumn(
+                  verificationInteractor,
+                  otpController: otpController,
+                  resendCooldownSeconds: resendCooldownSeconds,
+                  onOtpChanged: onOtpChanged,
+                ),
               ],
             ),
           ),

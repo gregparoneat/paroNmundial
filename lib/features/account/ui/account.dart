@@ -1,25 +1,29 @@
 import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/account/models/account_item_data.dart';
+import 'package:fantacy11/features/auth/auth_repository.dart';
+import 'package:fantacy11/features/auth/auth_session_cubit.dart';
 import 'package:fantacy11/features/language/language_ui.dart';
 import 'package:fantacy11/features/fixtures/services/lineup_prediction_service.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/routes/routes.dart';
 import 'package:fantacy11/services/cache_service.dart';
-import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_phoenix/flutter_phoenix.dart';
 
 /// Clear all app caches (Hive + in-memory prediction cache)
 void _clearAllCaches(BuildContext context) {
   debugPrint('Clear cache button pressed');
+  final locale = S.of(context);
   
   // Store scaffold messenger before async operations
   final scaffoldMessenger = ScaffoldMessenger.of(context);
   
   // Show "clearing" message
   scaffoldMessenger.showSnackBar(
-    const SnackBar(
+    SnackBar(
       content: Row(
         children: [
           SizedBox(
@@ -31,7 +35,7 @@ void _clearAllCaches(BuildContext context) {
             ),
           ),
           SizedBox(width: 16),
-          Text('Clearing cache...'),
+          Text(locale.clearingCache),
         ],
       ),
       backgroundColor: Colors.orange,
@@ -53,12 +57,12 @@ void _clearAllCaches(BuildContext context) {
       // Hide previous snackbar and show success
       scaffoldMessenger.hideCurrentSnackBar();
       scaffoldMessenger.showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Row(
             children: [
               Icon(Icons.check_circle, color: Colors.white),
               SizedBox(width: 16),
-              Text('Cache cleared! Restart app for fresh data.'),
+              Text(locale.cacheClearedRestart),
             ],
           ),
           backgroundColor: Colors.green,
@@ -76,7 +80,7 @@ void _clearAllCaches(BuildContext context) {
             children: [
               const Icon(Icons.error, color: Colors.white),
               const SizedBox(width: 16),
-              Expanded(child: Text('Error: $e')),
+              Expanded(child: Text('${locale.errorLabel}: $e')),
             ],
           ),
           backgroundColor: Colors.red,
@@ -94,7 +98,7 @@ void _clearAllCaches(BuildContext context) {
           children: [
             const Icon(Icons.error, color: Colors.white),
             const SizedBox(width: 16),
-            Expanded(child: Text('Error: $e')),
+            Expanded(child: Text('${locale.errorLabel}: $e')),
           ],
         ),
         backgroundColor: Colors.red,
@@ -106,6 +110,38 @@ void _clearAllCaches(BuildContext context) {
 
 class Account extends StatelessWidget {
   const Account({super.key});
+
+  Future<_AccountUserData> _loadUserData() async {
+    final authUser = FirebaseAuth.instance.currentUser;
+    if (authUser == null) {
+      return const _AccountUserData();
+    }
+
+    String? name =
+        authUser.displayName?.trim().isNotEmpty == true
+            ? authUser.displayName!.trim()
+            : null;
+    final email = authUser.email?.trim();
+    final phone = authUser.phoneNumber?.trim();
+    final photoUrl = authUser.photoURL;
+
+    try {
+      final profile = await AuthRepository().getUserProfile(authUser.uid);
+      final profileName = (profile?['name'] as String?)?.trim();
+      if (profileName != null && profileName.isNotEmpty) {
+        name = profileName;
+      }
+    } catch (e) {
+      debugPrint('Account: Failed to load profile for header: $e');
+    }
+
+    return _AccountUserData(
+      name: name,
+      email: email,
+      phone: phone,
+      photoUrl: photoUrl,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -148,8 +184,8 @@ class Account extends StatelessWidget {
         PageRoutes.faqs,
       ),
       AccountItemData(
-        'Clear Cache',
-        'Clear all cached data (for testing)',
+        locale.clearCacheTitle,
+        locale.clearCacheSubtitle,
         Icons.cleaning_services_rounded,
         Colors.orange,
         'clear_cache',
@@ -173,17 +209,48 @@ class Account extends StatelessWidget {
             onTap: () {
               Navigator.pushNamed(context, PageRoutes.profile);
             },
-            leading: FadedScaleAnimation(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(30),
-                child: Image.asset('assets/Teams/accountTeam.png'),
-              ),
+            leading: FutureBuilder<_AccountUserData>(
+              future: _loadUserData(),
+              builder: (context, snapshot) {
+                final data = snapshot.data ?? const _AccountUserData();
+                final hasPhoto =
+                    data.photoUrl != null && data.photoUrl!.isNotEmpty;
+                return FadedScaleAnimation(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(30),
+                    child: hasPhoto
+                        ? Image.network(
+                            data.photoUrl!,
+                            width: 48,
+                            height: 48,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) =>
+                                Image.asset('assets/Teams/accountTeam.png'),
+                          )
+                        : Image.asset('assets/Teams/accountTeam.png'),
+                  ),
+                );
+              },
             ),
-            title: Text(
-              'Samanthateam123',
-              style: theme.textTheme.titleLarge!.copyWith(
-                color: iconColor,
-              ),
+            title: FutureBuilder<_AccountUserData>(
+              future: _loadUserData(),
+              builder: (context, snapshot) {
+                final data = snapshot.data ?? const _AccountUserData();
+                final displayName =
+                    (data.name != null && data.name!.isNotEmpty)
+                        ? data.name!
+                        : (data.email != null && data.email!.isNotEmpty)
+                        ? data.email!
+                        : (data.phone != null && data.phone!.isNotEmpty)
+                        ? data.phone!
+                        : 'Guest';
+                return Text(
+                  displayName,
+                  style: theme.textTheme.titleLarge!.copyWith(
+                    color: iconColor,
+                  ),
+                );
+              },
             ),
             subtitle: Text(locale.viewProfile,
                 style: theme.textTheme.titleLarge!.copyWith(
@@ -306,7 +373,13 @@ class Account extends StatelessWidget {
                                   );
                                 } else if (accountItems[index].title ==
                                     locale.logout) {
-                                  Phoenix.rebirth(context);
+                                  () async {
+                                    await context
+                                        .read<AuthSessionCubit>()
+                                        .resetToUnauthenticated();
+                                    if (!context.mounted) return;
+                                    Phoenix.rebirth(context);
+                                  }();
                                 } else if (accountItems[index].routeName ==
                                     'clear_cache') {
                                   _clearAllCaches(context);
@@ -330,4 +403,18 @@ class Account extends StatelessWidget {
       ),
     );
   }
+}
+
+class _AccountUserData {
+  final String? name;
+  final String? email;
+  final String? phone;
+  final String? photoUrl;
+
+  const _AccountUserData({
+    this.name,
+    this.email,
+    this.phone,
+    this.photoUrl,
+  });
 }

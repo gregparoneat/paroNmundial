@@ -1,5 +1,6 @@
 import 'package:blur/blur.dart';
 import 'package:fantacy11/features/auth/register/ui/register_interactor.dart';
+import 'package:fantacy11/features/auth/widgets/country_code_picker_sheet.dart';
 import 'package:fantacy11/features/components/custom_button.dart';
 import 'package:fantacy11/features/components/entry_field.dart';
 import 'package:fantacy11/generated/l10n.dart';
@@ -7,13 +8,28 @@ import 'package:flutter/material.dart';
 
 class RegisterColumn extends StatelessWidget {
   final RegisterInteractor interactor;
+  final TextEditingController? nameController;
+  final TextEditingController? emailController;
+  final TextEditingController? phoneController;
+  final TextEditingController? birthdateController;
+  final CountryDialCode selectedCountry;
+  final VoidCallback? onSelectCountry;
 
-  const RegisterColumn(this.interactor, {super.key});
+  const RegisterColumn(
+    this.interactor, {
+    super.key,
+    this.nameController,
+    this.emailController,
+    this.phoneController,
+    this.birthdateController,
+    required this.selectedCountry,
+    this.onSelectCountry,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    var locale = S.of(context);
+    final locale = S.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.start,
@@ -50,18 +66,51 @@ class RegisterColumn extends StatelessWidget {
                     EntryField(
                       label: locale.fullName,
                       hint: locale.enterFullName,
+                      controller: nameController,
                     ),
                     EntryField(
                       label: locale.emailAddress,
                       hint: locale.enterEmailAddress,
+                      controller: emailController,
+                      keyboardType: TextInputType.emailAddress,
                     ),
                     EntryField(
                       label: locale.phoneNumber,
                       hint: locale.enterPhoneNumber,
+                      controller: phoneController,
+                      keyboardType: TextInputType.phone,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: InkWell(
+                        onTap: onSelectCountry,
+                        borderRadius: BorderRadius.circular(6),
+                        child: InputDecorator(
+                          decoration: InputDecoration(
+                            labelText: locale.countryCode,
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          child: Row(
+                            children: [
+                              Text(selectedCountry.flag, style: const TextStyle(fontSize: 18)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '${selectedCountry.name} (${selectedCountry.dialCode})',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const Icon(Icons.arrow_drop_down),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                     EntryField(
                       label: locale.birthdate,
                       hint: locale.selectBirthdate,
+                      controller: birthdateController,
                     ),
                     const SizedBox(
                       height: 28,
@@ -90,7 +139,13 @@ class RegisterColumn extends StatelessWidget {
                 end: 0,
                 child: CustomButton(
                   onTap: () {
-                    interactor.register(null, "", "", null);
+                    interactor.register(
+                      selectedCountry.dialCode,
+                      phoneController?.text.trim(),
+                      nameController?.text.trim() ?? '',
+                      emailController?.text.trim() ?? '',
+                      null,
+                    );
                   },
                 ),
               ),

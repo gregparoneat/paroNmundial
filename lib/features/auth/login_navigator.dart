@@ -42,12 +42,13 @@ class LoginNavigator extends StatelessWidget {
               builder = (c, a1, a2) => const RegisterPage();
               break;
             case LoginRoutes.verification:
+              final args = settings.arguments as Map<String, dynamic>?;
+              final phoneNumber = args?['phoneNumber']?.toString() ?? '';
               builder = (c, a1, a2) => VerificationPage(
-                    "",
-                    // After verification, go to favorite team selection
-                    // Use navigatorKey for internal login flow navigation
-                    () => navigatorKey.currentState?.pushReplacementNamed(
-                        LoginRoutes.favoriteTeam),
+                    phoneNumber,
+                    // AuthGate listens to auth session state and will route
+                    // to onboarding/app after successful verification.
+                    () {},
                   );
               break;
             case LoginRoutes.favoriteTeam:

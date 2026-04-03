@@ -1,6 +1,7 @@
 import 'package:fantacy11/api/repositories/league_repository.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/league/models/league_models.dart';
+import 'package:fantacy11/generated/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -30,10 +31,11 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
   }
 
   Future<void> _searchLeague() async {
+    final s = S.of(context);
     final code = _codeController.text.trim().toUpperCase();
     if (code.isEmpty || code.length < 4) {
       setState(() {
-        _error = 'Enter a valid invite code';
+        _error = s.enterValidInviteCode;
         _foundLeague = null;
       });
       return;
@@ -54,11 +56,11 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
           _isSearching = false;
           _foundLeague = league;
           if (league == null) {
-            _error = 'League not found. Check the invite code.';
+            _error = s.leagueNotFoundCheckInviteCode;
           } else if (!league.canJoin) {
             _error = league.isFull 
-                ? 'This league is full'
-                : 'This league is no longer accepting members';
+                ? s.thisLeagueIsFull
+                : s.leagueNoLongerAcceptingMembers;
           }
         });
       }
@@ -66,13 +68,14 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
       if (mounted) {
         setState(() {
           _isSearching = false;
-          _error = 'Error searching for league';
+          _error = s.errorSearchingForLeague;
         });
       }
     }
   }
 
   Future<void> _joinLeague() async {
+    final s = S.of(context);
     if (_foundLeague == null) return;
 
     setState(() => _isJoining = true);
@@ -87,7 +90,7 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
         } else {
           setState(() {
             _isJoining = false;
-            _error = 'Failed to join league';
+            _error = s.failedToJoinLeague;
           });
         }
       }
@@ -95,7 +98,7 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
       if (mounted) {
         setState(() {
           _isJoining = false;
-          _error = 'Error joining league: $e';
+          _error = s.errorJoiningLeague(e.toString());
         });
       }
     }
@@ -103,6 +106,7 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
     final theme = Theme.of(context);
     
     return Dialog(
@@ -122,7 +126,7 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
                 Icon(Icons.link, color: theme.primaryColor),
                 const SizedBox(width: 12),
                 Text(
-                  'Join Private League',
+                  s.joinPrivateLeague,
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -133,7 +137,7 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
             const SizedBox(height: 16),
             
             Text(
-              'Enter the invite code shared by your friend to join their private league.',
+              s.joinPrivateLeagueDescription,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: bgTextColor,
               ),
@@ -145,7 +149,7 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
             TextField(
               controller: _codeController,
               decoration: InputDecoration(
-                labelText: 'Invite Code',
+                labelText: s.inviteCode,
                 hintText: 'ABC123',
                 prefixIcon: const Icon(Icons.vpn_key),
                 border: OutlineInputBorder(
@@ -184,7 +188,7 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.search),
-                label: Text(_isSearching ? 'Searching...' : 'Find League'),
+                label: Text(_isSearching ? s.searching : s.findLeague),
               ),
             ),
             
@@ -227,7 +231,7 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
                 Expanded(
                   child: TextButton(
                     onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel'),
+                    child: Text(s.cancel),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -249,7 +253,7 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
                               color: Colors.white,
                             ),
                           )
-                        : const Text('Join League'),
+                        : Text(s.joinLeague),
                   ),
                 ),
               ],
@@ -261,6 +265,7 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
   }
 
   Widget _buildLeaguePreview(ThemeData theme, League league) {
+    final s = S.of(context);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -277,8 +282,8 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
             children: [
               Icon(Icons.check_circle, color: Colors.green, size: 20),
               const SizedBox(width: 8),
-              const Text(
-                'League Found!',
+              Text(
+                s.leagueFound,
                 style: TextStyle(
                   color: Colors.green,
                   fontWeight: FontWeight.w600,
@@ -330,4 +335,3 @@ class _JoinLeagueDialogState extends State<JoinLeagueDialog> {
     );
   }
 }
-

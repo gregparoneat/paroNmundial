@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class EntryField extends StatelessWidget {
   const EntryField({
@@ -7,12 +8,24 @@ class EntryField extends StatelessWidget {
     this.hint,
     this.maxLines,
     this.minLines,
+    this.controller,
+    this.onChanged,
+    this.keyboardType,
+    this.obscureText = false,
+    this.inputFormatters,
+    this.maxLength,
   });
 
   final String? label;
   final String? hint;
   final int? maxLines;
   final int? minLines;
+  final TextEditingController? controller;
+  final ValueChanged<String>? onChanged;
+  final TextInputType? keyboardType;
+  final bool obscureText;
+  final List<TextInputFormatter>? inputFormatters;
+  final int? maxLength;
 
   @override
   Widget build(BuildContext context) {
@@ -30,6 +43,12 @@ class EntryField extends StatelessWidget {
               textAlign: TextAlign.left,
             ),
           TextField(
+            controller: controller,
+            onChanged: onChanged,
+            keyboardType: keyboardType,
+            obscureText: obscureText,
+            inputFormatters: inputFormatters,
+            maxLength: maxLength,
             maxLines: maxLines,
             minLines: minLines,
             decoration: InputDecoration(

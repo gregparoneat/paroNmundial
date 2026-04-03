@@ -4,10 +4,20 @@ import 'package:fantacy11/features/components/custom_button.dart';
 import 'package:fantacy11/features/components/entry_field.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class VerificationColumn extends StatelessWidget {
   final VerificationInteractor interactor;
-  const VerificationColumn(this.interactor, {super.key});
+  final TextEditingController? otpController;
+  final int resendCooldownSeconds;
+  final ValueChanged<String>? onOtpChanged;
+  const VerificationColumn(
+    this.interactor, {
+    super.key,
+    this.otpController,
+    this.resendCooldownSeconds = 0,
+    this.onOtpChanged,
+  });
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -51,13 +61,31 @@ class VerificationColumn extends StatelessWidget {
               EntryField(
                 label: s.enterCode,
                 hint: s.enterSixDigit,
+                controller: otpController,
+                keyboardType: TextInputType.number,
+                onChanged: onOtpChanged,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                maxLength: 6,
               ),
               const SizedBox(
                 height: 40,
               ),
               CustomButton(
                 text: s.getStarted,
-                onTap: () => interactor.verify(""),
+                onTap: () => interactor.verify(otpController?.text.trim() ?? ''),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton(
+                  onPressed: resendCooldownSeconds > 0
+                      ? null
+                      : () => interactor.resend(),
+                  child: Text(
+                    resendCooldownSeconds > 0
+                        ? 'Resend code in ${resendCooldownSeconds}s'
+                        : 'Resend code',
+                  ),
+                ),
               ),
               const SizedBox(height: 20),
             ],

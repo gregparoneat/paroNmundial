@@ -1,16 +1,62 @@
 import 'package:animation_wrappers/animation_wrappers.dart';
 import 'package:fantacy11/app_config/colors.dart';
+import 'package:fantacy11/features/auth/auth_repository.dart';
 import 'package:fantacy11/generated/l10n.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class Profile extends StatelessWidget {
   const Profile({super.key});
 
+  Future<_ProfileUserData> _loadProfileData() async {
+    final authUser = FirebaseAuth.instance.currentUser;
+    if (authUser == null) {
+      return const _ProfileUserData();
+    }
+
+    String? name =
+        authUser.displayName?.trim().isNotEmpty == true
+            ? authUser.displayName!.trim()
+            : null;
+    final email = authUser.email?.trim();
+    final phone = authUser.phoneNumber?.trim();
+    final photoUrl = authUser.photoURL;
+
+    try {
+      final profile = await AuthRepository().getUserProfile(authUser.uid);
+      final profileName = (profile?['name'] as String?)?.trim();
+      if (profileName != null && profileName.isNotEmpty) {
+        name = profileName;
+      }
+    } catch (e) {
+      debugPrint('Profile: Failed to load profile from Firestore: $e');
+    }
+
+    return _ProfileUserData(
+      name: name,
+      email: email,
+      phone: phone,
+      photoUrl: photoUrl,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     var theme = Theme.of(context);
     var locale = S.of(context);
-    return Scaffold(
+    return FutureBuilder<_ProfileUserData>(
+      future: _loadProfileData(),
+      builder: (context, snapshot) {
+        final data = snapshot.data ?? const _ProfileUserData();
+        final displayName =
+            (data.name != null && data.name!.isNotEmpty) ? data.name! : '-';
+        final displayEmail =
+            (data.email != null && data.email!.isNotEmpty) ? data.email! : '-';
+        final displayPhone =
+            (data.phone != null && data.phone!.isNotEmpty) ? data.phone! : '-';
+        final hasPhoto = data.photoUrl != null && data.photoUrl!.isNotEmpty;
+
+        return Scaffold(
       appBar: AppBar(
         leading: GestureDetector(
           onTap: () {
@@ -54,12 +100,14 @@ class Profile extends StatelessWidget {
                     clipBehavior: Clip.none,
                     children: [
                       FadedScaleAnimation(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(60),
-                          child: Image.asset(
-                            'assets/Teams/profile.png',
-                            scale: 3.5,
-                          ),
+                        child: CircleAvatar(
+                          radius: 30,
+                          backgroundColor: Theme.of(context).colorScheme.surface,
+                          backgroundImage:
+                              hasPhoto ? NetworkImage(data.photoUrl!) : null,
+                          child: hasPhoto
+                              ? null
+                              : const Icon(Icons.person, size: 30),
                         ),
                       ),
                       PositionedDirectional(
@@ -103,7 +151,7 @@ class Profile extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Samanthateam123' '\n\n',
+                        '$displayName\n\n',
                         style: theme.textTheme.bodyMedium,
                       ),
                       Text(
@@ -114,7 +162,7 @@ class Profile extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'samantha@mail.com' '\n\n',
+                        '$displayEmail\n\n',
                         style: theme.textTheme.bodyMedium,
                       ),
                       Text(
@@ -125,7 +173,7 @@ class Profile extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '+1 987 654 3210' '\n\n',
+                        '$displayPhone\n\n',
                         style: theme.textTheme.bodyMedium,
                       ),
                       Text(
@@ -136,7 +184,7 @@ class Profile extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '22 Jun 1990' '\n\n',
+                        '-\n\n',
                         style: theme.textTheme.bodyMedium,
                       ),
                     ],
@@ -148,5 +196,21 @@ class Profile extends StatelessWidget {
         ),
       ),
     );
+      },
+    );
   }
+}
+
+class _ProfileUserData {
+  final String? name;
+  final String? email;
+  final String? phone;
+  final String? photoUrl;
+
+  const _ProfileUserData({
+    this.name,
+    this.email,
+    this.phone,
+    this.photoUrl,
+  });
 }
