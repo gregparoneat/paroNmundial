@@ -118,12 +118,7 @@ class PlayerTeamInfo {
   factory PlayerTeamInfo.fromJson(Map<String, dynamic> json) {
     // Check if team data is nested (from API includes)
     final teamData = json['team'] as Map<String, dynamic>?;
-    
-    // Debug: Print team data if available
-    if (teamData != null) {
-      print('Team data from API include: ${teamData['name']}');
-    }
-    
+
     return PlayerTeamInfo(
       teamId: json['team_id'] as int? ?? 0,
       jerseyNumber: json['jersey_number'] as int?,
@@ -728,4 +723,3 @@ class Player {
     };
   }
 }
-

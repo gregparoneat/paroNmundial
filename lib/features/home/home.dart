@@ -84,16 +84,17 @@ class HomeState extends State<Home> {
                 bottom: Radius.circular(30),
               ),
               child: Image.asset(
-                'assets/img_header.png',
+                'assets/paroNmundialTransparent.png',
                 height: 172,
                 width: double.infinity,
-                fit: BoxFit.fill,
+                fit: BoxFit.cover,
+                alignment: Alignment.topCenter,
               ),
             ),
             Scaffold(
               backgroundColor: Colors.transparent,
               appBar: AppBar(
-                title: Image.asset('assets/logo_home.png', scale: 3),
+                title: const SizedBox.shrink(),
                 actions: [
                   Icon(Icons.sports_soccer, color: iconColor),
                   GestureDetector(

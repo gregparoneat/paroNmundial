@@ -1,9 +1,13 @@
 import 'dart:convert';
+import 'dart:math' show log;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:fantacy11/api/firestore_service.dart';
 import 'package:fantacy11/api/sportmonks_client.dart';
 import 'package:fantacy11/api/sportmonks_config.dart';
+import 'package:fantacy11/api/world_cup_market_tiers.dart';
+import 'package:fantacy11/api/world_cup_market_values.dart';
+import 'package:fantacy11/features/fantasy/fantasy_points_predictor.dart';
 import 'package:fantacy11/features/player/models/player_info.dart';
 import 'package:fantacy11/services/cache_service.dart';
 
@@ -22,6 +26,8 @@ class RosterPlayer {
   final int? jerseyNumber;
   final double price; // Price in millions of USD (e.g., 8.5 = $8.5M)
   final double projectedPoints; // Projected fantasy points
+  final double?
+  seasonProjectedPointsPerMatch; // Season-based per-match baseline
   final double selectedByPercent; // % of users who selected
   final Map<String, dynamic>? stats; // Season statistics
 
@@ -41,6 +47,7 @@ class RosterPlayer {
     this.jerseyNumber,
     this.price = 5.0,
     this.projectedPoints = 5.0,
+    this.seasonProjectedPointsPerMatch,
     this.selectedByPercent = 0,
     this.stats,
   });
@@ -58,26 +65,56 @@ class RosterPlayer {
   /// Get formatted price string (e.g., "$8.5M")
   String get formattedPrice => '\$${price.toStringAsFixed(1)}M';
 
+  String? get statSourceLabel {
+    final seasonName = stats?['seasonName']?.toString().trim();
+    if (seasonName == null || seasonName.isEmpty) return null;
+
+    if (seasonName.contains('World Cup')) return seasonName;
+    if (seasonName.contains('Qualification') ||
+        seasonName.contains('Qualifiers')) {
+      return seasonName
+          .replaceAll('WC Qualification', 'WCQ')
+          .replaceAll('World Cup Qualifiers', 'WCQ')
+          .replaceAll('Qualification', 'Qualifiers');
+    }
+
+    return seasonName;
+  }
+
+  String get projectionSummary {
+    final source = statSourceLabel;
+    if (source == null) {
+      return '${projectedPoints.toStringAsFixed(1)} next • ${projectedSeasonPoints.toStringAsFixed(1)} season';
+    }
+    return '${projectedPoints.toStringAsFixed(1)} next • ${projectedSeasonPoints.toStringAsFixed(1)} $source';
+  }
+
   /// Estimated season total based on the per-match projection.
   double get projectedSeasonPoints {
+    final seasonPerMatchProjection =
+        seasonProjectedPointsPerMatch ?? projectedPoints;
     final appearances = _statAsDouble(stats?['appearances']);
+    final lineups = _statAsDouble(stats?['lineups']);
     final minutes = _statAsDouble(stats?['minutes']);
     final gamesPlayed = appearances > 0
         ? appearances
-        : (minutes > 0 ? minutes / 70.0 : 0.0);
-    final minutesPerAppearance = gamesPlayed > 0 ? minutes / gamesPlayed : 0.0;
+        : (lineups > 0 ? lineups : (minutes > 0 ? minutes / 70.0 : 0.0));
+    final minutesPerAppearance = gamesPlayed > 0
+        ? (minutes > 0 ? minutes / gamesPlayed : 75.0)
+        : 0.0;
 
     // Keep next-match projection intact, but discount season totals for
     // low-usage players so bench pieces do not project like full-time starters.
-    final seasonRoleFactor = gamesPlayed <= 0
-        ? 1.0
-        : (0.15 +
-                  0.85 *
-                      (gamesPlayed / seasonMatchesProjection).clamp(0.0, 1.0) *
-                      (minutesPerAppearance / 75.0).clamp(0.0, 1.0))
-              .clamp(0.15, 1.0);
+    final seasonRoleFactor =
+        (0.15 +
+                0.85 *
+                    (gamesPlayed / seasonMatchesProjection).clamp(0.0, 1.0) *
+                    (minutesPerAppearance / 75.0).clamp(0.0, 1.0))
+            .clamp(0.15, 1.0);
 
-    return projectedPoints * seasonMatchesProjection * seasonRoleFactor;
+    return seasonPerMatchProjection *
+        seasonMatchesProjection *
+        seasonRoleFactor;
   }
 
   double _statAsDouble(dynamic value) {
@@ -105,6 +142,7 @@ class RosterPlayer {
     'price': price,
     'credits': price, // Backwards compatibility
     'projectedPoints': projectedPoints,
+    'seasonProjectedPointsPerMatch': seasonProjectedPointsPerMatch,
     'selectedByPercent': selectedByPercent,
     'stats': stats,
   };
@@ -125,6 +163,8 @@ class RosterPlayer {
         (json['credits'] as num?)?.toDouble() ??
         5.0, // Support both
     projectedPoints: (json['projectedPoints'] as num?)?.toDouble() ?? 5.0,
+    seasonProjectedPointsPerMatch:
+        (json['seasonProjectedPointsPerMatch'] as num?)?.toDouble(),
     selectedByPercent: (json['selectedByPercent'] as num?)?.toDouble() ?? 0,
     stats: json['stats'] as Map<String, dynamic>?,
   );
@@ -205,6 +245,7 @@ class PlayersRepository {
 
   // Flag to track if Firestore has data
   bool? _firestoreHasData;
+  Future<List<RosterPlayer>>? _loadAllPlayersFuture;
 
   PlayersRepository({
     SportMonksClient? client,
@@ -374,11 +415,26 @@ class PlayersRepository {
 
           // Calculate price and projected points
           final stats = _extractPlayerStats(json);
-          final projectedPoints = _calculateProjectedPoints(
+          final seasonProjectedPoints = _calculateProjectedPoints(
             stats,
             positionCode,
           );
-          final price = _calculatePrice(stats, positionCode, projectedPoints);
+          final projectedPoints = _calculateNextMatchProjectedPoints(
+            playerId: playerId,
+            playerName: json['name']?.toString() ?? name,
+            displayName: name,
+            positionCode: positionCode,
+            seasonProjectedPoints: seasonProjectedPoints,
+            seasonStats: stats,
+            teamId: teamId,
+          );
+          final price = _calculatePrice(
+            stats,
+            positionCode,
+            seasonProjectedPoints,
+            playerName: json['name']?.toString() ?? name,
+            displayName: name,
+          );
 
           final rosterPlayer = RosterPlayer(
             id: playerId,
@@ -393,6 +449,7 @@ class PlayersRepository {
             jerseyNumber: jerseyNumber ?? json['jersey_number'] as int?,
             price: price,
             projectedPoints: projectedPoints,
+            seasonProjectedPointsPerMatch: seasonProjectedPoints,
             stats: stats,
           );
 
@@ -426,7 +483,7 @@ class PlayersRepository {
   /// Get player by ID
   Future<Player?> getPlayerById(int playerId) async {
     if (!SportMonksConfig.isConfigured) {
-      return _loadMockPlayer();
+      return await _buildFallbackPlayerById(playerId) ?? _loadMockPlayer();
     }
 
     try {
@@ -438,8 +495,11 @@ class PlayersRepository {
       return Player.fromJson(response.data);
     } on SportMonksException catch (e) {
       debugPrint('SportMonks API Error: $e');
-      return null;
+    } catch (e) {
+      debugPrint('Unexpected error fetching player $playerId: $e');
     }
+
+    return _buildFallbackPlayerById(playerId);
   }
 
   /// Get players for a team (squad) - returns basic Player objects
@@ -595,23 +655,41 @@ class PlayersRepository {
         // Recalculate price and projected points from stats
         // This ensures we use the latest pricing logic
         double price;
-        double projectedPoints;
+        double seasonProjectedPoints;
 
         if (stats != null && stats.isNotEmpty) {
-          projectedPoints = _calculateProjectedPointsFromStats(
+          seasonProjectedPoints = _calculateProjectedPointsFromStats(
             stats,
             positionCode,
           );
-          price = _calculatePrice(stats, positionCode, projectedPoints);
+          price = _calculatePrice(
+            stats,
+            positionCode,
+            seasonProjectedPoints,
+            playerName: data['name'] as String,
+            displayName: data['displayName'] as String,
+          );
         } else {
           // Fallback to cached values if no stats
           price =
               (data['price'] as num?)?.toDouble() ??
               (data['credits'] as num?)?.toDouble() ??
               5.0;
-          projectedPoints =
-              (data['projectedPoints'] as num?)?.toDouble() ?? 5.0;
+          seasonProjectedPoints =
+              (data['seasonProjectedPointsPerMatch'] as num?)?.toDouble() ??
+              (data['projectedPoints'] as num?)?.toDouble() ??
+              5.0;
         }
+
+        final projectedPoints = _calculateNextMatchProjectedPoints(
+          playerId: data['id'] as int,
+          playerName: data['name'] as String,
+          displayName: data['displayName'] as String,
+          positionCode: positionCode,
+          seasonProjectedPoints: seasonProjectedPoints,
+          seasonStats: stats,
+          teamId: data['teamId'] as int,
+        );
 
         players.add(
           RosterPlayer(
@@ -627,6 +705,7 @@ class PlayersRepository {
             jerseyNumber: data['jerseyNumber'] as int?,
             price: price,
             projectedPoints: projectedPoints,
+            seasonProjectedPointsPerMatch: seasonProjectedPoints,
             selectedByPercent:
                 (data['selectedByPercent'] as num?)?.toDouble() ?? 0,
             stats: stats,
@@ -651,11 +730,26 @@ class PlayersRepository {
     final stats = player.stats;
     if (stats == null || stats.isEmpty) return player;
 
-    final projectedPoints = _calculateProjectedPointsFromStats(
+    final seasonProjectedPoints = _calculateProjectedPointsFromStats(
       stats,
       player.positionCode,
     );
-    final price = _calculatePrice(stats, player.positionCode, projectedPoints);
+    final projectedPoints = _calculateNextMatchProjectedPoints(
+      playerId: player.id,
+      playerName: player.name,
+      displayName: player.displayName,
+      positionCode: player.positionCode,
+      seasonProjectedPoints: seasonProjectedPoints,
+      seasonStats: stats,
+      teamId: player.teamId,
+    );
+    final price = _calculatePrice(
+      stats,
+      player.positionCode,
+      seasonProjectedPoints,
+      playerName: player.name,
+      displayName: player.displayName,
+    );
 
     return RosterPlayer(
       id: player.id,
@@ -670,6 +764,7 @@ class PlayersRepository {
       jerseyNumber: player.jerseyNumber,
       price: price,
       projectedPoints: projectedPoints,
+      seasonProjectedPointsPerMatch: seasonProjectedPoints,
       selectedByPercent: player.selectedByPercent,
       stats: stats,
     );
@@ -701,7 +796,31 @@ class PlayersRepository {
       return _teamsMemoryCache!;
     }
 
-    // Check Hive cache
+    // Prefer the configured competition teams from SportMonks so we only use
+    // actual World Cup participants and avoid stale cloned-league data.
+    if (SportMonksConfig.isConfigured) {
+      try {
+        final apiTeams = await _loadCompetitionTeamsFromApi();
+        if (apiTeams.isNotEmpty) {
+          _teamsMemoryCache = apiTeams;
+          await _cacheService.saveLigaMxTeams(
+            apiTeams
+                .map((t) => {'id': t.id, 'name': t.name, 'logo': t.logo})
+                .toList(),
+          );
+          debugPrint(
+            'Loaded ${apiTeams.length} ${SportMonksConfig.competitionName} teams from SportMonks',
+          );
+          return apiTeams;
+        }
+      } catch (e) {
+        debugPrint(
+          'Competition teams fetch failed, falling back to Firestore: $e',
+        );
+      }
+    }
+
+    // Check Hive cache only after the live competition source.
     final cachedTeams = _cacheService.getLigaMxTeams();
     if (cachedTeams != null && cachedTeams.isNotEmpty) {
       _teamsMemoryCache = cachedTeams
@@ -717,7 +836,7 @@ class PlayersRepository {
       return _teamsMemoryCache!;
     }
 
-    // Try Firestore first
+    // Try Firestore next
     try {
       final firestoreTeams = await _loadTeamsFromFirestore();
       if (firestoreTeams.isNotEmpty) {
@@ -742,23 +861,20 @@ class PlayersRepository {
       );
     }
 
-    final csvTeams = await _loadLigaMxTeamsFromCsv();
-    final teams = <LigaMxTeam>[];
-
-    for (final team in csvTeams) {
-      final teamId = team['id'] as int;
-      final teamName = team['name'] as String;
-      String? teamLogo;
-
-      try {
-        final teamResponse = await _client.getTeamById(teamId);
-        teamLogo = teamResponse.data?['image_path']?.toString();
-      } catch (e) {
-        debugPrint('Error fetching logo for $teamName: $e');
-      }
-
-      teams.add(LigaMxTeam(id: teamId, name: teamName, logo: teamLogo));
-    }
+    final response = await _client.getTeamsBySeason(
+      SportMonksConfig.fallbackSeasonId,
+    );
+    final teams = response.data
+        .map(
+          (team) => LigaMxTeam(
+            id: _parseIntValue(team['id']) ?? 0,
+            name: team['name']?.toString() ?? 'Unknown',
+            logo:
+                team['image_path']?.toString() ?? team['logo_path']?.toString(),
+          ),
+        )
+        .where((team) => team.id > 0)
+        .toList();
 
     // Save to in-memory cache
     _teamsMemoryCache = teams;
@@ -767,8 +883,9 @@ class PlayersRepository {
     await _cacheService.saveLigaMxTeams(
       teams.map((t) => {'id': t.id, 'name': t.name, 'logo': t.logo}).toList(),
     );
-
-    debugPrint('Loaded ${teams.length} Liga MX teams from CSV/API');
+    debugPrint(
+      'Loaded ${teams.length} ${SportMonksConfig.competitionName} teams from API',
+    );
     return teams;
   }
 
@@ -791,19 +908,111 @@ class PlayersRepository {
         .toList();
   }
 
+  Future<List<LigaMxTeam>> _loadCompetitionTeamsFromApi() async {
+    final teams = <LigaMxTeam>[];
+    final seenIds = <int>{};
+    final standingsResponse = await _client.getStandingsBySeason(
+      SportMonksConfig.fallbackSeasonId,
+      includes: ['participant'],
+    );
+
+    for (final standing in standingsResponse.data) {
+      final participant = standing['participant'];
+      if (participant is! Map<String, dynamic>) continue;
+      if (!_isConfiguredCompetitionTeam(participant)) continue;
+
+      final teamId = _parseIntValue(participant['id']);
+      if (teamId == null || teamId <= 0 || !seenIds.add(teamId)) continue;
+
+      teams.add(
+        LigaMxTeam(
+          id: teamId,
+          name:
+              participant['name']?.toString() ??
+              participant['short_code']?.toString() ??
+              'Team $teamId',
+          logo:
+              participant['image_path']?.toString() ??
+              participant['logo_path']?.toString(),
+        ),
+      );
+    }
+
+    if (teams.isNotEmpty) {
+      return teams;
+    }
+
+    // Fallback to the season teams endpoint if standings are unavailable.
+    final response = await _client.getTeamsBySeason(
+      SportMonksConfig.fallbackSeasonId,
+      page: 1,
+      perPage: 100,
+    );
+
+    for (final team in response.data) {
+      if (!_isConfiguredCompetitionTeam(team)) continue;
+
+      final teamId = _parseIntValue(team['id']);
+      if (teamId == null || teamId <= 0 || !seenIds.add(teamId)) continue;
+
+      teams.add(
+        LigaMxTeam(
+          id: teamId,
+          name:
+              team['name']?.toString() ??
+              team['short_code']?.toString() ??
+              'Team $teamId',
+          logo: team['image_path']?.toString() ?? team['logo_path']?.toString(),
+        ),
+      );
+    }
+
+    return teams;
+  }
+
   /// Load all players from Firestore and cache them
   /// This is the preferred method as it loads all data in one call
   /// Pass forceRefresh=true to bypass cache and reload from Firestore
   Future<List<RosterPlayer>> loadAllPlayersFromFirestore({
     bool forceRefresh = false,
   }) async {
+    if (!forceRefresh && _loadAllPlayersFuture != null) {
+      debugPrint('Reusing in-flight roster load');
+      return _loadAllPlayersFuture!;
+    }
+
+    final future = _loadAllPlayersFromFirestoreInternal(
+      forceRefresh: forceRefresh,
+    );
+    _loadAllPlayersFuture = future;
+
+    try {
+      return await future;
+    } finally {
+      if (identical(_loadAllPlayersFuture, future)) {
+        _loadAllPlayersFuture = null;
+      }
+    }
+  }
+
+  Future<List<RosterPlayer>> _loadAllPlayersFromFirestoreInternal({
+    required bool forceRefresh,
+  }) async {
     debugPrint(
       'Loading all players from Firestore (forceRefresh: $forceRefresh)...',
     );
 
+    await WorldCupMarketValues.ensureLoaded();
+
+    // Load competition teams first so both cached and Firestore players can be
+    // validated against the World Cup team pool.
+    await getLigaMxTeams();
+
     // Check Hive cache first (only if not forcing refresh and cache has substantial data)
     if (!forceRefresh) {
-      final cachedPlayers = getCachedPlayers();
+      final cachedPlayers = _filterPlayersToCompetitionTeams(
+        getCachedPlayers(),
+      );
       // Only use cache if it has a substantial number of players (Liga MX has ~500+ players)
       if (cachedPlayers.length >= 300) {
         // Check if cached players have stats - if not, they need enrichment
@@ -839,6 +1048,29 @@ class PlayersRepository {
       debugPrint(
         'Cache has ${cachedPlayers.length} players (insufficient, need 300+)',
       );
+    }
+
+    if (SportMonksConfig.isConfigured) {
+      try {
+        final competitionPlayers = await _loadAllPlayersFromCompetitionSquads();
+        if (competitionPlayers.isNotEmpty) {
+          final enrichedPlayers = await _enrichPlayersWithStats(
+            competitionPlayers,
+          );
+          if (enrichedPlayers.isNotEmpty) {
+            await _cacheService.clearLigaMxRoster();
+            _addToCache(enrichedPlayers);
+          }
+          debugPrint(
+            'Loaded ${enrichedPlayers.length} players from ${SportMonksConfig.competitionName} squads',
+          );
+          return enrichedPlayers;
+        }
+      } catch (e) {
+        debugPrint(
+          'Competition squad load failed, falling back to Firestore player documents: $e',
+        );
+      }
     }
 
     try {
@@ -916,6 +1148,59 @@ class PlayersRepository {
       debugPrint('Error loading players from Firestore: $e');
       return [];
     }
+  }
+
+  Future<List<RosterPlayer>> _loadAllPlayersFromCompetitionSquads() async {
+    final teams = await getLigaMxTeams();
+    if (teams.isEmpty) {
+      return [];
+    }
+
+    final players = <RosterPlayer>[];
+    final seenPlayerIds = <int>{};
+    var totalEntries = 0;
+
+    for (final team in teams) {
+      final response = await _client.getTeamSquad(
+        team.id,
+        includes: [
+          'player.position',
+          'player.detailedposition',
+          'player.nationality',
+          'player.statistics.details',
+          'player.statistics.season',
+        ],
+      );
+
+      for (final squadEntry in response.data) {
+        totalEntries++;
+        final playerData = squadEntry['player'] as Map<String, dynamic>?;
+        if (playerData == null) continue;
+
+        final playerId = _parseIntValue(playerData['id']);
+        if (playerId == null || playerId <= 0 || !seenPlayerIds.add(playerId)) {
+          continue;
+        }
+
+        final teamInfo = _TeamPlayerInfo(
+          teamId: team.id,
+          teamName: team.name,
+          teamLogo: team.logo,
+          jerseyNumber: _parseIntValue(squadEntry['jersey_number']),
+        );
+
+        final rosterPlayer = _parsePlayerToRosterPlayer(playerData, teamInfo);
+        if (rosterPlayer != null) {
+          players.add(rosterPlayer);
+          _playerDetailsCache[rosterPlayer.id] = rosterPlayer;
+        }
+      }
+    }
+
+    debugPrint(
+      'Built ${players.length} unique players from $totalEntries ${SportMonksConfig.competitionName} squad entries',
+    );
+    return players;
   }
 
   /// Enrich players with season stats from SportMonks
@@ -1020,14 +1305,25 @@ class PlayersRepository {
     for (final player in players) {
       final stats = cachedStats![player.id];
       if (stats != null && stats.isNotEmpty) {
-        final projectedPoints = _calculateProjectedPointsFromStats(
+        final seasonProjectedPoints = _calculateProjectedPointsFromStats(
           stats,
           player.positionCode,
         );
         final price = _calculatePrice(
           stats,
           player.positionCode,
-          projectedPoints,
+          seasonProjectedPoints,
+          playerName: player.name,
+          displayName: player.displayName,
+        );
+        final projectedPoints = _calculateNextMatchProjectedPoints(
+          playerId: player.id,
+          playerName: player.name,
+          displayName: player.displayName,
+          positionCode: player.positionCode,
+          seasonProjectedPoints: seasonProjectedPoints,
+          seasonStats: stats,
+          teamId: player.teamId,
         );
         enrichedPlayers.add(
           RosterPlayer(
@@ -1043,6 +1339,7 @@ class PlayersRepository {
             jerseyNumber: player.jerseyNumber,
             price: price,
             projectedPoints: projectedPoints,
+            seasonProjectedPointsPerMatch: seasonProjectedPoints,
             selectedByPercent: player.selectedByPercent,
             stats: stats,
           ),
@@ -1089,7 +1386,7 @@ class PlayersRepository {
     try {
       final response = await _client.getPlayerById(
         playerId,
-        includes: ['statistics.details'],
+        includes: ['statistics.details', 'statistics.season'],
       );
 
       final playerData = response.data;
@@ -1100,25 +1397,18 @@ class PlayersRepository {
         return null;
       }
 
-      // Find the most recent season with stats
+      final selectedStat = _selectPreferredStatisticsEntry(statistics);
+      final selectedSeasonId = _parseIntValue(selectedStat?['season_id']) ?? 0;
       Map<String, dynamic>? bestStats;
-      int highestSeasonId = 0;
+      final internationalStat = _selectBestInternationalStatisticsEntry(
+        statistics,
+      );
+      final clubStat = _selectBestClubStatisticsEntry(statistics);
 
-      for (final stat in statistics) {
-        if (stat is! Map<String, dynamic>) continue;
-
-        final seasonId = _parseIntValue(stat['season_id']) ?? 0;
-        final hasValues = stat['has_values'] == true;
-
-        if (seasonId > highestSeasonId) {
-          final details = stat['details'] as List?;
-          if (details != null && details.isNotEmpty) {
-            highestSeasonId = seasonId;
-            bestStats = _extractStatsFromDetails(details);
-          } else if (hasValues) {
-            // Even without details, mark this season as valid
-            highestSeasonId = seasonId;
-          }
+      if (selectedStat != null) {
+        final details = selectedStat['details'] as List?;
+        if (details != null && details.isNotEmpty) {
+          bestStats = _extractStatsFromDetails(details);
         }
       }
 
@@ -1127,7 +1417,7 @@ class PlayersRepository {
         for (final stat in statistics) {
           if (stat is! Map<String, dynamic>) continue;
           final seasonId = _parseIntValue(stat['season_id']) ?? 0;
-          if (seasonId == highestSeasonId || highestSeasonId == 0) {
+          if (seasonId == selectedSeasonId || selectedSeasonId == 0) {
             // Check for direct stat fields
             final goals = stat['goals'] ?? stat['total_goals'];
             final assists = stat['assists'] ?? stat['total_assists'];
@@ -1138,11 +1428,35 @@ class PlayersRepository {
                 'appearances': stat['appearances'] ?? stat['total_appearances'],
                 'minutes': stat['minutes'] ?? stat['total_minutes'],
                 'rating': stat['rating'] ?? stat['average_rating'],
+                'seasonId': seasonId,
+                'seasonName': stat['season']?['name']?.toString(),
               };
               break;
             }
           }
         }
+      }
+
+      if (bestStats != null && bestStats.isNotEmpty && selectedStat != null) {
+        bestStats['seasonId'] = _parseIntValue(selectedStat['season_id']);
+        bestStats['seasonName'] = selectedStat['season']?['name']?.toString();
+      }
+
+      final internationalStats = _extractStatsFromStatisticsEntry(
+        internationalStat,
+      );
+      final clubStats = _extractStatsFromStatisticsEntry(clubStat);
+      if (bestStats != null && bestStats.isNotEmpty) {
+        if (internationalStats != null && internationalStats.isNotEmpty) {
+          bestStats['projectionInternational'] = internationalStats;
+        }
+        if (clubStats != null && clubStats.isNotEmpty) {
+          bestStats['projectionClub'] = clubStats;
+        }
+      }
+
+      if (bestStats == null || bestStats.isEmpty) {
+        bestStats = await _fetchPlayerStatsFromDetailedEndpoint(playerId);
       }
 
       return bestStats;
@@ -1168,9 +1482,6 @@ class PlayersRepository {
           stats['goals'] = value;
           break; // Goals
         case 79:
-          stats['rating'] = value;
-          break; // Rating
-        case 84:
           stats['assists'] = value;
           break; // Assists
         case 119:
@@ -1188,14 +1499,348 @@ class PlayersRepository {
         case 42:
           stats['appearances'] = value;
           break; // Appearances
-        case 56:
+        case 322:
+          stats['lineups'] = value;
+          break; // Lineups
+        case 84:
           stats['yellowCards'] = value;
           break; // Yellow cards
-        case 57:
+        case 83:
+        case 85:
           stats['redCards'] = value;
           break; // Red cards
       }
     }
+
+    return stats;
+  }
+
+  Map<String, dynamic>? _selectPreferredStatisticsEntry(List statistics) {
+    Map<String, dynamic>? preferred;
+    int preferredScore = -1;
+    int preferredSeasonId = -1;
+
+    for (final stat in statistics) {
+      if (stat is! Map<String, dynamic>) continue;
+
+      final seasonId = _parseIntValue(stat['season_id']) ?? 0;
+      final score = _statisticsPriorityScore(stat);
+      if (score < 0) continue;
+
+      if (score > preferredScore ||
+          (score == preferredScore && seasonId > preferredSeasonId)) {
+        preferred = stat;
+        preferredScore = score;
+        preferredSeasonId = seasonId;
+      }
+    }
+
+    return preferred;
+  }
+
+  Map<String, dynamic>? _selectBestInternationalStatisticsEntry(
+    List statistics,
+  ) {
+    return _selectStatisticsEntryByFilter(
+      statistics,
+      allowInternational: true,
+      allowClub: false,
+    );
+  }
+
+  Map<String, dynamic>? _selectBestClubStatisticsEntry(List statistics) {
+    return _selectStatisticsEntryByFilter(
+      statistics,
+      allowInternational: false,
+      allowClub: true,
+    );
+  }
+
+  Map<String, dynamic>? _selectStatisticsEntryByFilter(
+    List statistics, {
+    required bool allowInternational,
+    required bool allowClub,
+  }) {
+    Map<String, dynamic>? preferred;
+    int preferredScore = -1;
+    int preferredSeasonId = -1;
+
+    for (final stat in statistics) {
+      if (stat is! Map<String, dynamic>) continue;
+      final seasonId = _parseIntValue(stat['season_id']) ?? 0;
+      final season = stat['season'] as Map<String, dynamic>?;
+      final leagueId = _parseIntValue(season?['league_id']);
+      final isInternational = SportMonksConfig.preferredInternationalSeasonIds
+          .contains(seasonId);
+      final isClub =
+          leagueId != null &&
+          SportMonksConfig.preferredClubLeagueIds.contains(leagueId);
+
+      if ((isInternational && !allowInternational) ||
+          (isClub && !allowClub) ||
+          (!isInternational && !isClub)) {
+        continue;
+      }
+
+      final score = _statisticsPriorityScore(stat);
+      if (score < 0) continue;
+
+      if (score > preferredScore ||
+          (score == preferredScore && seasonId > preferredSeasonId)) {
+        preferred = stat;
+        preferredScore = score;
+        preferredSeasonId = seasonId;
+      }
+    }
+
+    return preferred;
+  }
+
+  int _statisticsPriorityScore(Map<String, dynamic> stat) {
+    final seasonId = _parseIntValue(stat['season_id']) ?? 0;
+    final preferredIndex = SportMonksConfig.preferredInternationalSeasonIds
+        .indexOf(seasonId);
+    final season = stat['season'] as Map<String, dynamic>?;
+    final leagueId = _parseIntValue(season?['league_id']);
+    final preferredClubIndex = leagueId == null
+        ? -1
+        : SportMonksConfig.preferredClubLeagueIds.indexOf(leagueId);
+    final details = stat['details'] as List?;
+    final hasDetails = details != null && details.isNotEmpty;
+    final hasValues = stat['has_values'] == true;
+    final hasDirectStats =
+        stat['goals'] != null ||
+        stat['total_goals'] != null ||
+        stat['assists'] != null ||
+        stat['total_assists'] != null ||
+        stat['minutes'] != null ||
+        stat['total_minutes'] != null;
+
+    if (!hasDetails && !hasValues && !hasDirectStats) {
+      return -1;
+    }
+
+    if (preferredIndex >= 0) {
+      return 1000 - preferredIndex;
+    }
+
+    if (preferredClubIndex >= 0) {
+      return 500 - preferredClubIndex;
+    }
+
+    return seasonId;
+  }
+
+  Map<String, dynamic>? _extractStatsFromStatisticsEntry(
+    Map<String, dynamic>? stat,
+  ) {
+    if (stat == null) return null;
+
+    Map<String, dynamic>? extracted;
+    final details = stat['details'] as List?;
+    if (details != null && details.isNotEmpty) {
+      extracted = _extractStatsFromDetails(details);
+    }
+
+    if (extracted == null || extracted.isEmpty) {
+      final goals = stat['goals'] ?? stat['total_goals'];
+      final assists = stat['assists'] ?? stat['total_assists'];
+      final appearances = stat['appearances'] ?? stat['total_appearances'];
+      final minutes = stat['minutes'] ?? stat['total_minutes'];
+
+      if (goals != null || assists != null || appearances != null || minutes != null) {
+        extracted = {
+          'goals': goals,
+          'assists': assists,
+          'appearances': appearances,
+          'minutes': minutes,
+          'rating': stat['rating'] ?? stat['average_rating'],
+        };
+      }
+    }
+
+    if (extracted == null || extracted.isEmpty) {
+      return null;
+    }
+
+    extracted['seasonId'] = _parseIntValue(stat['season_id']);
+    extracted['seasonName'] = stat['season']?['name']?.toString();
+    return extracted;
+  }
+
+  Future<Map<String, dynamic>?> _fetchPlayerStatsFromDetailedEndpoint(
+    int playerId,
+  ) async {
+    try {
+      final response = await _client.getPlayerById(
+        playerId,
+        includes: [
+          'statistics',
+          'statistics.details.type',
+          'statistics.season',
+          'lineups.details.type',
+        ],
+      );
+
+      final playerData = response.data;
+      final statistics = playerData['statistics'] as List?;
+      if (statistics != null && statistics.isNotEmpty) {
+        final selectedStat = _selectPreferredStatisticsEntry(statistics);
+        if (selectedStat != null) {
+          final details = selectedStat['details'] as List?;
+          if (details != null && details.isNotEmpty) {
+            final stats = _extractStatsFromTypedDetails(details);
+            if (stats.isNotEmpty) {
+              stats['seasonId'] = _parseIntValue(selectedStat['season_id']);
+              stats['seasonName'] = selectedStat['season']?['name']?.toString();
+              return stats;
+            }
+          }
+        }
+      }
+
+      final lineups = playerData['lineups'] as List?;
+      if (lineups == null || lineups.isEmpty) return null;
+
+      final aggregated = _aggregateStatsFromLineups(lineups);
+      return aggregated.isEmpty ? null : aggregated;
+    } catch (e) {
+      debugPrint(
+        'Detailed SportMonks stats fetch error for player $playerId: $e',
+      );
+      return null;
+    }
+  }
+
+  Map<String, dynamic> _extractStatsFromTypedDetails(List details) {
+    final stats = <String, dynamic>{};
+
+    for (final detail in details) {
+      if (detail is! Map<String, dynamic>) continue;
+
+      final type = detail['type'] as Map<String, dynamic>?;
+      final developerName = type?['developer_name']?.toString().toUpperCase();
+      final value = detail['value'];
+
+      switch (developerName) {
+        case 'GOALS':
+          stats['goals'] = value;
+          break;
+        case 'ASSISTS':
+          stats['assists'] = value;
+          break;
+        case 'MINUTES_PLAYED':
+          stats['minutes'] = value;
+          break;
+        case 'CLEANSHEET':
+          stats['cleanSheets'] = value;
+          break;
+        case 'SAVES':
+          stats['saves'] = value;
+          break;
+        case 'APPEARANCES':
+          stats['appearances'] = value;
+          break;
+        case 'LINEUPS':
+          stats['lineups'] = value;
+          break;
+        case 'YELLOWCARDS':
+          stats['yellowCards'] = value;
+          break;
+        case 'REDCARDS':
+          stats['redCards'] = value;
+          break;
+        case 'RATING':
+          stats['rating'] = value is Map<String, dynamic>
+              ? value['average']
+              : value;
+          break;
+      }
+    }
+
+    return stats;
+  }
+
+  Map<String, dynamic> _aggregateStatsFromLineups(List lineups) {
+    final stats = <String, dynamic>{};
+    var appearances = 0;
+    var minutes = 0.0;
+    var goals = 0.0;
+    var assists = 0.0;
+    var yellowCards = 0.0;
+    var redCards = 0.0;
+    var saves = 0.0;
+    var cleanSheets = 0.0;
+    var ratingTotal = 0.0;
+    var ratingCount = 0;
+
+    for (final lineup in lineups) {
+      if (lineup is! Map<String, dynamic>) continue;
+      final details = lineup['details'] as List?;
+      if (details == null || details.isEmpty) continue;
+
+      appearances++;
+
+      for (final detail in details) {
+        if (detail is! Map<String, dynamic>) continue;
+        final type = detail['type'] as Map<String, dynamic>?;
+        final developerName = type?['developer_name']?.toString().toUpperCase();
+        final data = detail['data'] as Map<String, dynamic>?;
+        final value = data?['value'];
+        final numericValue = _parseDoubleValue(value) ?? 0.0;
+
+        switch (developerName) {
+          case 'GOALS':
+            goals += numericValue;
+            break;
+          case 'ASSISTS':
+            assists += numericValue;
+            break;
+          case 'MINUTES_PLAYED':
+            minutes += numericValue;
+            break;
+          case 'YELLOWCARDS':
+            yellowCards += numericValue;
+            break;
+          case 'REDCARDS':
+            redCards += numericValue;
+            break;
+          case 'SAVES':
+            saves += numericValue;
+            break;
+          case 'CLEANSHEET':
+          case 'CLEANSHEETS':
+            cleanSheets += numericValue;
+            break;
+          case 'RATING':
+            if (numericValue > 0) {
+              ratingTotal += numericValue;
+              ratingCount++;
+            }
+            break;
+        }
+      }
+    }
+
+    if (appearances == 0) return stats;
+
+    stats['appearances'] = {'total': appearances};
+    stats['lineups'] = {'total': appearances};
+    stats['minutes'] = {'total': minutes.round()};
+    if (goals > 0) stats['goals'] = {'total': goals.round()};
+    if (assists > 0) stats['assists'] = {'total': assists.round()};
+    if (yellowCards > 0) stats['yellowCards'] = {'total': yellowCards.round()};
+    if (redCards > 0) stats['redCards'] = {'total': redCards.round()};
+    if (saves > 0) stats['saves'] = {'total': saves.round()};
+    if (cleanSheets > 0) {
+      stats['cleanSheets'] = {'total': cleanSheets.round()};
+    }
+    if (ratingCount > 0) {
+      stats['rating'] = double.parse(
+        (ratingTotal / ratingCount).toStringAsFixed(2),
+      );
+    }
+    stats['seasonName'] = 'Recent club form';
 
     return stats;
   }
@@ -1247,30 +1892,17 @@ class PlayersRepository {
       }
 
       // Parse team info from statistics array (most recent season)
-      int teamId = 0;
-      String teamName = 'Unknown Team';
-      String? teamLogo;
+      int? statsTeamId;
       int? jerseyNumber;
       Map<String, dynamic> stats = {};
 
       // Statistics array contains team_id for each season
       final statistics = playerData['statistics'] as List?;
       if (statistics != null && statistics.isNotEmpty) {
-        // Find the most recent season (highest season_id usually = most recent)
-        Map<String, dynamic>? latestStat;
-        int latestSeasonId = 0;
-
-        for (final stat in statistics) {
-          if (stat is! Map<String, dynamic>) continue;
-          final seasonId = _parseIntValue(stat['season_id']) ?? 0;
-          if (seasonId > latestSeasonId) {
-            latestSeasonId = seasonId;
-            latestStat = stat;
-          }
-        }
+        final latestStat = _selectPreferredStatisticsEntry(statistics);
 
         if (latestStat != null) {
-          teamId = _parseIntValue(latestStat['team_id']) ?? 0;
+          statsTeamId = _parseIntValue(latestStat['team_id']);
           jerseyNumber = _parseIntValue(latestStat['jersey_number']);
 
           // Parse detailed stats if available
@@ -1286,9 +1918,6 @@ class PlayersRepository {
                   stats['goals'] = value;
                   break;
                 case 79:
-                  stats['rating'] = value;
-                  break;
-                case 84:
                   stats['assists'] = value;
                   break;
                 case 119:
@@ -1303,49 +1932,58 @@ class PlayersRepository {
                 case 321:
                   stats['appearances'] = value;
                   break;
+                case 322:
+                  stats['lineups'] = value;
+                  break;
+                case 84:
+                  stats['yellowCards'] = value;
+                  break;
+                case 83:
+                case 85:
+                  stats['redCards'] = value;
+                  break;
               }
             }
           }
-        }
-      }
-
-      // Look up team name from our cached teams
-      if (teamId > 0) {
-        final cachedTeams = _cacheService.getLigaMxTeams();
-        if (cachedTeams != null) {
-          final matchingTeam = cachedTeams.firstWhere(
-            (t) => t['id'] == teamId,
-            orElse: () => <String, dynamic>{},
-          );
-          if (matchingTeam.isNotEmpty) {
-            teamName = matchingTeam['name']?.toString() ?? 'Team $teamId';
-            teamLogo = matchingTeam['logo']?.toString();
+          final seasonRating = _parseDoubleValue(latestStat['rating']);
+          if (seasonRating != null) {
+            stats['rating'] = seasonRating;
           }
-        }
-
-        // Fallback - use team ID as name if not found in cache
-        if (teamName == 'Unknown Team') {
-          teamName = 'Team $teamId';
+          stats['seasonId'] = _parseIntValue(latestStat['season_id']);
+          stats['seasonName'] = latestStat['season']?['name']?.toString();
         }
       }
 
-      // Skip players without a valid team - but log first one for debugging
-      if (teamId == 0) {
-        // Log first few failures for debugging
+      final competitionTeam = _resolveCompetitionTeam(playerData, statsTeamId);
+      if (competitionTeam == null) {
         debugPrint(
-          'Parse skip: Player $id ($displayName) has no team_id in statistics',
+          'Parse skip: Player $id ($displayName) is not assigned to a configured competition team',
         );
         return null;
       }
+      final teamId = competitionTeam.id;
+      final teamName = competitionTeam.name;
+      final teamLogo = competitionTeam.logo;
 
-      final projectedPoints = _calculateProjectedPointsFromStats(
+      final seasonProjectedPoints = _calculateProjectedPointsFromStats(
         stats,
         positionCode,
       );
       final price = _calculatePrice(
         stats.isNotEmpty ? stats : null,
         positionCode,
-        projectedPoints,
+        seasonProjectedPoints,
+        playerName: name,
+        displayName: displayName,
+      );
+      final projectedPoints = _calculateNextMatchProjectedPoints(
+        playerId: id,
+        playerName: name,
+        displayName: displayName,
+        positionCode: positionCode,
+        seasonProjectedPoints: seasonProjectedPoints,
+        seasonStats: stats.isNotEmpty ? stats : null,
+        teamId: teamId,
       );
 
       return RosterPlayer(
@@ -1362,6 +2000,7 @@ class PlayersRepository {
             jerseyNumber ?? _parseIntValue(playerData['jersey_number']),
         price: price,
         projectedPoints: projectedPoints,
+        seasonProjectedPointsPerMatch: seasonProjectedPoints,
         selectedByPercent: 0,
         stats: stats.isNotEmpty ? stats : null,
       );
@@ -1370,6 +2009,148 @@ class PlayersRepository {
       debugPrint('Stack trace: $stackTrace');
       return null;
     }
+  }
+
+  List<RosterPlayer> _filterPlayersToCompetitionTeams(
+    List<RosterPlayer> players,
+  ) {
+    final competitionTeamIds = _getConfiguredCompetitionTeamIds();
+    if (competitionTeamIds.isEmpty) {
+      return players;
+    }
+
+    final filtered = players
+        .where((player) => competitionTeamIds.contains(player.teamId))
+        .toList();
+    if (filtered.length != players.length) {
+      debugPrint(
+        'Filtered roster to ${filtered.length} configured competition players (removed ${players.length - filtered.length})',
+      );
+    }
+    return filtered;
+  }
+
+  Set<int> _getConfiguredCompetitionTeamIds() {
+    final cachedTeams = _cacheService.getLigaMxTeams();
+    if (cachedTeams == null || cachedTeams.isEmpty) {
+      return const <int>{};
+    }
+
+    return cachedTeams
+        .map((team) => _parseIntValue(team['id']))
+        .whereType<int>()
+        .where((id) => id > 0)
+        .toSet();
+  }
+
+  LigaMxTeam? _resolveCompetitionTeam(
+    Map<String, dynamic> playerData,
+    int? statsTeamId,
+  ) {
+    final cachedTeams = _cacheService.getLigaMxTeams();
+    if (cachedTeams == null || cachedTeams.isEmpty) {
+      return null;
+    }
+
+    final competitionTeamsById = <int, LigaMxTeam>{};
+    for (final team in cachedTeams) {
+      final id = _parseIntValue(team['id']);
+      if (id == null || id <= 0) continue;
+      competitionTeamsById[id] = LigaMxTeam(
+        id: id,
+        name: team['name']?.toString() ?? 'Team $id',
+        logo: team['logo']?.toString(),
+      );
+    }
+
+    final candidateIds = <int>[
+      ..._extractTeamCandidates(playerData),
+      if (statsTeamId != null && statsTeamId > 0) statsTeamId,
+    ];
+
+    for (final candidateId in candidateIds) {
+      final team = competitionTeamsById[candidateId];
+      if (team != null) {
+        return team;
+      }
+    }
+
+    return null;
+  }
+
+  bool _isConfiguredCompetitionTeam(Map<String, dynamic> teamData) {
+    final teamId = _parseIntValue(teamData['id']);
+    if (teamId == null || teamId <= 0) {
+      return false;
+    }
+
+    final name = teamData['name']?.toString().trim().toLowerCase() ?? '';
+    if (name.isEmpty) {
+      return false;
+    }
+
+    final type = teamData['type']?.toString().trim().toLowerCase() ?? '';
+    if (type.isNotEmpty && type != 'national_team' && type != 'national') {
+      return false;
+    }
+
+    final placeholderFlags = [
+      teamData['placeholder'],
+      teamData['is_placeholder'],
+      teamData['isPlaceholder'],
+    ];
+    if (placeholderFlags.any((flag) => flag == true)) {
+      return false;
+    }
+
+    final badNamePatterns = [
+      'winner',
+      'runner-up',
+      'runners-up',
+      'to be announced',
+      'tbd',
+      'unknown',
+    ];
+    if (badNamePatterns.any(name.contains)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  List<int> _extractTeamCandidates(Map<String, dynamic> playerData) {
+    final candidates = <int>{};
+
+    void addCandidate(dynamic value) {
+      final id = _parseIntValue(value);
+      if (id != null && id > 0) {
+        candidates.add(id);
+      }
+    }
+
+    addCandidate(playerData['teamId']);
+    addCandidate(playerData['team_id']);
+
+    final teamData = playerData['team'];
+    if (teamData is Map<String, dynamic>) {
+      addCandidate(teamData['id']);
+      addCandidate(teamData['team_id']);
+    }
+
+    final teams = playerData['teams'];
+    if (teams is List) {
+      for (final entry in teams) {
+        if (entry is! Map<String, dynamic>) continue;
+        addCandidate(entry['team_id']);
+        final nestedTeam = entry['team'];
+        if (nestedTeam is Map<String, dynamic>) {
+          addCandidate(nestedTeam['id']);
+          addCandidate(nestedTeam['team_id']);
+        }
+      }
+    }
+
+    return candidates.toList();
   }
 
   /// Extract numeric value from stats field (handles nested objects like {total: 4, goals: 4})
@@ -1392,6 +2173,456 @@ class PlayersRepository {
     String positionCode,
   ) {
     return _calculateProjectedPoints(stats, positionCode);
+  }
+
+  double _calculateNextMatchProjectedPoints({
+    required int playerId,
+    required String playerName,
+    required String displayName,
+    required String positionCode,
+    required double seasonProjectedPoints,
+    Map<String, dynamic>? seasonStats,
+    int? teamId,
+  }) {
+    final recentForm = _getCachedRecentForm(playerId);
+    final recentProjection =
+        recentForm == null || recentForm.isLikelyInjuredOrBench
+        ? null
+        : _calculateProjectedPointsFromRecentForm(recentForm, positionCode);
+    final internationalProjectionStats = _nestedProjectionStats(
+      seasonStats,
+      'projectionInternational',
+    );
+    final clubProjectionStats = _nestedProjectionStats(
+      seasonStats,
+      'projectionClub',
+    );
+    final internationalPredictorProjection =
+        internationalProjectionStats == null
+        ? null
+        : _predictNextMatchPoints(
+            playerId: playerId,
+            playerName: playerName,
+            displayName: displayName,
+            positionCode: positionCode,
+            seasonStats: _buildSeasonStatistics(
+              playerId: playerId,
+              teamId: teamId,
+              stats: internationalProjectionStats,
+            ),
+            recentForm: recentForm,
+          );
+    final clubPredictorProjection = clubProjectionStats == null
+        ? null
+        : _predictNextMatchPoints(
+            playerId: playerId,
+            playerName: playerName,
+            displayName: displayName,
+            positionCode: positionCode,
+            seasonStats: _buildSeasonStatistics(
+              playerId: playerId,
+              teamId: teamId,
+              stats: clubProjectionStats,
+            ),
+            recentForm: recentForm,
+          );
+    final predictorProjection =
+        internationalPredictorProjection != null && clubPredictorProjection != null
+        ? (internationalPredictorProjection * 0.72) +
+              (clubPredictorProjection * 0.28)
+        : internationalPredictorProjection ??
+              clubPredictorProjection ??
+              _predictNextMatchPoints(
+                playerId: playerId,
+                playerName: playerName,
+                displayName: displayName,
+                positionCode: positionCode,
+                seasonStats: _buildSeasonStatistics(
+                  playerId: playerId,
+                  teamId: teamId,
+                  stats: seasonStats,
+                ),
+                recentForm: recentForm,
+              );
+    final blendedSeasonBaseline = _blendedSeasonProjection(
+      positionCode: positionCode,
+      defaultProjection: seasonProjectedPoints,
+      internationalStats: internationalProjectionStats,
+      clubStats: clubProjectionStats,
+    );
+
+    if (predictorProjection != null) {
+      final boostedPredictor = _expandProjectionRange(predictorProjection);
+      final baseline = blendedSeasonBaseline;
+      final blendedProjection = recentProjection != null
+          ? (boostedPredictor * 0.45) +
+                (recentProjection * 0.35) +
+                (baseline * 0.20) +
+                _recentFormMomentumBonus(recentForm, positionCode)
+          : (boostedPredictor * 0.70) + (baseline * 0.30);
+      return double.parse(
+        blendedProjection.clamp(1.2, 10.0).toStringAsFixed(1),
+      );
+    }
+
+    if (recentForm == null) {
+      return double.parse(
+        _expandProjectionRange(
+          blendedSeasonBaseline,
+        ).clamp(2.4, 10.0).toStringAsFixed(1),
+      );
+    }
+
+    if (recentForm.isLikelyInjuredOrBench) {
+      return _inactiveNextMatchProjection(positionCode);
+    }
+
+    final safeRecentProjection =
+        recentProjection ?? _defaultNextMatchProjection(positionCode);
+    final sampleWeight = (recentForm.matchesPlayed / 5.0).clamp(0.35, 1.0);
+    final blendedProjection =
+        (blendedSeasonBaseline * (1 - sampleWeight)) +
+        (safeRecentProjection * sampleWeight);
+
+    return double.parse(
+      _expandProjectionRange(
+        blendedProjection + _recentFormMomentumBonus(recentForm, positionCode),
+      ).clamp(1.2, 10.0).toStringAsFixed(1),
+    );
+  }
+
+  Map<String, dynamic>? _nestedProjectionStats(
+    Map<String, dynamic>? stats,
+    String key,
+  ) {
+    if (stats == null || stats.isEmpty) return null;
+    final nested = stats[key];
+    return nested is Map<String, dynamic> && nested.isNotEmpty ? nested : null;
+  }
+
+  double _blendedSeasonProjection({
+    required String positionCode,
+    required double defaultProjection,
+    Map<String, dynamic>? internationalStats,
+    Map<String, dynamic>? clubStats,
+  }) {
+    final internationalProjection = internationalStats == null
+        ? null
+        : _calculateProjectedPointsFromStats(internationalStats, positionCode);
+    final clubProjection = clubStats == null
+        ? null
+        : _calculateProjectedPointsFromStats(clubStats, positionCode);
+
+    if (internationalProjection != null && clubProjection != null) {
+      return (internationalProjection * 0.72) + (clubProjection * 0.28);
+    }
+
+    return internationalProjection ?? clubProjection ?? defaultProjection;
+  }
+
+  double _expandProjectionRange(double projection) {
+    // Stretch the middle aggressively so top players can separate, while
+    // still allowing low-activity players to fall into the 1-3 band.
+    final expanded = 5.0 + ((projection - 5.0) * 2.25);
+    return expanded.clamp(1.0, 10.0);
+  }
+
+  PlayerStatistics? _buildSeasonStatistics({
+    required int playerId,
+    required Map<String, dynamic>? stats,
+    int? teamId,
+  }) {
+    if (stats == null || stats.isEmpty) return null;
+
+    return PlayerStatistics(
+      id: playerId,
+      playerId: playerId,
+      teamId: teamId,
+      appearances: _parseIntValue(stats['appearances']),
+      lineups: _parseIntValue(stats['lineups']),
+      minutesPlayed:
+          _parseIntValue(stats['minutes']) ??
+          _parseIntValue(stats['minutesPlayed']),
+      goals: _parseIntValue(stats['goals']),
+      assists: _parseIntValue(stats['assists']),
+      yellowCards: _parseIntValue(stats['yellowCards']),
+      redCards: _parseIntValue(stats['redCards']),
+      cleanSheets: _parseIntValue(stats['cleanSheets']),
+      saves: _parseIntValue(stats['saves']),
+      rating: _parseDoubleValue(stats['rating']),
+      seasonName: stats['seasonName']?.toString() ?? 'Current Season',
+    );
+  }
+
+  double? _predictNextMatchPoints({
+    required int playerId,
+    required String playerName,
+    required String displayName,
+    required String positionCode,
+    required PlayerStatistics? seasonStats,
+    required RecentMatchStats? recentForm,
+  }) {
+    if (seasonStats == null && recentForm == null) return null;
+
+    final position = PositionInfo(
+      id: 0,
+      name: _positionNameFromCode(positionCode),
+      code: _positionInfoCode(positionCode),
+    );
+
+    final syntheticPlayer = Player(
+      id: playerId,
+      name: playerName,
+      displayName: displayName,
+      commonName: displayName,
+      position: position,
+      detailedPosition: position,
+      statistics: seasonStats != null ? [seasonStats] : const [],
+    );
+
+    final prediction = FantasyPointsPredictor.predict(
+      syntheticPlayer,
+      recentForm: recentForm,
+    );
+    return prediction.totalPoints;
+  }
+
+  RecentMatchStats? _getCachedRecentForm(int playerId) {
+    final cachedForm = _cacheService.getPlayerFormStats(playerId);
+    if (cachedForm == null) return null;
+
+    return RecentMatchStats(
+      matchesPlayed: cachedForm['matchesPlayed'] as int? ?? 0,
+      goals: cachedForm['goals'] as int? ?? 0,
+      assists: cachedForm['assists'] as int? ?? 0,
+      minutesPlayed: cachedForm['minutesPlayed'] as int? ?? 0,
+      cleanSheets: cachedForm['cleanSheets'] as int? ?? 0,
+      yellowCards: cachedForm['yellowCards'] as int? ?? 0,
+      redCards: cachedForm['redCards'] as int? ?? 0,
+      saves: cachedForm['saves'] as int? ?? 0,
+      averageRating: (cachedForm['averageRating'] as num?)?.toDouble(),
+      fixturesAnalyzed: cachedForm['fixturesAnalyzed'] as int?,
+    );
+  }
+
+  double _calculateProjectedPointsFromRecentForm(
+    RecentMatchStats form,
+    String positionCode,
+  ) {
+    if (form.matchesPlayed < 1) {
+      return _defaultNextMatchProjection(positionCode);
+    }
+
+    final gamesPlayed = form.matchesPlayed.toDouble();
+    final minutesFactor = (form.minutesPerMatch / 75.0).clamp(0.45, 1.1);
+    final normalizedPos = _normalizePositionCode(positionCode);
+
+    double points;
+    if (normalizedPos == 'GK') {
+      points =
+          2.0 +
+          (form.cleanSheets / gamesPlayed) * 4.0 +
+          (form.saves / gamesPlayed) * 0.3 +
+          (form.goals / gamesPlayed) * 6.0 +
+          (form.assists / gamesPlayed) * 3.0;
+    } else if (normalizedPos == 'DEF') {
+      points =
+          2.0 +
+          (form.cleanSheets / gamesPlayed) * 4.0 +
+          (form.goals / gamesPlayed) * 6.0 +
+          (form.assists / gamesPlayed) * 3.0;
+    } else if (normalizedPos == 'MID') {
+      points =
+          2.0 +
+          (form.goals / gamesPlayed) * 5.0 +
+          (form.assists / gamesPlayed) * 3.0 +
+          (form.cleanSheets / gamesPlayed) * 1.0;
+    } else {
+      points =
+          2.0 +
+          (form.goals / gamesPlayed) * 4.0 +
+          (form.assists / gamesPlayed) * 3.0;
+    }
+
+    points -= (form.yellowCards + (form.redCards * 3)) / gamesPlayed;
+
+    final rating = form.averageRating ?? 0.0;
+    if (rating >= 7.5) points += 0.5;
+    if (rating >= 8.0) points += 0.5;
+
+    points *= minutesFactor;
+
+    return double.parse(points.clamp(1.4, 10.0).toStringAsFixed(1));
+  }
+
+  double _defaultNextMatchProjection(String positionCode) {
+    switch (_normalizePositionCode(positionCode)) {
+      case 'GK':
+        return 3.1;
+      case 'DEF':
+        return 3.3;
+      case 'MID':
+        return 3.7;
+      case 'FWD':
+        return 3.9;
+      default:
+        return 3.5;
+    }
+  }
+
+  double _inactiveNextMatchProjection(String positionCode) {
+    switch (_normalizePositionCode(positionCode)) {
+      case 'GK':
+        return 1.4;
+      case 'DEF':
+        return 1.5;
+      case 'MID':
+        return 1.8;
+      case 'FWD':
+        return 2.0;
+      default:
+        return 1.7;
+    }
+  }
+
+  double _recentFormMomentumBonus(RecentMatchStats? form, String positionCode) {
+    if (form == null || form.matchesPlayed < 1 || form.isLikelyInjuredOrBench) {
+      return 0.0;
+    }
+
+    final gamesPlayed = form.matchesPlayed.toDouble();
+    final normalizedPos = _normalizePositionCode(positionCode);
+    double bonus = 0.0;
+
+    if (form.minutesPerMatch >= 70) bonus += 0.45;
+    if (form.minutesPerMatch >= 82) bonus += 0.25;
+
+    final rating = form.averageRating ?? 0.0;
+    if (rating >= 7.1) bonus += 0.35;
+    if (rating >= 7.7) bonus += 0.35;
+
+    if (normalizedPos == 'GK') {
+      bonus += (form.cleanSheets / gamesPlayed) * 0.9;
+      bonus += ((form.saves / gamesPlayed) / 4.0).clamp(0.0, 1.0) * 0.5;
+    } else if (normalizedPos == 'DEF') {
+      bonus += (form.cleanSheets / gamesPlayed) * 0.8;
+      bonus +=
+          ((form.goals + form.assists) / gamesPlayed).clamp(0.0, 1.0) * 0.9;
+    } else {
+      bonus +=
+          ((form.goals + form.assists) / gamesPlayed).clamp(0.0, 1.2) * 1.2;
+    }
+
+    return bonus.clamp(0.0, 2.0);
+  }
+
+  String _positionNameFromCode(String positionCode) {
+    switch (_normalizePositionCode(positionCode)) {
+      case 'GK':
+        return 'Goalkeeper';
+      case 'DEF':
+        return 'Defender';
+      case 'MID':
+        return 'Midfielder';
+      case 'FWD':
+        return 'Forward';
+      default:
+        return 'Player';
+    }
+  }
+
+  String _positionInfoCode(String positionCode) {
+    switch (_normalizePositionCode(positionCode)) {
+      case 'GK':
+        return 'goalkeeper';
+      case 'DEF':
+        return 'defender';
+      case 'MID':
+        return 'midfielder';
+      case 'FWD':
+        return 'attacker';
+      default:
+        return positionCode.toLowerCase();
+    }
+  }
+
+  Future<Player?> _buildFallbackPlayerById(int playerId) async {
+    final cachedRosterPlayer =
+        _playerDetailsCache[playerId] ??
+        getCachedPlayers().where((player) => player.id == playerId).firstOrNull;
+    if (cachedRosterPlayer != null) {
+      return _buildPlayerFromRosterPlayer(cachedRosterPlayer);
+    }
+
+    try {
+      final playerData = await _firestoreService.getPlayerById(playerId);
+      if (playerData != null) {
+        final rawPlayerData = playerData['data'] is Map<String, dynamic>
+            ? playerData['data'] as Map<String, dynamic>
+            : playerData;
+        return Player.fromJson(rawPlayerData);
+      }
+    } catch (e) {
+      debugPrint(
+        'PlayersRepository: Error building fallback player $playerId from Firestore: $e',
+      );
+    }
+
+    return null;
+  }
+
+  Player _buildPlayerFromRosterPlayer(RosterPlayer rosterPlayer) {
+    final normalizedPositionCode = _normalizePositionCode(
+      rosterPlayer.positionCode,
+    );
+
+    final position = PositionInfo(
+      id: 0,
+      name: _positionNameFromCode(normalizedPositionCode),
+      code: _positionInfoCode(normalizedPositionCode),
+    );
+
+    final team = PlayerTeamInfo(
+      teamId: rosterPlayer.teamId,
+      jerseyNumber: rosterPlayer.jerseyNumber,
+      teamName: rosterPlayer.teamName,
+      teamLogo: rosterPlayer.teamLogo,
+    );
+
+    final stats = rosterPlayer.stats;
+    final statistics = stats == null || stats.isEmpty
+        ? const <PlayerStatistics>[]
+        : [
+            PlayerStatistics(
+              id: rosterPlayer.id,
+              playerId: rosterPlayer.id,
+              seasonId: _parseIntValue(stats['seasonId']),
+              teamId: rosterPlayer.teamId,
+              appearances: _extractStatValue(stats['appearances']).round(),
+              lineups: _extractStatValue(stats['lineups']).round(),
+              minutesPlayed: _extractStatValue(stats['minutes']).round(),
+              goals: _extractStatValue(stats['goals']).round(),
+              assists: _extractStatValue(stats['assists']).round(),
+              yellowCards: _extractStatValue(stats['yellowCards']).round(),
+              redCards: _extractStatValue(stats['redCards']).round(),
+              cleanSheets: _extractStatValue(stats['cleanSheets']).round(),
+              saves: _extractStatValue(stats['saves']).round(),
+              rating: _parseDoubleValue(stats['rating']),
+              seasonName: stats['seasonName']?.toString(),
+            ),
+          ];
+
+    return Player(
+      id: rosterPlayer.id,
+      name: rosterPlayer.name,
+      displayName: rosterPlayer.displayName,
+      commonName: rosterPlayer.displayName,
+      imagePath: rosterPlayer.imagePath,
+      position: position,
+      detailedPosition: position,
+      teams: [team],
+      statistics: statistics,
+    );
   }
 
   /// Helper to safely parse double
@@ -1758,8 +2989,33 @@ class PlayersRepository {
 
       // Parse statistics
       final stats = _extractPlayerStats(playerData);
-      final projectedPoints = _calculateProjectedPoints(stats, positionCode);
-      final price = _calculatePrice(stats, positionCode, projectedPoints);
+      final normalizedPositionCode = _normalizePositionCode(positionCode);
+      final seasonProjectedPoints = _calculateProjectedPoints(
+        stats,
+        positionCode,
+      );
+      final projectedPoints = _calculateNextMatchProjectedPoints(
+        playerId: id,
+        playerName: name,
+        displayName:
+            playerData['display_name']?.toString() ??
+            playerData['common_name']?.toString() ??
+            name,
+        positionCode: normalizedPositionCode,
+        seasonProjectedPoints: seasonProjectedPoints,
+        seasonStats: stats,
+        teamId: teamInfo.teamId,
+      );
+      final price = _calculatePrice(
+        stats,
+        positionCode,
+        seasonProjectedPoints,
+        playerName: name,
+        displayName:
+            playerData['display_name']?.toString() ??
+            playerData['common_name']?.toString() ??
+            name,
+      );
 
       return RosterPlayer(
         id: id,
@@ -1770,13 +3026,14 @@ class PlayersRepository {
             name,
         imagePath: playerData['image_path']?.toString(),
         position: positionName,
-        positionCode: _normalizePositionCode(positionCode),
+        positionCode: normalizedPositionCode,
         teamId: teamInfo.teamId,
         teamName: teamInfo.teamName,
         teamLogo: teamInfo.teamLogo,
         jerseyNumber: teamInfo.jerseyNumber,
         price: price,
         projectedPoints: projectedPoints,
+        seasonProjectedPointsPerMatch: seasonProjectedPoints,
         stats: stats,
       );
     } catch (e) {
@@ -1911,8 +3168,7 @@ class PlayersRepository {
 
       if (statisticsList == null || statisticsList.isEmpty) return null;
 
-      // Get latest season statistics
-      final latestStatsRaw = statisticsList.first;
+      final latestStatsRaw = _selectPreferredStatisticsEntry(statisticsList);
       if (latestStatsRaw is! Map<String, dynamic>) return null;
       final latestStats = latestStatsRaw;
 
@@ -1937,16 +3193,17 @@ class PlayersRepository {
           case 52: // Goals
             stats['goals'] = value;
             break;
-          case 84: // Assists
+          case 79: // Assists
             stats['assists'] = value;
             break;
           case 119: // Minutes played
             stats['minutes'] = value;
             break;
-          case 56: // Yellow cards
+          case 84: // Yellow cards
             stats['yellowCards'] = value;
             break;
-          case 57: // Red cards
+          case 83: // Red cards
+          case 85: // Yellow-red cards
             stats['redCards'] = value;
             break;
           case 194:
@@ -1957,15 +3214,23 @@ class PlayersRepository {
           case 101: // Saves
             stats['saves'] = value;
             break;
-          case 79: // Rating
-            stats['rating'] = value;
-            break;
           case 321:
           case 42: // Appearances
             stats['appearances'] = value;
             break;
+          case 322: // Lineups (starts)
+            stats['lineups'] = value;
+            break;
         }
       }
+
+      final seasonRating = _parseDoubleValue(latestStats['rating']);
+      if (seasonRating != null) {
+        stats['rating'] = seasonRating;
+      }
+
+      stats['seasonId'] = _parseIntValue(latestStats['season_id']);
+      stats['seasonName'] = latestStats['season']?['name']?.toString();
 
       return stats.isNotEmpty ? stats : null;
     } catch (e) {
@@ -2000,6 +3265,7 @@ class PlayersRepository {
     final cleanSheets = _parseDoubleValue(stats['cleanSheets']) ?? 0;
     final saves = _parseDoubleValue(stats['saves']) ?? 0;
     final appearances = _parseDoubleValue(stats['appearances']) ?? 0;
+    final lineups = _parseDoubleValue(stats['lineups']) ?? 0;
     final minutes = _parseDoubleValue(stats['minutes']) ?? 0;
     final yellowCards = _parseDoubleValue(stats['yellowCards']) ?? 0;
     final redCards = _parseDoubleValue(stats['redCards']) ?? 0;
@@ -2008,9 +3274,8 @@ class PlayersRepository {
     // Calculate games played (estimate if not available)
     final gamesPlayed = appearances > 0
         ? appearances
-        : (minutes > 0 ? minutes / 70 : 1);
+        : (lineups > 0 ? lineups : (minutes > 0 ? minutes / 70 : 0));
     if (gamesPlayed < 1) return _calculateProjectedPoints(null, positionCode);
-    final minutesPerAppearance = minutes > 0 ? minutes / gamesPlayed : 90.0;
 
     final normalizedPos = _normalizePositionCode(positionCode);
     double points = 0;
@@ -2072,37 +3337,51 @@ class PlayersRepository {
   double _calculatePrice(
     Map<String, dynamic>? stats,
     String positionCode,
-    double projectedPoints,
-  ) {
+    double projectedPoints, {
+    String? playerName,
+    String? displayName,
+  }) {
     final normalizedPos = _normalizePositionCode(positionCode);
+    final normalizedPlayerName = _normalizePlayerPricingName(
+      displayName ?? playerName,
+    );
+    final marketValue = normalizedPlayerName == null
+        ? null
+        : WorldCupMarketValues.lookupMarketValue(normalizedPlayerName);
+    final marketTier = normalizedPlayerName == null
+        ? null
+        : WorldCupMarketTiers.byPlayerName[normalizedPlayerName];
 
     // Base prices by position (in millions USD)
     double basePrice;
     switch (normalizedPos) {
       case 'GK':
-        basePrice = 2.0; // $2M base for goalkeepers
+        basePrice = 3.5;
         break;
       case 'DEF':
-        basePrice = 2.5; // $2.5M base for defenders
+        basePrice = 4.0;
         break;
       case 'MID':
-        basePrice = 3.0; // $3M base for midfielders
+        basePrice = 4.8;
         break;
       case 'FWD':
-        basePrice = 3.5; // $3.5M base for forwards
+        basePrice = 5.2;
         break;
       default:
-        basePrice = 3.0;
+        basePrice = 4.5;
     }
 
-    // If no stats, use projected points as fallback
     if (stats == null || stats.isEmpty) {
-      // Scale price based on projected points (2-12 range -> 1.5M-8M)
-      final priceFromPoints = basePrice + (projectedPoints - 3.0) * 0.8;
-      return double.parse(priceFromPoints.clamp(1.5, 10.0).toStringAsFixed(1));
+      final priceFromPoints = basePrice + (projectedPoints - 3.0) * 1.35;
+      final adjusted = _applyMarketTierToPrice(
+        basePricePrice: priceFromPoints,
+        projectedPoints: projectedPoints,
+        marketValue: marketValue,
+        marketTier: marketTier,
+      );
+      return double.parse(adjusted.clamp(3.0, 20.0).toStringAsFixed(1));
     }
 
-    // Extract stats (handles nested SportMonks format like {total: 4, goals: 4})
     final goals = _extractStatValue(stats['goals']);
     final assists = _extractStatValue(stats['assists']);
     final cleanSheets =
@@ -2120,117 +3399,111 @@ class PlayersRepository {
 
     double price = basePrice;
 
-    // Position-specific pricing
     switch (normalizedPos) {
       case 'FWD':
-        // Forwards: Goals are king
-        // 20+ goals = star striker (~$20M+)
-        // 10-19 goals = good striker (~$10-15M)
-        // 5-9 goals = decent striker (~$6-10M)
-        // <5 goals = budget option (~$3-6M)
-        if (goals >= 20) {
-          price = 18.0 + ((goals - 20) * 0.8);
-        } else if (goals >= 15) {
-          price = 13.0 + ((goals - 15) * 1.0);
-        } else if (goals >= 10) {
-          price = 9.0 + ((goals - 10) * 0.8);
-        } else if (goals >= 5) {
-          price = 5.5 + ((goals - 5) * 0.7);
-        } else {
-          price = basePrice + (goals * 0.5);
-        }
-        // Assists add value for forwards
-        price += assists * 0.25;
+        price += (goals / gamesPlayed) * 7.8;
+        price += (assists / gamesPlayed) * 3.2;
         break;
-
       case 'MID':
-        // Midfielders: Goals + assists matter, playmaking valued
-        // Goals are more valuable (rarer for mids)
-        if (goals >= 10) {
-          price = 12.0 + ((goals - 10) * 1.2);
-        } else if (goals >= 5) {
-          price = 7.0 + ((goals - 5) * 1.0);
-        } else {
-          price = basePrice + (goals * 0.8);
-        }
-        // Assists are key for midfielders
-        if (assists >= 10) {
-          price += 4.0 + ((assists - 10) * 0.5);
-        } else if (assists >= 5) {
-          price += 2.0 + ((assists - 5) * 0.4);
-        } else {
-          price += assists * 0.4;
-        }
-        // Clean sheets bonus for defensive mids
-        price += cleanSheets * 0.15;
+        price += (goals / gamesPlayed) * 6.2;
+        price += (assists / gamesPlayed) * 4.8;
+        price += (cleanSheets / gamesPlayed) * 0.9;
         break;
-
       case 'DEF':
-        // Defenders: Clean sheets + rare goals
-        // Goals from defenders are highly valuable
-        price += goals * 1.5;
-        price += assists * 0.4;
-        // Clean sheets are important
-        if (cleanSheets >= 15) {
-          price += 4.0 + ((cleanSheets - 15) * 0.3);
-        } else if (cleanSheets >= 10) {
-          price += 2.5 + ((cleanSheets - 10) * 0.3);
-        } else {
-          price += cleanSheets * 0.25;
-        }
+        price += (goals / gamesPlayed) * 7.0;
+        price += (assists / gamesPlayed) * 3.2;
+        price += (cleanSheets / gamesPlayed) * 4.8;
         break;
-
       case 'GK':
-        // Goalkeepers: Clean sheets and saves
-        // Clean sheets are paramount
-        if (cleanSheets >= 15) {
-          price = 8.0 + ((cleanSheets - 15) * 0.5);
-        } else if (cleanSheets >= 10) {
-          price = 5.0 + ((cleanSheets - 10) * 0.6);
-        } else if (cleanSheets >= 5) {
-          price = 3.0 + ((cleanSheets - 5) * 0.4);
-        } else {
-          price = basePrice + (cleanSheets * 0.2);
-        }
-        // Saves add value (per game)
-        if (gamesPlayed > 0) {
-          final savesPerGame = saves / gamesPlayed;
-          if (savesPerGame >= 4) {
-            price += 1.5;
-          } else if (savesPerGame >= 3) {
-            price += 1.0;
-          } else if (savesPerGame >= 2) {
-            price += 0.5;
-          }
-        }
+        price += (cleanSheets / gamesPlayed) * 5.0;
+        price += (saves / gamesPlayed) * 0.55;
         break;
     }
 
-    // Rating bonus (applies to all positions)
     if (rating > 0) {
-      if (rating >= 7.5)
-        price += 1.5;
-      else if (rating >= 7.2)
-        price += 1.0;
-      else if (rating >= 7.0)
-        price += 0.5;
-      else if (rating < 6.5)
-        price -= 0.5; // Penalty for low rating
+      price += ((rating - 6.6).clamp(0.0, 1.8)) * 1.15;
     }
 
-    // Consistency bonus (played most games)
-    if (gamesPlayed >= 30) {
-      price += 1.0; // Reliable player premium
-    } else if (gamesPlayed >= 25) {
+    if (gamesPlayed >= 16) {
+      price += 1.0;
+    } else if (gamesPlayed >= 10) {
       price += 0.5;
     } else if (gamesPlayed < 10) {
-      price *= 0.8; // Discount for rarely used players
+      price *= 0.82;
     }
 
-    // Ensure price is within valid range
-    // Min: $1.5M (even bench players have value)
-    // Max: $25M (nobody should break the bank completely)
-    return double.parse(price.clamp(1.5, 25.0).toStringAsFixed(1));
+    final projectedPrice = basePrice + ((projectedPoints - 3.0) * 1.2);
+    final blended = (price * 0.68) + (projectedPrice * 0.32);
+    final adjusted = _applyMarketTierToPrice(
+      basePricePrice: blended,
+      projectedPoints: projectedPoints,
+      marketValue: marketValue,
+      marketTier: marketTier,
+    );
+
+    return double.parse(adjusted.clamp(3.0, 20.0).toStringAsFixed(1));
+  }
+
+  double _applyMarketTierToPrice({
+    required double basePricePrice,
+    required double projectedPoints,
+    required double? marketValue,
+    required MarketTier? marketTier,
+  }) {
+    var adjustedPrice = basePricePrice;
+
+    if (marketValue != null && marketValue > 0) {
+      final normalizedMarketSignal = _normalizeMarketValueToPrice(marketValue);
+      final marketInfluence = _marketValueInfluenceWeight(marketValue);
+      adjustedPrice =
+          (adjustedPrice * (1 - marketInfluence)) +
+          (normalizedMarketSignal * marketInfluence);
+      adjustedPrice += _marketValueScarcityPremium(marketValue);
+    }
+
+    if (marketTier == null) {
+      return adjustedPrice;
+    }
+
+    final premiumPrice =
+        adjustedPrice + marketTier.projectionBonus + (projectedPoints * 0.16);
+    return premiumPrice.clamp(marketTier.minPrice, marketTier.maxPrice);
+  }
+
+  double _normalizeMarketValueToPrice(double marketValueEurMillions) {
+    final capped = marketValueEurMillions.clamp(0.75, 220.0);
+    final normalized = (capped <= 0) ? 0.0 : (log(capped + 1) / log(221));
+
+    // Keep affordable players close together, but expand the elite band so
+    // global stars become materially harder to fit under the squad budget.
+    final curved = normalized < 0.45
+        ? normalized * 0.82
+        : (0.369 + ((normalized - 0.45) / 0.55) * 0.631);
+    final starWeighted = curved * curved;
+    final price = 3.8 + (starWeighted * 16.7);
+    return double.parse(price.toStringAsFixed(2));
+  }
+
+  double _marketValueInfluenceWeight(double marketValueEurMillions) {
+    final capped = marketValueEurMillions.clamp(0.75, 220.0);
+    final normalized = (capped <= 0) ? 0.0 : (log(capped + 1) / log(221));
+    final weight = 0.18 + (normalized * normalized * 0.44);
+    return weight.clamp(0.18, 0.62);
+  }
+
+  double _marketValueScarcityPremium(double marketValueEurMillions) {
+    if (marketValueEurMillions >= 180) return 3.3;
+    if (marketValueEurMillions >= 140) return 2.7;
+    if (marketValueEurMillions >= 110) return 2.1;
+    if (marketValueEurMillions >= 85) return 1.6;
+    if (marketValueEurMillions >= 65) return 1.1;
+    if (marketValueEurMillions >= 45) return 0.7;
+    if (marketValueEurMillions >= 30) return 0.35;
+    return 0.0;
+  }
+
+  String? _normalizePlayerPricingName(String? rawName) {
+    return WorldCupMarketValues.normalizePlayerName(rawName);
   }
 
   // NOTE: Demo data generator removed - we now always use real API data

@@ -4,6 +4,7 @@ import 'package:fantacy11/api/repositories/players_repository.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/league/models/league_models.dart';
 import 'package:fantacy11/features/league/services/draft_service.dart';
+import 'package:fantacy11/features/player/ui/player_details_page.dart';
 import 'package:flutter/material.dart';
 
 /// Draft Room page for live drafting
@@ -70,10 +71,16 @@ class _DraftRoomPageState extends State<DraftRoomPage>
       // Get league members
       _members = await _leagueRepository.getLeagueMembers(widget.league.id);
 
-      // Load the real player pool using the same paginated source as team builder.
+      // Load current player pool with a forced refresh so transfers/team moves
+      // are reflected in draft mode.
       _allPlayers = await _loadDraftablePlayers();
       if (_allPlayers.isEmpty) {
-        _allPlayers = _buildFallbackDraftPool();
+        // Synthetic fallback should only be used in explicit local test leagues.
+        if (widget.league.name.startsWith('TEST:')) {
+          _allPlayers = _buildFallbackDraftPool();
+        } else {
+          throw Exception('Unable to load current player pool for draft.');
+        }
       }
 
       // Initialize draft service
@@ -179,6 +186,60 @@ class _DraftRoomPageState extends State<DraftRoomPage>
 
   Future<void> _onPlayerSelected(RosterPlayer player) async {
     await _showPlayerDetailsSheet(player);
+  }
+
+  Future<void> _navigateToPlayerProfile(RosterPlayer player) async {
+    final fullPlayer = await _playerRepository.getPlayerById(player.id);
+    if (!mounted) return;
+
+    if (fullPlayer != null) {
+      final isQueued = _queuedPlayerIds.contains(player.id);
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PlayerDetailsPage(
+            player: fullPlayer,
+            actions: PlayerDetailsActions(
+              isQueued: isQueued,
+              canPrimaryAction: _draftService?.isMyTurn ?? false,
+              primaryLabel: (_draftService?.isMyTurn ?? false)
+                  ? 'Draft Player'
+                  : 'Wait For Turn',
+              primaryIcon: (_draftService?.isMyTurn ?? false)
+                  ? Icons.gavel
+                  : Icons.hourglass_top,
+              onToggleQueue: () {
+                _toggleQueue(player);
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                }
+              },
+              onPrimaryAction: (_draftService?.isMyTurn ?? false)
+                  ? () async {
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      }
+                      final success = await _draftService!.makePick(player);
+                      if (!mounted) return;
+                      if (!success) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Unable to draft that player.'),
+                          ),
+                        );
+                      }
+                    }
+                  : null,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Could not load player details')),
+    );
   }
 
   Future<void> _showPlayerDetailsSheet(RosterPlayer player) async {
@@ -769,7 +830,8 @@ class _DraftRoomPageState extends State<DraftRoomPage>
                             horizontal: 12,
                             vertical: 4,
                           ),
-                          onTap: () => _onPlayerSelected(player),
+                          onTap: () => _navigateToPlayerProfile(player),
+                          onLongPress: () => _onPlayerSelected(player),
                           leading: ReorderableDragStartListener(
                             index: index,
                             child: Icon(Icons.drag_handle, color: bgTextColor),
@@ -847,7 +909,7 @@ class _DraftRoomPageState extends State<DraftRoomPage>
     final isQueued = _queuedPlayerIds.contains(player.id);
 
     return ListTile(
-      onTap: () => _onPlayerSelected(player),
+      onTap: () => _navigateToPlayerProfile(player),
       leading: CircleAvatar(
         backgroundImage: player.imagePath != null
             ? CachedNetworkImageProvider(player.imagePath!)
@@ -868,17 +930,25 @@ class _DraftRoomPageState extends State<DraftRoomPage>
         style: TextStyle(color: bgTextColor),
       ),
       trailing: SizedBox(
-        width: 120,
+        width: 156,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.end,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              isQueued ? Icons.playlist_add_check : Icons.playlist_add,
-              color: isQueued ? theme.primaryColor : bgTextColor,
-              size: 20,
+            IconButton(
+              onPressed: () => _toggleQueue(player),
+              icon: Icon(
+                isQueued ? Icons.playlist_add_check : Icons.playlist_add,
+                color: isQueued ? theme.primaryColor : bgTextColor,
+                size: 20,
+              ),
+              tooltip: isQueued ? 'Remove from queue' : 'Add to queue',
             ),
-            const SizedBox(width: 8),
+            IconButton(
+              onPressed: () => _onPlayerSelected(player),
+              icon: Icon(Icons.more_horiz, color: bgTextColor, size: 20),
+              tooltip: 'Player actions',
+            ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
@@ -1279,7 +1349,7 @@ class _DraftRoomPageState extends State<DraftRoomPage>
 
   void _exitDraftRoom() {
     if (Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(_draftService?.isDraftComplete ?? false);
     }
   }
 
@@ -1342,10 +1412,17 @@ class _DraftRoomPageState extends State<DraftRoomPage>
   }
 
   Future<List<RosterPlayer>> _loadDraftablePlayers() async {
-    final cachedOrBulkPlayers = await _playerRepository
-        .getLigaMxRosterPlayers();
-    if (cachedOrBulkPlayers.isNotEmpty) {
-      return cachedOrBulkPlayers;
+    final freshPlayers = await _playerRepository.getLigaMxRosterPlayers(
+      forceRefresh: true,
+    );
+    if (freshPlayers.isNotEmpty) {
+      return freshPlayers;
+    }
+
+    // If refresh fails, try cached/local data before paginated API fallback.
+    final cachedPlayers = await _playerRepository.getLigaMxRosterPlayers();
+    if (cachedPlayers.isNotEmpty) {
+      return cachedPlayers;
     }
 
     final players = <RosterPlayer>[];

@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../app_config/colors.dart';
 import '../../generated/l10n.dart';
-import '../../routes/routes.dart';
 import '../components/custom_scaffold.dart';
-import '../match/ui/match_list.dart';
 import 'ui/past_fixtures_page.dart';
 import 'ui/upcoming_fixtures_page.dart';
+import 'ui/world_cup_predictor_page.dart';
+import 'ui/world_cup_standings_page.dart';
 
 class Fixtures extends StatelessWidget {
   const Fixtures({super.key});
@@ -42,10 +42,7 @@ class Fixtures extends StatelessWidget {
             iconDisabledColor: iconColor,
             hint: Padding(
               padding: const EdgeInsetsDirectional.fromSTEB(8, 8, 8, 0),
-              child: Text(
-                locale.football,
-                style: theme.textTheme.bodyMedium,
-              ),
+              child: Text(locale.football, style: theme.textTheme.bodyMedium),
             ),
             items: const [],
             underline: const SizedBox.shrink(),
@@ -57,23 +54,24 @@ class Fixtures extends StatelessWidget {
       pageTitle: locale.fixtures,
       tabBarItems: [
         Tab(text: locale.upcoming),
-        Tab(text: locale.live),
+        Tab(
+          text: Localizations.localeOf(context).languageCode == 'es'
+              ? 'Predictor'
+              : 'Predictor',
+        ),
+        Tab(
+          text: Localizations.localeOf(context).languageCode == 'es'
+              ? 'Grupos'
+              : 'Groups',
+        ),
         Tab(text: locale.completed),
       ],
       tabBarChild: const SizedBox.shrink(),
       tabBarViewItems: [
         // Upcoming fixtures with predicted lineups
         const UpcomingFixturesPage(embedded: true),
-        MatchList.vertical(
-          locale.live,
-          '',
-          (matchInfo) => Navigator.pushNamed(
-            context,
-            PageRoutes.matchLive,
-            arguments: matchInfo,
-          ),
-          itemCount: 2,
-        ),
+        const WorldCupPredictorPage(embedded: true),
+        const WorldCupStandingsPage(embedded: true),
         // Past/Completed fixtures with real results and lineups
         const PastFixturesPage(embedded: true),
       ],
@@ -82,5 +80,4 @@ class Fixtures extends StatelessWidget {
       tabBarColor: Colors.transparent,
     );
   }
-
 }

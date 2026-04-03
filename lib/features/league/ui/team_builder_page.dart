@@ -8,7 +8,9 @@ import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/league/models/league_models.dart';
 import 'package:fantacy11/features/league/models/league_models_ui.dart';
 import 'package:fantacy11/features/league/ui/widgets/soccer_field_widget.dart';
+import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/routes/routes.dart';
+import 'package:fantacy11/utils/country_name_localizer.dart';
 import 'package:flutter/material.dart';
 
 /// Sort options for player list
@@ -65,6 +67,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
 
   // Selected players for the fantasy team
   List<FantasyTeamPlayer> _selectedPlayers = [];
+  List<int> _startingPlayerIds = [];
 
   // UI State
   double _budget = 100.0;
@@ -100,6 +103,26 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     (sum, player) => sum + player.effectivePredictedPoints,
   );
 
+  String _tr(String en, String es) =>
+      Localizations.localeOf(context).languageCode == 'es' ? es : en;
+
+  String _sortLabel(PlayerSortOption option) {
+    switch (option) {
+      case PlayerSortOption.priceHigh:
+        return _tr('Price: High to Low', 'Precio: Mayor a menor');
+      case PlayerSortOption.priceLow:
+        return _tr('Price: Low to High', 'Precio: Menor a mayor');
+      case PlayerSortOption.pointsHigh:
+        return _tr('Points: High to Low', 'Puntos: Mayor a menor');
+      case PlayerSortOption.pointsLow:
+        return _tr('Points: Low to High', 'Puntos: Menor a mayor');
+      case PlayerSortOption.selectedPercent:
+        return _tr('Most Selected', 'Más seleccionados');
+      case PlayerSortOption.nameAZ:
+        return _tr('Name: A-Z', 'Nombre: A-Z');
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -109,6 +132,10 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     // Load existing team if any
     if (widget.existingTeam != null) {
       _selectedPlayers = List.from(widget.existingTeam!.players);
+      _startingPlayerIds = widget.existingTeam!.players
+          .take(kStartingXI)
+          .map((player) => player.playerId)
+          .toList();
       // Recalculate budget based on actual player prices (don't trust stored value)
       _budgetRemaining = _recalculateBudget();
 
@@ -129,8 +156,117 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
 
   /// Recalculate the budget remaining based on selected players
   double _recalculateBudget() {
-    final usedAmount = _selectedPlayers.fold(0.0, (sum, p) => sum + p.price);
+    final usedAmount = _selectedPlayers.fold(
+      0.0,
+      (sum, p) => sum + _resolvedPlayerPrice(p),
+    );
     return _budget - usedAmount;
+  }
+
+  double _resolvedPlayerPrice(FantasyTeamPlayer player) {
+    if (player.price > 0) return player.price;
+    final rosterMatch = _allRosterPlayers
+        .where((p) => p.id == player.playerId)
+        .firstOrNull;
+    return rosterMatch?.price ?? player.price;
+  }
+
+  List<FantasyTeamPlayer> _getStartingPlayers() {
+    _syncStartingPlayerIds();
+    return _startingPlayerIds
+        .map(_getSelectedPlayerById)
+        .whereType<FantasyTeamPlayer>()
+        .toList();
+  }
+
+  List<FantasyTeamPlayer> _getBenchPlayers() {
+    _syncStartingPlayerIds();
+    final startingIdSet = _startingPlayerIds.toSet();
+    return _selectedPlayers
+        .where((player) => !startingIdSet.contains(player.playerId))
+        .toList();
+  }
+
+  bool _isStartingPlayer(int playerId) => _startingPlayerIds.contains(playerId);
+
+  FantasyTeamPlayer? _getSelectedPlayerById(int playerId) {
+    return _selectedPlayers
+        .where((player) => player.playerId == playerId)
+        .firstOrNull;
+  }
+
+  void _syncStartingPlayerIds() {
+    final selectedIds = _selectedPlayers
+        .map((player) => player.playerId)
+        .toSet();
+    _startingPlayerIds = _startingPlayerIds
+        .where(selectedIds.contains)
+        .take(kStartingXI)
+        .toList();
+  }
+
+  List<FantasyTeamPlayer> _orderedPlayersForPersistence() {
+    return [..._getStartingPlayers(), ..._getBenchPlayers()];
+  }
+
+  bool _positionsMatch(
+    PlayerPosition playerPosition,
+    PlayerPosition? targetPosition,
+  ) {
+    if (targetPosition == null) return true;
+    if (targetPosition == PlayerPosition.forward) {
+      return playerPosition == PlayerPosition.forward ||
+          playerPosition == PlayerPosition.attacker;
+    }
+    if (targetPosition == PlayerPosition.attacker) {
+      return playerPosition == PlayerPosition.attacker ||
+          playerPosition == PlayerPosition.forward;
+    }
+    return playerPosition == targetPosition;
+  }
+
+  void _placePlayerInStartingSlot({
+    required FantasyTeamPlayer player,
+    required String targetPosition,
+    required int targetSlotIndex,
+    FantasyTeamPlayer? replacedStarter,
+  }) {
+    final targetPositionEnum = _positionFromString(targetPosition);
+    final updatedStarterIds = List<int>.from(_startingPlayerIds);
+
+    updatedStarterIds.remove(player.playerId);
+    if (replacedStarter != null) {
+      updatedStarterIds.remove(replacedStarter.playerId);
+    }
+
+    var insertIndex = updatedStarterIds.length;
+    var matchingSeen = 0;
+    for (var i = 0; i < updatedStarterIds.length; i++) {
+      final currentPlayer = _getSelectedPlayerById(updatedStarterIds[i]);
+      if (currentPlayer == null ||
+          !_positionsMatch(currentPlayer.position, targetPositionEnum)) {
+        continue;
+      }
+
+      if (matchingSeen == targetSlotIndex) {
+        insertIndex = i;
+        break;
+      }
+
+      matchingSeen++;
+      insertIndex = i + 1;
+    }
+
+    if (updatedStarterIds.length < kStartingXI ||
+        _isStartingPlayer(player.playerId) ||
+        replacedStarter != null) {
+      updatedStarterIds.insert(
+        insertIndex.clamp(0, updatedStarterIds.length),
+        player.playerId,
+      );
+    }
+
+    _startingPlayerIds = updatedStarterIds.take(kStartingXI).toList();
   }
 
   @override
@@ -322,17 +458,21 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     return _selectedPlayers.any((p) => p.playerId == playerId);
   }
 
-  void _togglePlayer(RosterPlayer rosterPlayer) {
+  void _togglePlayer(
+    RosterPlayer rosterPlayer, {
+    PlayerPosition? targetPosition,
+    bool addToBench = false,
+  }) {
     final isSelected = _isPlayerSelected(rosterPlayer.id);
 
     setState(() {
       if (isSelected) {
         // Remove player
-        final removed = _selectedPlayers.firstWhere(
-          (p) => p.playerId == rosterPlayer.id,
-        );
         _selectedPlayers.removeWhere((p) => p.playerId == rosterPlayer.id);
-        _budgetRemaining += removed.price;
+        _startingPlayerIds.remove(rosterPlayer.id);
+        if (_usesBudget) {
+          _budgetRemaining = _recalculateBudget();
+        }
       } else {
         // Check constraints before adding
         if (_selectedPlayers.length >= kTotalSquadSize) {
@@ -370,8 +510,15 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           predictedPoints: rosterPlayer.projectedPoints,
         );
         _selectedPlayers.add(teamPlayer);
+        final canAddToStarting =
+            !addToBench &&
+            _startingPlayerIds.length < kStartingXI &&
+            _positionsMatch(position, targetPosition);
+        if (canAddToStarting) {
+          _startingPlayerIds.add(teamPlayer.playerId);
+        }
         if (_usesBudget) {
-          _budgetRemaining -= rosterPlayer.price;
+          _budgetRemaining = _recalculateBudget();
         }
       }
     });
@@ -432,18 +579,38 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
       final draggedIndex = _selectedPlayers.indexWhere(
         (p) => p.playerId == draggedPlayer.playerId,
       );
-      final isFromBench = draggedIndex >= 11;
+      final isFromBench = !_isStartingPlayer(draggedPlayer.playerId);
 
       if (targetPlayer != null) {
-        // Swap the two players in the list
-        final targetIndex = _selectedPlayers.indexWhere(
-          (p) => p.playerId == targetPlayer.playerId,
-        );
+        final targetIsStarter = _isStartingPlayer(targetPlayer.playerId);
 
-        if (draggedIndex >= 0 && targetIndex >= 0) {
-          final temp = _selectedPlayers[draggedIndex];
-          _selectedPlayers[draggedIndex] = _selectedPlayers[targetIndex];
-          _selectedPlayers[targetIndex] = temp;
+        if (draggedIndex >= 0) {
+          if (isFromBench && targetIsStarter) {
+            _placePlayerInStartingSlot(
+              player: draggedPlayer,
+              targetPosition: targetPosition,
+              targetSlotIndex: targetSlotIndex,
+              replacedStarter: targetPlayer,
+            );
+          } else if (!isFromBench && !targetIsStarter) {
+            _startingPlayerIds.remove(draggedPlayer.playerId);
+            if (!_startingPlayerIds.contains(targetPlayer.playerId)) {
+              _startingPlayerIds.add(targetPlayer.playerId);
+            }
+          } else if (!isFromBench && targetIsStarter) {
+            final draggedStarterIndex = _startingPlayerIds.indexOf(
+              draggedPlayer.playerId,
+            );
+            final targetStarterIndex = _startingPlayerIds.indexOf(
+              targetPlayer.playerId,
+            );
+            if (draggedStarterIndex >= 0 && targetStarterIndex >= 0) {
+              final temp = _startingPlayerIds[draggedStarterIndex];
+              _startingPlayerIds[draggedStarterIndex] =
+                  _startingPlayerIds[targetStarterIndex];
+              _startingPlayerIds[targetStarterIndex] = temp;
+            }
+          }
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -456,52 +623,11 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           );
         }
       } else if (isFromBench && draggedIndex >= 0) {
-        // Moving from bench to an empty lineup slot
-        // Remove from bench position and insert at lineup position
-        _selectedPlayers.removeAt(draggedIndex);
-
-        // Calculate where to insert in lineup based on position type
-        // Insert at the appropriate position in the first 11
-        int insertIndex = 0;
-        final startingXI = _selectedPlayers.take(11).toList();
-
-        // Find the right position based on formation and target position
-        if (targetPosition == 'GK') {
-          insertIndex = 0;
-        } else if (targetPosition == 'DEF') {
-          // After GK
-          insertIndex =
-              1 +
-              startingXI
-                  .where((p) => p.position == PlayerPosition.goalkeeper)
-                  .length;
-        } else if (targetPosition == 'MID') {
-          // After defenders
-          insertIndex = startingXI
-              .where(
-                (p) =>
-                    p.position == PlayerPosition.goalkeeper ||
-                    p.position == PlayerPosition.defender,
-              )
-              .length;
-        } else if (targetPosition == 'FWD') {
-          // After midfielders (at the end of lineup positions)
-          insertIndex = startingXI
-              .where(
-                (p) =>
-                    p.position == PlayerPosition.goalkeeper ||
-                    p.position == PlayerPosition.defender ||
-                    p.position == PlayerPosition.midfielder,
-              )
-              .length;
-        }
-
-        // Ensure we don't go past 11 players in lineup
-        insertIndex = insertIndex.clamp(
-          0,
-          _selectedPlayers.length.clamp(0, 10),
+        _placePlayerInStartingSlot(
+          player: draggedPlayer,
+          targetPosition: targetPosition,
+          targetSlotIndex: targetSlotIndex,
         );
-        _selectedPlayers.insert(insertIndex, draggedPlayer);
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -513,7 +639,11 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           ),
         );
       } else {
-        // Just repositioning within lineup to an empty slot (shouldn't normally happen)
+        _placePlayerInStartingSlot(
+          player: draggedPlayer,
+          targetPosition: targetPosition,
+          targetSlotIndex: targetSlotIndex,
+        );
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -614,6 +744,10 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     setState(() {
       _selectedFormation = newFormation;
       _selectedPlayers = _reorderSquadForFormation(newFormation);
+      _startingPlayerIds = _selectedPlayers
+          .take(kStartingXI)
+          .map((player) => player.playerId)
+          .toList();
     });
 
     // Check if current squad can fill the new formation
@@ -772,8 +906,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
 
     // Players that couldn't fit get removed - refund their price
     final removedPlayers = overflow.skip(kBenchSize - bench.length).toList();
-    for (final removed in removedPlayers) {
-      _budgetRemaining += removed.price;
+    if (_usesBudget && removedPlayers.isNotEmpty) {
+      _budgetRemaining = _recalculateBudget();
     }
 
     setState(() {
@@ -920,27 +1054,36 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   }
 
   Future<void> _saveTeam() async {
-    // Validate squad size
-    if (_selectedPlayers.length != kTotalSquadSize) {
-      _showError(
-        'Select exactly $kTotalSquadSize players (11 starters + 7 subs)',
-      );
+    final isClassicMode = widget.league.isClassicMode;
+    final isFullSquad = _selectedPlayers.length == kTotalSquadSize;
+
+    if (_selectedPlayers.isEmpty) {
+      _showError('Select at least 1 player to save your team');
       return;
     }
 
-    // Validate formation can be filled
-    final validationError = _validateFormation();
-    if (validationError != null) {
-      _showError(validationError);
-      return;
-    }
+    // Draft-mode teams and completed classic squads still require full validation.
+    if (!isClassicMode || isFullSquad) {
+      if (!isFullSquad) {
+        _showError(
+          'Select exactly $kTotalSquadSize players (11 starters + 7 subs)',
+        );
+        return;
+      }
 
-    final hasCaptain = _selectedPlayers.any((p) => p.isCaptain);
-    final hasViceCaptain = _selectedPlayers.any((p) => p.isViceCaptain);
+      final validationError = _validateFormation();
+      if (validationError != null) {
+        _showError(validationError);
+        return;
+      }
 
-    if (!hasCaptain || !hasViceCaptain) {
-      _showCaptainSelectionSheet();
-      return;
+      final hasCaptain = _selectedPlayers.any((p) => p.isCaptain);
+      final hasViceCaptain = _selectedPlayers.any((p) => p.isViceCaptain);
+
+      if (!hasCaptain || !hasViceCaptain) {
+        _showCaptainSelectionSheet();
+        return;
+      }
     }
 
     // Save team
@@ -954,7 +1097,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
         userId: currentUser.oderId,
         userName: currentUser.userName,
         teamName: currentUser.userName,
-        players: _selectedPlayers,
+        players: _orderedPlayersForPersistence(),
         totalCredits: _budget,
         budgetRemaining: _budgetRemaining,
         createdAt: widget.existingTeam?.createdAt ?? DateTime.now(),
@@ -965,12 +1108,24 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
       await _leagueRepository.saveFantasyTeam(team);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Team saved successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        if (isClassicMode && !isFullSquad) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Team progress saved. You must complete all 18 players before your next matchup starts or your team will score 0 points.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Team saved successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
         Navigator.pop(context, team);
       }
     } catch (e) {
@@ -1035,13 +1190,15 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isSpanish = Localizations.localeOf(context).languageCode == 'es';
+    String tr(String en, String es) => isSpanish ? es : en;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: _isSearching
             ? _buildSearchField(theme)
-            : const Text('Build Your Team'),
+            : Text(_tr('Build Your Team', 'Arma tu equipo')),
         centerTitle: false,
         elevation: 0,
         actions: [
@@ -1105,7 +1262,10 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
       focusNode: _searchFocusNode,
       autofocus: true,
       decoration: InputDecoration(
-        hintText: 'Search players by name or team...',
+        hintText: _tr(
+          'Search players by name or team...',
+          'Busca jugadores por nombre o equipo...',
+        ),
         hintStyle: TextStyle(color: bgTextColor),
         border: InputBorder.none,
         contentPadding: EdgeInsets.zero,
@@ -1128,17 +1288,23 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           ? Column(
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Budget: \$${_budgetRemaining.toStringAsFixed(1)}M / \$${_budget.toInt()}M',
-                      style: TextStyle(
-                        color: _budgetRemaining < 0 ? Colors.red : bgTextColor,
-                        fontWeight: FontWeight.w500,
+                    Expanded(
+                      child: Text(
+                        '${_tr('Budget', 'Presupuesto')}: \$${_budgetRemaining.toStringAsFixed(1)}M / \$${_budget.toInt()}M',
+                        style: TextStyle(
+                          color: _budgetRemaining < 0
+                              ? Colors.red
+                              : bgTextColor,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    const SizedBox(width: 12),
                     Text(
-                      '${_selectedPlayers.length}/$kTotalSquadSize players',
+                      '${_selectedPlayers.length}/$kTotalSquadSize ${_tr('players', 'jugadores')}',
                       style: TextStyle(
                         color: _selectedPlayers.length == kTotalSquadSize
                             ? Colors.green
@@ -1181,8 +1347,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
 
   /// Main field-based view - shows soccer field with clickable slots
   Widget _buildFieldBasedView(ThemeData theme) {
-    final startingXI = _selectedPlayers.take(11).toList();
-    final bench = _selectedPlayers.skip(11).toList();
+    final startingXI = _getStartingPlayers();
+    final bench = _getBenchPlayers();
     final totalProjectedPoints = _currentProjectedTeamPoints;
 
     return SingleChildScrollView(
@@ -1271,7 +1437,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
               formation: _selectedFormation,
               isEditable: true,
               height: 320,
-              onPlayerTap: (player) => _showSubstitutionDialog(player),
+              onPlayerTap: (player) =>
+                  _navigateToPlayerProfile(player.playerId),
               onSlotTap: (position, index) =>
                   _showPlayerSelectionSheet(_positionFromString(position)),
               onPlayerSwap: _handlePlayerSwap,
@@ -1455,7 +1622,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
               ),
             ),
             child: GestureDetector(
-              onTap: () => _showSubstitutionDialog(player),
+              onTap: () => _navigateToPlayerProfile(player.playerId),
+              onLongPress: () => _showSubstitutionDialog(player),
               child: Transform.scale(
                 scale: isValidTarget ? 1.05 : 1.0,
                 child: Container(
@@ -1483,9 +1651,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     return DragTarget<FantasyTeamPlayer>(
       onWillAcceptWithDetails: (details) {
         // Accept any player being dragged to bench
-        return _selectedPlayers
-            .take(11)
-            .any((p) => p.playerId == details.data.playerId);
+        return _isStartingPlayer(details.data.playerId);
       },
       onAcceptWithDetails: (details) {
         // Move player from lineup to this bench slot
@@ -1494,7 +1660,10 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
       builder: (context, candidateData, rejectedData) {
         final isValidTarget = candidateData.isNotEmpty;
         return GestureDetector(
-          onTap: () => _showPlayerSelectionSheet(positionNeeded),
+          onTap: () => _showPlayerSelectionSheetInternal(
+            positionNeeded,
+            addToBench: true,
+          ),
           child: Transform.scale(
             scale: isValidTarget ? 1.05 : 1.0,
             child: Container(
@@ -1523,18 +1692,11 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
     FantasyTeamPlayer lineupPlayer,
   ) {
     setState(() {
-      // Find indices
-      final benchIndex = _selectedPlayers.indexWhere(
-        (p) => p.playerId == benchPlayer.playerId,
-      );
-      final lineupIndex = _selectedPlayers.indexWhere(
-        (p) => p.playerId == lineupPlayer.playerId,
-      );
-
-      if (benchIndex >= 0 && lineupIndex >= 0) {
-        // Swap the players
-        _selectedPlayers[benchIndex] = lineupPlayer;
-        _selectedPlayers[lineupIndex] = benchPlayer;
+      if (_isStartingPlayer(lineupPlayer.playerId)) {
+        _startingPlayerIds.remove(lineupPlayer.playerId);
+        if (!_startingPlayerIds.contains(benchPlayer.playerId)) {
+          _startingPlayerIds.add(benchPlayer.playerId);
+        }
       }
     });
   }
@@ -1543,22 +1705,17 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   /// This properly swaps positions to maintain 11+4 structure
   void _movePlayerToBench(FantasyTeamPlayer player, int benchSlotIndex) {
     setState(() {
-      final playerIndex = _selectedPlayers.indexWhere(
-        (p) => p.playerId == player.playerId,
-      );
-      if (playerIndex < 0 || playerIndex >= 11)
-        return; // Only move from starting XI
+      if (!_isStartingPlayer(player.playerId)) return;
 
-      final currentBench = _selectedPlayers.skip(11).toList();
+      final currentBench = _getBenchPlayers();
 
       // If target bench slot has a player, swap them
       if (benchSlotIndex < currentBench.length) {
         final benchPlayer = currentBench[benchSlotIndex];
-        final benchPlayerIndex = 11 + benchSlotIndex;
-
-        // Swap the two players
-        _selectedPlayers[playerIndex] = benchPlayer;
-        _selectedPlayers[benchPlayerIndex] = player;
+        _startingPlayerIds.remove(player.playerId);
+        if (!_startingPlayerIds.contains(benchPlayer.playerId)) {
+          _startingPlayerIds.add(benchPlayer.playerId);
+        }
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1570,10 +1727,9 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           ),
         );
       } else {
-        // Empty bench slot - just move to bench if there's room
-        if (currentBench.length < 4) {
-          _selectedPlayers.removeAt(playerIndex);
-          _selectedPlayers.add(player); // Add to end (bench)
+        // Empty bench slot - just mark as bench if there's room
+        if (currentBench.length < kBenchSize) {
+          _startingPlayerIds.remove(player.playerId);
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1607,18 +1763,23 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           width: 28,
           height: 28,
           decoration: BoxDecoration(
-            color: _getPositionColor(player.position),
             shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: Text(
-              player.position.name.substring(0, 1).toUpperCase(),
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
+            border: Border.all(
+              color: _getPositionColor(player.position),
+              width: 1.5,
             ),
+          ),
+          child: ClipOval(
+            child:
+                player.playerImageUrl != null &&
+                    player.playerImageUrl!.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: player.playerImageUrl!,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => _buildBenchInitials(player),
+                    errorWidget: (_, __, ___) => _buildBenchInitials(player),
+                  )
+                : _buildBenchInitials(player),
           ),
         ),
         const SizedBox(height: 4),
@@ -1632,6 +1793,28 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildBenchInitials(FantasyTeamPlayer player) {
+    final initials = player.playerName
+        .split(' ')
+        .take(2)
+        .map((part) => part.isNotEmpty ? part[0] : '')
+        .join()
+        .toUpperCase();
+
+    return Container(
+      color: _getPositionColor(player.position),
+      alignment: Alignment.center,
+      child: Text(
+        initials,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 
@@ -1705,6 +1888,13 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
 
   /// Show player selection bottom sheet
   void _showPlayerSelectionSheet(PlayerPosition? filterPosition) {
+    _showPlayerSelectionSheetInternal(filterPosition, addToBench: false);
+  }
+
+  void _showPlayerSelectionSheetInternal(
+    PlayerPosition? filterPosition, {
+    required bool addToBench,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1717,7 +1907,11 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
         filterPosition: filterPosition,
         ligaMxTeams: _ligaMxTeams,
         onPlayerSelected: (rosterPlayer) {
-          _togglePlayer(rosterPlayer);
+          _togglePlayer(
+            rosterPlayer,
+            targetPosition: filterPosition,
+            addToBench: addToBench,
+          );
           Navigator.pop(context);
         },
         onViewProfile: (rosterPlayer) =>
@@ -1729,8 +1923,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   /// Build collapsible field visualization showing squad slots (legacy - kept for reference)
   Widget _buildFieldVisualization(ThemeData theme) {
     // Convert selected RosterPlayers to FantasyTeamPlayers for the field
-    final startingXI = _selectedPlayers.take(11).toList();
-    final bench = _selectedPlayers.skip(11).toList();
+    final startingXI = _getStartingPlayers();
+    final bench = _getBenchPlayers();
     final totalProjectedPoints = _currentProjectedTeamPoints;
 
     return AnimatedContainer(
@@ -1830,7 +2024,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                 formation: _selectedFormation,
                 isEditable: true,
                 height: 200,
-                onPlayerTap: (player) => _showSubstitutionDialog(player),
+                onPlayerTap: (player) =>
+                    _navigateToPlayerProfile(player.playerId),
                 onSlotTap: (position, index) => _scrollToPosition(position),
                 onPlayerSwap: _handlePlayerSwap,
               ),
@@ -1846,7 +2041,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                     benchPlayers: bench,
                     isEditable: true,
                     compact: true,
-                    onPlayerTap: (player) => _showSubstitutionDialog(player),
+                    onPlayerTap: (player) =>
+                        _navigateToPlayerProfile(player.playerId),
                   ),
                 ),
               ),
@@ -1863,21 +2059,18 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
         player.predictedPoints * RosterPlayer.seasonMatchesProjection;
 
     // Get players that can substitute for this position
-    final playerIndex = _selectedPlayers.indexOf(player);
-    final isOnBench = playerIndex >= 11;
+    final isOnBench = !_isStartingPlayer(player.playerId);
 
     // Get compatible substitutes
     List<FantasyTeamPlayer> availableSwaps;
     if (isOnBench) {
       // Bench player - can swap with starting XI of same position
-      availableSwaps = _selectedPlayers
-          .take(11)
+      availableSwaps = _getStartingPlayers()
           .where((p) => p.position == player.position)
           .toList();
     } else {
       // Starting XI - can swap with bench players of same position
-      availableSwaps = _selectedPlayers
-          .skip(11)
+      availableSwaps = _getBenchPlayers()
           .where((p) => p.position == player.position)
           .toList();
     }
@@ -1925,7 +2118,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                         ),
                       ),
                       Text(
-                        '${_getPositionName(player.position)} • ${player.teamName ?? ""}',
+                        '${_getPositionName(player.position)} • ${CountryNameLocalizer.localize(context, player.teamName)}',
                         style: TextStyle(color: bgTextColor, fontSize: 13),
                       ),
                     ],
@@ -2113,6 +2306,20 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
 
             const SizedBox(height: 16),
 
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _navigateToPlayerProfile(player.playerId);
+                },
+                icon: const Icon(Icons.person_search),
+                label: const Text('View Full Profile'),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
             // Remove from squad option
             SizedBox(
               width: double.infinity,
@@ -2145,11 +2352,22 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   /// Swap two players in the squad
   void _swapPlayers(FantasyTeamPlayer player1, FantasyTeamPlayer player2) {
     setState(() {
-      final index1 = _selectedPlayers.indexOf(player1);
-      final index2 = _selectedPlayers.indexOf(player2);
-      if (index1 != -1 && index2 != -1) {
-        _selectedPlayers[index1] = player2;
-        _selectedPlayers[index2] = player1;
+      final player1IsStarter = _isStartingPlayer(player1.playerId);
+      final player2IsStarter = _isStartingPlayer(player2.playerId);
+      if (player1IsStarter == player2IsStarter) {
+        return;
+      }
+
+      if (player1IsStarter) {
+        _startingPlayerIds.remove(player1.playerId);
+        if (!_startingPlayerIds.contains(player2.playerId)) {
+          _startingPlayerIds.add(player2.playerId);
+        }
+      } else {
+        _startingPlayerIds.remove(player2.playerId);
+        if (!_startingPlayerIds.contains(player1.playerId)) {
+          _startingPlayerIds.add(player1.playerId);
+        }
       }
     });
   }
@@ -2158,7 +2376,10 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   void _removePlayerFromSquad(FantasyTeamPlayer player) {
     setState(() {
       _selectedPlayers.remove(player);
-      _budgetRemaining += player.price;
+      _startingPlayerIds.remove(player.playerId);
+      if (_usesBudget) {
+        _budgetRemaining = _recalculateBudget();
+      }
     });
   }
 
@@ -2232,7 +2453,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        _sortOption.displayName,
+                        _sortLabel(_sortOption),
                         style: TextStyle(
                           fontSize: 13,
                           color: Colors.white,
@@ -2284,7 +2505,11 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        _selectedTeamFilter?.name ?? 'All Teams',
+                        CountryNameLocalizer.localize(
+                              context,
+                              _selectedTeamFilter?.name,
+                            ) ??
+                            _tr('All Teams', 'Todos los equipos'),
                         style: TextStyle(
                           fontSize: 13,
                           color: _selectedTeamFilter != null
@@ -2334,7 +2559,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
             Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                'Sort By',
+                _tr('Sort By', 'Ordenar por'),
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -2350,7 +2575,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                       : bgTextColor,
                 ),
                 title: Text(
-                  option.displayName,
+                  _sortLabel(option),
                   style: TextStyle(
                     color: _sortOption == option ? theme.primaryColor : null,
                     fontWeight: _sortOption == option ? FontWeight.w600 : null,
@@ -2397,7 +2622,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Filter by Team',
+                    _tr('Filter by Team', 'Filtrar por equipo'),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -2408,7 +2633,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                         Navigator.pop(context);
                         _onTeamFilterChanged(null);
                       },
-                      child: const Text('Clear'),
+                      child: Text(_tr('Clear', 'Limpiar')),
                     ),
                 ],
               ),
@@ -2427,7 +2652,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                           : bgTextColor,
                     ),
                     title: Text(
-                      'All Teams',
+                      _tr('All Teams', 'Todos los equipos'),
                       style: TextStyle(
                         color: _selectedTeamFilter == null
                             ? theme.primaryColor
@@ -2468,7 +2693,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                                   : bgTextColor,
                             ),
                       title: Text(
-                        team.name,
+                        CountryNameLocalizer.localize(context, team.name),
                         style: TextStyle(
                           color: isSelected ? theme.primaryColor : null,
                           fontWeight: isSelected ? FontWeight.w600 : null,
@@ -2743,8 +2968,8 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
             : BorderSide.none,
       ),
       child: InkWell(
-        // Tapping the card shows player details
-        onTap: () => _showPlayerDetailsSheet(player),
+        onTap: () => _navigateToPlayerProfile(player.id),
+        onLongPress: () => _showPlayerDetailsSheet(player),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -2904,20 +3129,42 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Icon(Icons.trending_up, size: 12, color: Colors.green),
-                        const SizedBox(width: 2),
-                        Text(
-                          '${player.projectedPoints.toStringAsFixed(1)} next • ${player.projectedSeasonPoints.toStringAsFixed(1)} season',
-                          style: TextStyle(fontSize: 10, color: Colors.green),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.trending_up,
+                              size: 12,
+                              color: Colors.green,
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              player.projectionSummary,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.people, size: 12, color: bgTextColor),
-                        const SizedBox(width: 2),
-                        Text(
-                          '${player.selectedByPercent.toStringAsFixed(0)}%',
-                          style: TextStyle(fontSize: 10, color: bgTextColor),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.people, size: 12, color: bgTextColor),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${player.selectedByPercent.toStringAsFixed(0)}%',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: bgTextColor,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -3542,7 +3789,9 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
   }
 
   Widget _buildBottomBar(ThemeData theme) {
-    final isValid = _selectedPlayers.length == kTotalSquadSize;
+    final isClassicMode = widget.league.isClassicMode;
+    final isFullSquad = _selectedPlayers.length == kTotalSquadSize;
+    final canSave = isClassicMode ? _selectedPlayers.isNotEmpty : isFullSquad;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -3558,7 +3807,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
       ),
       child: SafeArea(
         child: ElevatedButton(
-          onPressed: isValid ? _saveTeam : null,
+          onPressed: canSave ? _saveTeam : null,
           style: ElevatedButton.styleFrom(
             backgroundColor: theme.primaryColor,
             foregroundColor: Colors.white,
@@ -3569,8 +3818,10 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
             ),
           ),
           child: Text(
-            isValid
+            isFullSquad
                 ? 'Save Team'
+                : isClassicMode
+                ? 'Save Progress (${_selectedPlayers.length}/$kTotalSquadSize)'
                 : 'Select ${kTotalSquadSize - _selectedPlayers.length} more players',
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
@@ -3594,7 +3845,7 @@ class _TeamBuilderPageState extends State<TeamBuilderPage> {
         expand: false,
         builder: (context, scrollController) {
           return _TeamPreviewSheet(
-            players: _selectedPlayers,
+            players: _orderedPlayersForPersistence(),
             budgetRemaining: _budgetRemaining,
             showBudget: _usesBudget,
             scrollController: scrollController,
@@ -3636,6 +3887,8 @@ class _SortFilterSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isSpanish = Localizations.localeOf(context).languageCode == 'es';
+    String tr(String en, String es) => isSpanish ? es : en;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -3703,14 +3956,21 @@ class _SortFilterSheet extends StatelessWidget {
               hintText: 'All Teams',
             ),
             items: [
-              const DropdownMenuItem<int?>(
+              DropdownMenuItem<int?>(
                 value: null,
-                child: Text('All Teams'),
+                child: Text(
+                  Localizations.localeOf(context).languageCode == 'es'
+                      ? 'Todos los equipos'
+                      : 'All Teams',
+                ),
               ),
               ...teams.map(
                 (team) => DropdownMenuItem<int?>(
                   value: team.id,
-                  child: Text(team.name, overflow: TextOverflow.ellipsis),
+                  child: Text(
+                    CountryNameLocalizer.localize(context, team.name),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
             ],
@@ -3753,6 +4013,8 @@ class _TeamPreviewSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isSpanish = Localizations.localeOf(context).languageCode == 'es';
+    String tr(String en, String es) => isSpanish ? es : en;
 
     // Group by position
     final gk = players
@@ -3793,7 +4055,10 @@ class _TeamPreviewSheet extends StatelessWidget {
               const Icon(Icons.groups),
               const SizedBox(width: 8),
               Text(
-                'Your Team (${players.length}/$kTotalSquadSize)',
+                tr(
+                  'Your Team (${players.length}/$kTotalSquadSize)',
+                  'Tu equipo (${players.length}/$kTotalSquadSize)',
+                ),
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -3801,7 +4066,10 @@ class _TeamPreviewSheet extends StatelessWidget {
               const Spacer(),
               if (showBudget)
                 Text(
-                  '${budgetRemaining.toStringAsFixed(1)} left',
+                  tr(
+                    '${budgetRemaining.toStringAsFixed(1)} left',
+                    '${budgetRemaining.toStringAsFixed(1)} restantes',
+                  ),
                   style: TextStyle(color: bgTextColor),
                 ),
             ],
@@ -3817,13 +4085,25 @@ class _TeamPreviewSheet extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             children: [
               if (gk.isNotEmpty)
-                _buildPositionSection(context, 'Goalkeeper', gk),
+                _buildPositionSection(context, tr('Goalkeeper', 'Portero'), gk),
               if (def.isNotEmpty)
-                _buildPositionSection(context, 'Defenders', def),
+                _buildPositionSection(
+                  context,
+                  tr('Defenders', 'Defensas'),
+                  def,
+                ),
               if (mid.isNotEmpty)
-                _buildPositionSection(context, 'Midfielders', mid),
+                _buildPositionSection(
+                  context,
+                  tr('Midfielders', 'Mediocampistas'),
+                  mid,
+                ),
               if (fwd.isNotEmpty)
-                _buildPositionSection(context, 'Forwards', fwd),
+                _buildPositionSection(
+                  context,
+                  tr('Forwards', 'Delanteros'),
+                  fwd,
+                ),
             ],
           ),
         ),
@@ -3920,7 +4200,7 @@ class _TeamPreviewSheet extends StatelessWidget {
           ],
         ),
         subtitle: Text(
-          '${player.teamName ?? 'Unknown'} • \$${player.price.toStringAsFixed(1)}M',
+          '${player.teamName ?? (Localizations.localeOf(context).languageCode == 'es' ? 'Desconocido' : 'Unknown')} • \$${player.price.toStringAsFixed(1)}M',
           style: TextStyle(color: bgTextColor, fontSize: 12),
         ),
         trailing: PopupMenuButton<String>(
@@ -3939,34 +4219,47 @@ class _TeamPreviewSheet extends StatelessWidget {
           },
           itemBuilder: (context) => [
             if (!player.isCaptain)
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'captain',
                 child: Row(
                   children: [
-                    Icon(Icons.star, color: Colors.amber, size: 20),
-                    SizedBox(width: 8),
-                    Text('Make Captain'),
+                    const Icon(Icons.star, color: Colors.amber, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      Localizations.localeOf(context).languageCode == 'es'
+                          ? 'Hacer capitán'
+                          : 'Make Captain',
+                    ),
                   ],
                 ),
               ),
             if (!player.isViceCaptain)
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'vicecaptain',
                 child: Row(
                   children: [
-                    Icon(Icons.star_half, color: Colors.grey, size: 20),
-                    SizedBox(width: 8),
-                    Text('Make Vice-Captain'),
+                    const Icon(Icons.star_half, color: Colors.grey, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      Localizations.localeOf(context).languageCode == 'es'
+                          ? 'Hacer vicecapitán'
+                          : 'Make Vice-Captain',
+                    ),
                   ],
                 ),
               ),
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'remove',
               child: Row(
                 children: [
-                  Icon(Icons.remove_circle, color: Colors.red, size: 20),
-                  SizedBox(width: 8),
-                  Text('Remove', style: TextStyle(color: Colors.red)),
+                  const Icon(Icons.remove_circle, color: Colors.red, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    Localizations.localeOf(context).languageCode == 'es'
+                        ? 'Quitar'
+                        : 'Remove',
+                    style: const TextStyle(color: Colors.red),
+                  ),
                 ],
               ),
             ),
@@ -4015,6 +4308,8 @@ class _CaptainSelectionSheetState extends State<_CaptainSelectionSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isSpanish = Localizations.localeOf(context).languageCode == 'es';
+    String tr(String en, String es) => isSpanish ? es : en;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -4023,21 +4318,27 @@ class _CaptainSelectionSheetState extends State<_CaptainSelectionSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Select Captain & Vice-Captain',
+            tr(
+              'Select Captain & Vice-Captain',
+              'Selecciona capitán y vicecapitán',
+            ),
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Captain gets 2x points, Vice-Captain gets 1.5x points',
+            tr(
+              'Captain gets 2x points, Vice-Captain gets 1.5x points',
+              'El capitán obtiene 2x puntos y el vicecapitán 1.5x puntos',
+            ),
             style: TextStyle(color: bgTextColor),
           ),
           const SizedBox(height: 16),
 
           // Captain selection
           Text(
-            'Captain (2x points)',
+            tr('Captain (2x points)', 'Capitán (2x puntos)'),
             style: TextStyle(color: bgTextColor, fontSize: 12),
           ),
           const SizedBox(height: 8),
@@ -4052,7 +4353,7 @@ class _CaptainSelectionSheetState extends State<_CaptainSelectionSheet> {
               ),
               prefixIcon: const Icon(Icons.star, color: Colors.amber),
             ),
-            hint: const Text('Select captain...'),
+            hint: Text(tr('Select captain...', 'Selecciona capitán...')),
             items: widget.players.map((p) {
               return DropdownMenuItem(
                 value: p.playerId,
@@ -4077,7 +4378,7 @@ class _CaptainSelectionSheetState extends State<_CaptainSelectionSheet> {
 
           // Vice-Captain selection
           Text(
-            'Vice-Captain (1.5x points)',
+            tr('Vice-Captain (1.5x points)', 'Vicecapitán (1.5x puntos)'),
             style: TextStyle(color: bgTextColor, fontSize: 12),
           ),
           const SizedBox(height: 8),
@@ -4092,7 +4393,9 @@ class _CaptainSelectionSheetState extends State<_CaptainSelectionSheet> {
               ),
               prefixIcon: const Icon(Icons.star_half, color: Colors.grey),
             ),
-            hint: const Text('Select vice-captain...'),
+            hint: Text(
+              tr('Select vice-captain...', 'Selecciona vicecapitán...'),
+            ),
             // Exclude the captain from vice-captain options
             items: widget.players
                 .where((p) => p.playerId != _selectedCaptainId)
@@ -4125,7 +4428,9 @@ class _CaptainSelectionSheetState extends State<_CaptainSelectionSheet> {
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
-              child: const Text('Confirm & Save Team'),
+              child: Text(
+                tr('Confirm & Save Team', 'Confirmar y guardar equipo'),
+              ),
             ),
           ),
 

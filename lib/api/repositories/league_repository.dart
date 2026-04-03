@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:fantacy11/api/repositories/players_repository.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:fantacy11/features/league/models/league_models.dart';
@@ -19,6 +20,8 @@ class LeagueRepository {
   static const String _currentUserKey = 'current_user';
   static const String _draftTestLeagueName = 'TEST: Draft Today';
   static const String _draftQuickTestLeagueName = 'TEST: Draft Today (6 Teams)';
+  static const String _tradeFlowTestLeagueName =
+      'TEST: Trades Sandbox (Draft Complete)';
 
   final _uuid = const Uuid();
   final _firestoreService = FirestoreService();
@@ -28,10 +31,42 @@ class LeagueRepository {
   Box<String>? _teamsBoxInstance;
   bool _initialized = false;
   bool _useFirestore = true; // Toggle Firestore sync
+  Future<void>? _initFuture;
+
+  bool _isReservedLeagueBoxKey(dynamic key) => key == _currentUserKey;
+
+  void _handleFirestoreSyncError(Object error, String operation) {
+    if (error is FirebaseException && error.code == 'permission-denied') {
+      if (_useFirestore) {
+        debugPrint(
+          'Firestore permission denied during $operation. Switching to local-only mode.',
+        );
+      }
+      _useFirestore = false;
+      return;
+    }
+    debugPrint('Failed Firestore operation ($operation): $error');
+  }
 
   /// Initialize the repository
   Future<void> init() async {
-    if (_initialized) return;
+    if (_initFuture != null) {
+      return _initFuture!;
+    }
+
+    _initFuture = _initializeOnce();
+    try {
+      await _initFuture;
+    } finally {
+      _initFuture = null;
+    }
+  }
+
+  Future<void> _initializeOnce() async {
+    if (_initialized) {
+      await _migrateClassicLeagueBudgets();
+      return;
+    }
 
     _leaguesBoxInstance = await Hive.openBox<String>(_leaguesBox);
     _membersBoxInstance = await Hive.openBox<String>(_membersBox);
@@ -42,7 +77,190 @@ class LeagueRepository {
 
     // Sync from Firestore or create demo data
     await _syncFromFirestoreOrCreateDemo();
-    await _ensureDraftTodayTestLeagues();
+    await _cleanupLegacyDemoLeagues();
+    await _cleanupLegacyDraftTestLeagues();
+    await _migrateClassicLeagueBudgets();
+  }
+
+  static const Set<String> _legacyDemoLeagueNames = {
+    '🔴 LIVE: Clásico Nacional',
+    '✅ Jornada 3 - Cruz Azul vs Pumas',
+    '🏆 Full League: Jornada 5 Classic',
+    'Liga MX Jornada 6 - Free Entry',
+    '⚔️ Head-to-Head Challenge',
+    '🔒 Amigos del Fantasy',
+    '⚽ Jornada 6 Challenge',
+  };
+
+  bool _isLegacyDemoLeague(League league) {
+    final normalizedName = league.name.trim();
+    final normalizedMatchName = league.matchName?.trim() ?? '';
+    final description = (league.description ?? '').toLowerCase();
+
+    if (_legacyDemoLeagueNames.contains(normalizedName)) return true;
+    if (league.createdBy == 'system') return true;
+    if (normalizedName.contains('Liga MX')) return true;
+    if (normalizedMatchName.contains('América') ||
+        normalizedMatchName.contains('Guadalajara') ||
+        normalizedMatchName.contains('Cruz Azul') ||
+        normalizedMatchName.contains('Pumas') ||
+        normalizedMatchName.contains('Tigres') ||
+        normalizedMatchName.contains('Monterrey') ||
+        normalizedMatchName.contains('Toluca') ||
+        normalizedMatchName.contains('Pachuca') ||
+        normalizedMatchName.contains('Atlas') ||
+        normalizedMatchName.contains('Necaxa') ||
+        normalizedMatchName.contains('Mazatlán') ||
+        normalizedMatchName.contains('Querétaro') ||
+        normalizedMatchName.contains('León') ||
+        normalizedMatchName.contains('Santos')) {
+      return true;
+    }
+
+    return description.contains('private league for friends only') ||
+        description.contains('small league, big competition') ||
+        description.contains('compete for glory in the upcoming matchday');
+  }
+
+  Future<void> _cleanupLegacyDemoLeagues() async {
+    await _ensureInitialized();
+
+    final leaguesToDelete = <String>[];
+    for (final key in _leaguesBoxInstance!.keys) {
+      if (_isReservedLeagueBoxKey(key)) continue;
+      final data = _leaguesBoxInstance!.get(key);
+      if (data == null) continue;
+
+      try {
+        final league = League.fromJson(
+          json.decode(data) as Map<String, dynamic>,
+        );
+        if (_isLegacyDemoLeague(league)) {
+          leaguesToDelete.add(league.id);
+        }
+      } catch (e) {
+        debugPrint('Error parsing potential legacy demo league $key: $e');
+      }
+    }
+
+    if (leaguesToDelete.isEmpty) return;
+
+    for (final leagueId in leaguesToDelete) {
+      await _removeLocalLeagueData(leagueId);
+      if (_useFirestore) {
+        try {
+          await _firestoreService.deleteLeague(leagueId);
+        } catch (e) {
+          _handleFirestoreSyncError(e, 'deleteLegacyDemoLeague');
+        }
+      }
+    }
+
+    debugPrint(
+      'Removed ${leaguesToDelete.length} legacy demo league(s) from World Cup mode',
+    );
+  }
+
+  bool _isLegacyDraftTestLeague(League league) {
+    final normalizedName = league.name.trim();
+    return normalizedName == 'TEST: Draft Today' ||
+        normalizedName == 'TEST: Draft Today (6 Teams)' ||
+        normalizedName == 'TEST: Trades Sandbox (Draft Complete)' ||
+        (league.mode == LeagueMode.draft && normalizedName.startsWith('TEST:'));
+  }
+
+  Future<void> _cleanupLegacyDraftTestLeagues() async {
+    await _ensureInitialized();
+
+    final leaguesToDelete = <String>[];
+    for (final key in _leaguesBoxInstance!.keys) {
+      if (_isReservedLeagueBoxKey(key)) continue;
+      final data = _leaguesBoxInstance!.get(key);
+      if (data == null) continue;
+
+      try {
+        final league = League.fromJson(
+          json.decode(data) as Map<String, dynamic>,
+        );
+        if (_isLegacyDraftTestLeague(league)) {
+          leaguesToDelete.add(league.id);
+        }
+      } catch (e) {
+        debugPrint('Error parsing potential legacy draft test league $key: $e');
+      }
+    }
+
+    if (leaguesToDelete.isEmpty) return;
+
+    for (final leagueId in leaguesToDelete) {
+      await _removeLocalLeagueData(leagueId);
+      if (_useFirestore) {
+        try {
+          await _firestoreService.deleteLeague(leagueId);
+        } catch (e) {
+          _handleFirestoreSyncError(e, 'deleteLegacyDraftTestLeague');
+        }
+      }
+    }
+
+    debugPrint(
+      'Removed ${leaguesToDelete.length} legacy draft test league(s) from classic-only mode',
+    );
+  }
+
+  Future<void> _migrateClassicLeagueBudgets() async {
+    await _ensureInitialized();
+
+    const targetBudget = 150.0;
+    final migratedLeagueIds = <String>[];
+
+    for (final key in _leaguesBoxInstance!.keys) {
+      if (_isReservedLeagueBoxKey(key)) continue;
+      final data = _leaguesBoxInstance!.get(key);
+      if (data == null) continue;
+
+      try {
+        final league = League.fromJson(
+          json.decode(data) as Map<String, dynamic>,
+        );
+        final shouldMigrate =
+            league.isClassicMode && (league.budget - 100.0).abs() < 0.001;
+        if (!shouldMigrate) continue;
+
+        final updatedLeague = league.copyWith(
+          budget: targetBudget,
+          updatedAt: DateTime.now(),
+        );
+        await _saveLeague(updatedLeague);
+        migratedLeagueIds.add(league.id);
+      } catch (e) {
+        debugPrint('Classic budget migration parse error for league $key: $e');
+      }
+    }
+
+    if (migratedLeagueIds.isEmpty) return;
+
+    for (final leagueId in migratedLeagueIds) {
+      final teams = await getLeagueTeams(leagueId);
+      for (final team in teams) {
+        final delta = targetBudget - team.totalCredits;
+        if (delta.abs() < 0.001) continue;
+
+        final updatedTeam = team.copyWith(
+          totalCredits: targetBudget,
+          budgetRemaining: (team.budgetRemaining + delta).clamp(
+            0.0,
+            targetBudget,
+          ),
+          updatedAt: DateTime.now(),
+        );
+        await saveFantasyTeam(updatedTeam);
+      }
+    }
+
+    debugPrint(
+      'Classic budget migration complete for ${migratedLeagueIds.length} leagues',
+    );
   }
 
   /// Sync data from Firestore or create demo leagues if empty
@@ -101,7 +319,7 @@ class LeagueRepository {
     String? description,
     required LeagueType type,
     int maxMembers = 20,
-    double budget = 100.0,
+    double budget = 150.0,
     int? matchId,
     String? matchName,
     DateTime? matchDateTime,
@@ -135,9 +353,9 @@ class LeagueRepository {
       memberCount: 1, // Creator is automatically a member
       entryFee: entryFee,
       prizePool: entryFee != null ? entryFee * maxMembers * 0.9 : null,
-      mode: mode,
-      draftSettings: draftSettings,
-      tradeSettings: tradeSettings,
+      mode: LeagueMode.classic,
+      draftSettings: null,
+      tradeSettings: null,
       rosterSize: rosterSize,
     );
 
@@ -156,7 +374,7 @@ class LeagueRepository {
     );
     await _saveMember(member);
 
-    debugPrint('Created ${mode.name} league: ${league.name} (${league.id})');
+    debugPrint('Created classic league: ${league.name} (${league.id})');
     return league;
   }
 
@@ -201,6 +419,7 @@ class LeagueRepository {
 
     final leagues = <League>[];
     for (final key in _leaguesBoxInstance!.keys) {
+      if (_isReservedLeagueBoxKey(key)) continue;
       final data = _leaguesBoxInstance!.get(key);
       if (data != null) {
         try {
@@ -267,6 +486,7 @@ class LeagueRepository {
     await _ensureInitialized();
 
     for (final key in _leaguesBoxInstance!.keys) {
+      if (_isReservedLeagueBoxKey(key)) continue;
       final data = _leaguesBoxInstance!.get(key);
       if (data != null) {
         try {
@@ -399,8 +619,13 @@ class LeagueRepository {
       return false;
     }
 
-    // Delete all members
     final members = await getLeagueMembers(leagueId);
+    if (members.length > 1) {
+      debugPrint('League can only be deleted when it has one member');
+      return false;
+    }
+
+    // Delete all members
     for (final member in members) {
       await _membersBoxInstance!.delete(member.id);
     }
@@ -502,7 +727,7 @@ class LeagueRepository {
       try {
         await _firestoreService.saveMember(memberJson);
       } catch (e) {
-        debugPrint('Failed to sync member to Firestore: $e');
+        _handleFirestoreSyncError(e, 'saveMember');
       }
     }
   }
@@ -517,7 +742,7 @@ class LeagueRepository {
       try {
         await _firestoreService.saveLeague(leagueJson);
       } catch (e) {
-        debugPrint('Failed to sync league to Firestore: $e');
+        _handleFirestoreSyncError(e, 'saveLeague');
       }
     }
   }
@@ -537,7 +762,7 @@ class LeagueRepository {
       try {
         await _firestoreService.saveFantasyTeam(teamJson);
       } catch (e) {
-        debugPrint('Failed to sync fantasy team to Firestore: $e');
+        _handleFirestoreSyncError(e, 'saveFantasyTeam');
       }
     }
 
@@ -782,6 +1007,61 @@ class LeagueRepository {
   Future<LeagueMember> getCurrentUser() async {
     await _ensureInitialized();
 
+    // Prefer authenticated Firebase user when available.
+    final authUser = FirebaseAuth.instance.currentUser;
+    if (authUser != null) {
+      final uid = authUser.uid;
+      Map<String, dynamic>? profile;
+      if (_useFirestore) {
+        try {
+          profile = await _firestoreService.getUser(uid);
+        } catch (e) {
+          _handleFirestoreSyncError(e, 'getUser');
+        }
+      }
+
+      final userName =
+          (profile?['userName'] as String?)?.trim().isNotEmpty == true
+          ? (profile!['userName'] as String).trim()
+          : (profile?['name'] as String?)?.trim().isNotEmpty == true
+          ? (profile!['name'] as String).trim()
+          : authUser.displayName?.trim().isNotEmpty == true
+          ? authUser.displayName!.trim()
+          : 'User ${uid.substring(0, 6)}';
+
+      final userImageUrl =
+          profile?['userImageUrl'] as String? ??
+          profile?['photoUrl'] as String? ??
+          authUser.photoURL;
+
+      final userPayload = {
+        'id': uid,
+        'oderId': uid,
+        'userName': userName,
+        'name': userName,
+        'phoneNumber': authUser.phoneNumber,
+        'userImageUrl': userImageUrl,
+      };
+      await _leaguesBoxInstance!.put(_currentUserKey, json.encode(userPayload));
+
+      if (_useFirestore) {
+        try {
+          await _firestoreService.saveUser(userPayload);
+        } catch (e) {
+          _handleFirestoreSyncError(e, 'saveUser (authenticated)');
+        }
+      }
+
+      return LeagueMember(
+        id: uid,
+        leagueId: '',
+        oderId: uid,
+        userName: userName,
+        userImageUrl: userImageUrl,
+        joinedAt: DateTime.now(),
+      );
+    }
+
     // Check if we have a stored user
     final userData = _leaguesBoxInstance!.get(_currentUserKey);
     if (userData != null) {
@@ -834,342 +1114,22 @@ class LeagueRepository {
       'userImageUrl': userImageUrl,
     };
     await _leaguesBoxInstance!.put(_currentUserKey, json.encode(user));
+
+    if (_useFirestore) {
+      try {
+        await _firestoreService.saveUser(user);
+      } catch (e) {
+        _handleFirestoreSyncError(e, 'saveUser (updateCurrentUser)');
+      }
+    }
   }
 
   // ==================== DEMO DATA ====================
 
   /// Create demo leagues if none exist
   Future<void> _createDemoLeaguesIfNeeded() async {
-    final existingLeagues = await getPublicLeagues();
-    if (existingLeagues.length >= 5) return; // Already have seed data
-
-    debugPrint('Creating comprehensive seed data for leagues...');
-
-    final currentUser = await getCurrentUser();
-
-    // ==================== 1. ACTIVE LEAGUE (Match in progress) ====================
-    final activeLeagueId = _uuid.v4();
-    final activeLeague = League(
-      id: activeLeagueId,
-      name: '🔴 LIVE: Clásico Nacional',
-      description: 'América vs Guadalajara - Match is currently in progress!',
-      type: LeagueType.public,
-      status: LeagueStatus.active,
-      maxMembers: 50,
-      budget: 100.0,
-      matchName: 'América vs Guadalajara',
-      matchDateTime: DateTime.now().subtract(
-        const Duration(hours: 1),
-      ), // Started 1 hour ago
-      createdBy: 'system',
-      createdAt: DateTime.now().subtract(const Duration(days: 3)),
-      memberCount: 12,
-    );
-    await _leaguesBoxInstance!.put(
-      activeLeagueId,
-      json.encode(activeLeague.toJson()),
-    );
-
-    // Add current user as member of active league
-    final activeUserMember = LeagueMember(
-      id: _uuid.v4(),
-      leagueId: activeLeagueId,
-      oderId: currentUser.oderId,
-      userName: currentUser.userName,
-      joinedAt: DateTime.now().subtract(const Duration(days: 2)),
-      rank: 3,
-      totalPoints: 47.5,
-    );
-    await _saveMember(activeUserMember);
-
-    // Create user's team for active league with players and points
-    final activeUserTeam = FantasyTeam(
-      id: _uuid.v4(),
-      leagueId: activeLeagueId,
-      userId: currentUser.oderId,
-      userName: currentUser.userName,
-      teamName: currentUser.userName,
-      players: _createDemoPlayers(withPoints: true),
-      totalCredits: 100.0,
-      budgetRemaining: 2.5,
-      totalPoints: 47.5,
-      createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      isLocked: true,
-    );
-    await _teamsBoxInstance!.put(
-      activeUserTeam.id,
-      json.encode(activeUserTeam.toJson()),
-    );
-
-    // Add AI opponents with their teams
-    await _addAiMembersWithTeams(activeLeagueId, [
-      ('Carlos García', 1, 62.0),
-      ('María López', 2, 55.5),
-      ('Juan Hernández', 4, 42.0),
-      ('Ana Martínez', 5, 38.5),
-      ('Pedro Sánchez', 6, 35.0),
-    ]);
-
-    // ==================== 2. COMPLETED LEAGUE (Final standings) ====================
-    final completedLeagueId = _uuid.v4();
-    final completedLeague = League(
-      id: completedLeagueId,
-      name: '✅ Jornada 3 - Cruz Azul vs Pumas',
-      description: 'Match completed! Final standings available.',
-      type: LeagueType.public,
-      status: LeagueStatus.completed,
-      maxMembers: 30,
-      budget: 100.0,
-      matchName: 'Cruz Azul 2-1 Pumas',
-      matchDateTime: DateTime.now().subtract(const Duration(days: 2)),
-      createdBy: 'system',
-      createdAt: DateTime.now().subtract(const Duration(days: 5)),
-      memberCount: 8,
-      entryFee: 5.0,
-      prizePool: 36.0,
-    );
-    await _leaguesBoxInstance!.put(
-      completedLeagueId,
-      json.encode(completedLeague.toJson()),
-    );
-
-    // Add current user - won this league!
-    final completedUserMember = LeagueMember(
-      id: _uuid.v4(),
-      leagueId: completedLeagueId,
-      oderId: currentUser.oderId,
-      userName: currentUser.userName,
-      joinedAt: DateTime.now().subtract(const Duration(days: 4)),
-      rank: 1,
-      totalPoints: 78.5,
-    );
-    await _saveMember(completedUserMember);
-
-    // Create user's winning team
-    final completedUserTeam = FantasyTeam(
-      id: _uuid.v4(),
-      leagueId: completedLeagueId,
-      userId: currentUser.oderId,
-      userName: currentUser.userName,
-      teamName: currentUser.userName,
-      players: _createDemoPlayers(withPoints: true, highScoring: true),
-      totalCredits: 100.0,
-      budgetRemaining: 5.0,
-      totalPoints: 78.5,
-      createdAt: DateTime.now().subtract(const Duration(days: 4)),
-      isLocked: true,
-    );
-    await _teamsBoxInstance!.put(
-      completedUserTeam.id,
-      json.encode(completedUserTeam.toJson()),
-    );
-
-    await _addAiMembersWithTeams(completedLeagueId, [
-      ('Roberto Díaz', 2, 72.0),
-      ('Laura Vega', 3, 65.5),
-      ('Miguel Torres', 4, 58.0),
-    ]);
-
-    // ==================== 3. FULL LEAGUE (20 members, all with teams) ====================
-    final fullLeagueId = _uuid.v4();
-    final fullLeague = League(
-      id: fullLeagueId,
-      name: '🏆 Full League: Jornada 5 Classic',
-      description:
-          'All spots filled! Check standings and prepare for matchday.',
-      type: LeagueType.public,
-      status: LeagueStatus.draft,
-      maxMembers: 20,
-      budget: 100.0,
-      matchName: 'Tigres vs Monterrey',
-      matchDateTime: DateTime.now().add(const Duration(days: 1)),
-      createdBy: 'system',
-      createdAt: DateTime.now().subtract(const Duration(days: 5)),
-      memberCount: 20,
-    );
-    await _leaguesBoxInstance!.put(
-      fullLeagueId,
-      json.encode(fullLeague.toJson()),
-    );
-
-    // Add current user to full league
-    final fullLeagueUserMember = LeagueMember(
-      id: _uuid.v4(),
-      leagueId: fullLeagueId,
-      oderId: currentUser.oderId,
-      userName: currentUser.userName,
-      joinedAt: DateTime.now().subtract(const Duration(days: 4)),
-      rank: 5,
-    );
-    await _saveMember(fullLeagueUserMember);
-
-    // Create user's team with predicted points
-    final fullLeagueUserTeam = FantasyTeam(
-      id: _uuid.v4(),
-      leagueId: fullLeagueId,
-      userId: currentUser.oderId,
-      userName: currentUser.userName,
-      teamName: 'random ass name${_uuid.v4()}',
-      players: _createDemoPlayers(withPoints: false, seed: 0),
-      totalCredits: 100.0,
-      budgetRemaining: 3.5,
-      totalPoints: 0,
-      createdAt: DateTime.now().subtract(const Duration(days: 3)),
-    );
-    await _teamsBoxInstance!.put(
-      fullLeagueUserTeam.id,
-      json.encode(fullLeagueUserTeam.toJson()),
-    );
-
-    // Add 19 more AI members with built teams (total 20)
-    final fullLeagueMembers = [
-      ('Carlos García', 1),
-      ('María López', 2),
-      ('Juan Hernández', 3),
-      ('Ana Martínez', 4),
-      ('Pedro Sánchez', 6),
-      ('Laura Vega', 7),
-      ('Roberto Díaz', 8),
-      ('Sofia Castro', 9),
-      ('Miguel Torres', 10),
-      ('Andrés Moreno', 11),
-      ('Carmen Flores', 12),
-      ('Diego Ramírez', 13),
-      ('Patricia Gómez', 14),
-      ('Fernando Silva', 15),
-      ('Lucía Ruiz', 16),
-      ('Jorge Medina', 17),
-      ('Isabel Navarro', 18),
-      ('Ricardo Ortiz', 19),
-      ('Elena Vargas', 20),
-    ];
-    await _addAiMembersWithTeamsAndPredictions(fullLeagueId, fullLeagueMembers);
-
-    // ==================== 4. UPCOMING LEAGUES (Draft status - joinable) ====================
-
-    // 4a. Free league - user already joined
-    await createLeague(
-      name: 'Liga MX Jornada 6 - Free Entry',
-      description: 'Compete for glory in the upcoming matchday!',
-      type: LeagueType.public,
-      maxMembers: 100,
-      budget: 100.0,
-      matchName: 'León vs Santos',
-      matchDateTime: DateTime.now().add(const Duration(days: 3)),
-    );
-
-    // 4b. Small league with spots available
-    final smallLeagueId = _uuid.v4();
-    final smallLeague = League(
-      id: smallLeagueId,
-      name: '⚔️ Head-to-Head Challenge',
-      description: 'Small league, big competition!',
-      type: LeagueType.public,
-      status: LeagueStatus.draft,
-      maxMembers: 10,
-      budget: 100.0,
-      matchName: 'Toluca vs Pachuca',
-      matchDateTime: DateTime.now().add(const Duration(hours: 18)),
-      createdBy: 'system',
-      createdAt: DateTime.now().subtract(const Duration(hours: 12)),
-      memberCount: 6,
-    );
-    await _leaguesBoxInstance!.put(
-      smallLeagueId,
-      json.encode(smallLeague.toJson()),
-    );
-
-    // ==================== 4. PRIVATE LEAGUE (with invite code) ====================
-    final privateLeagueId = _uuid.v4();
-    final privateLeague = League(
-      id: privateLeagueId,
-      name: '🔒 Amigos del Fantasy',
-      description: 'Private league for friends only. Share the code to invite!',
-      type: LeagueType.private,
-      status: LeagueStatus.draft,
-      inviteCode: 'AMIGOS',
-      maxMembers: 12,
-      budget: 100.0,
-      matchName: 'Atlas vs Necaxa',
-      matchDateTime: DateTime.now().add(const Duration(days: 4)),
-      createdBy: currentUser.oderId,
-      createdAt: DateTime.now().subtract(const Duration(hours: 6)),
-      memberCount: 4,
-    );
-    await _leaguesBoxInstance!.put(
-      privateLeagueId,
-      json.encode(privateLeague.toJson()),
-    );
-
-    // Add current user as creator
-    final privateUserMember = LeagueMember(
-      id: _uuid.v4(),
-      leagueId: privateLeagueId,
-      oderId: currentUser.oderId,
-      userName: currentUser.userName,
-      joinedAt: DateTime.now().subtract(const Duration(hours: 6)),
-      isCreator: true,
-    );
-    await _saveMember(privateUserMember);
-
-    // Add some friends
-    await _addAiMembersWithTeams(privateLeagueId, [
-      ('Diego Ramírez', 0, 0.0),
-      ('Sofia Castro', 0, 0.0),
-      ('Andrés Moreno', 0, 0.0),
-    ], withTeams: false);
-
-    // ==================== 5. USER'S TEAM IN PROGRESS (draft league) ====================
-    final inProgressLeagueId = _uuid.v4();
-    final inProgressLeague = League(
-      id: inProgressLeagueId,
-      name: '⚽ Jornada 6 Challenge',
-      description: 'Build your team before the deadline!',
-      type: LeagueType.public,
-      status: LeagueStatus.draft,
-      maxMembers: 50,
-      budget: 100.0,
-      matchName: 'Mazatlán vs Querétaro',
-      matchDateTime: DateTime.now().add(const Duration(days: 5)),
-      createdBy: 'system',
-      createdAt: DateTime.now().subtract(const Duration(days: 1)),
-      memberCount: 15,
-    );
-    await _leaguesBoxInstance!.put(
-      inProgressLeagueId,
-      json.encode(inProgressLeague.toJson()),
-    );
-
-    // Add user with partial team
-    final inProgressUserMember = LeagueMember(
-      id: _uuid.v4(),
-      leagueId: inProgressLeagueId,
-      oderId: currentUser.oderId,
-      userName: currentUser.userName,
-      joinedAt: DateTime.now().subtract(const Duration(hours: 3)),
-    );
-    await _saveMember(inProgressUserMember);
-
-    // Create user's partial team (only 7 players)
-    final partialTeam = FantasyTeam(
-      id: _uuid.v4(),
-      leagueId: inProgressLeagueId,
-      userId: currentUser.oderId,
-      userName: currentUser.userName,
-      teamName: currentUser.userName,
-      players: _createDemoPlayers(withPoints: false, count: 7),
-      totalCredits: 100.0,
-      budgetRemaining: 35.0,
-      totalPoints: 0,
-      createdAt: DateTime.now().subtract(const Duration(hours: 2)),
-    );
-    await _teamsBoxInstance!.put(
-      partialTeam.id,
-      json.encode(partialTeam.toJson()),
-    );
-
     debugPrint(
-      'Comprehensive seed data created: 5+ leagues with various scenarios',
+      'Skipping legacy demo league creation for World Cup classic-only mode',
     );
   }
 
@@ -1213,6 +1173,193 @@ class LeagueRepository {
     );
   }
 
+  Future<void> _ensureTradeFlowTestLeague() async {
+    final currentUser = await getCurrentUser();
+    final now = DateTime.now();
+
+    String? existingLeagueId;
+    for (final key in _leaguesBoxInstance!.keys) {
+      if (_isReservedLeagueBoxKey(key)) continue;
+      final data = _leaguesBoxInstance!.get(key);
+      if (data == null) continue;
+
+      try {
+        final league = League.fromJson(
+          json.decode(data) as Map<String, dynamic>,
+        );
+        if (league.name == _tradeFlowTestLeagueName) {
+          existingLeagueId = league.id;
+          break;
+        }
+      } catch (e) {
+        debugPrint('Error parsing trade flow test league seed: $e');
+      }
+    }
+
+    if (existingLeagueId != null) {
+      const rosterSize = 18;
+      final existingLeague = await getLeague(existingLeagueId);
+      if (existingLeague != null) {
+        final updatedLeague = existingLeague.copyWith(
+          status: LeagueStatus.active,
+          mode: LeagueMode.draft,
+          draftSettings: DraftSettings(
+            orderType: DraftOrderType.snake,
+            pickTimerSeconds: 15,
+            draftDateTime: now.subtract(const Duration(days: 1)),
+            autoPick: true,
+            rosterSize: rosterSize,
+          ),
+          tradeSettings: TradeSettings(
+            approvalType: TradeApproval.none,
+            tradeDeadline: now.add(const Duration(days: 14)),
+            allowMultiPlayerTrades: true,
+          ),
+          rosterSize: rosterSize,
+          updatedAt: now,
+          isJoined: true,
+        );
+        await _saveLeague(updatedLeague);
+      }
+
+      final existingMember = await getMember(
+        existingLeagueId,
+        currentUser.oderId,
+      );
+      if (existingMember == null) {
+        await _saveMember(
+          LeagueMember(
+            id: _uuid.v4(),
+            leagueId: existingLeagueId,
+            oderId: currentUser.oderId,
+            userName: currentUser.userName,
+            userImageUrl: currentUser.userImageUrl,
+            joinedAt: now.subtract(const Duration(days: 2)),
+            isCreator: true,
+            rank: 2,
+            totalPoints: 0,
+          ),
+        );
+      }
+
+      final existingTeam = await getFantasyTeam(
+        existingLeagueId,
+        currentUser.oderId,
+      );
+      if (existingTeam == null) {
+        await saveFantasyTeam(
+          FantasyTeam(
+            id: _uuid.v4(),
+            leagueId: existingLeagueId,
+            userId: currentUser.oderId,
+            userName: currentUser.userName,
+            teamName: '${currentUser.userName} XI',
+            players: _createDemoPlayers(
+              withPoints: false,
+              count: rosterSize,
+              seed: 2,
+            ),
+            totalCredits: 150.0,
+            budgetRemaining: 6.0,
+            totalPoints: 0.0,
+            createdAt: now.subtract(const Duration(days: 1)),
+            updatedAt: now.subtract(const Duration(hours: 12)),
+            isLocked: false,
+            formation: '4-4-2',
+          ),
+        );
+      }
+
+      debugPrint(
+        'Ensured local trade flow test league: $_tradeFlowTestLeagueName',
+      );
+      return;
+    }
+
+    final leagueId = _uuid.v4();
+    const rosterSize = 18;
+
+    final league = League(
+      id: leagueId,
+      name: _tradeFlowTestLeagueName,
+      description:
+          'Draft already completed. Open Trades to accept/reject incoming offers and test post-draft flow.',
+      type: LeagueType.public,
+      status: LeagueStatus.active,
+      maxMembers: 6,
+      budget: 100.0,
+      matchName: 'Monterrey vs Tigres',
+      matchDateTime: now.add(const Duration(days: 1)),
+      createdBy: currentUser.oderId,
+      createdAt: now.subtract(const Duration(days: 2)),
+      memberCount: 6,
+      mode: LeagueMode.draft,
+      draftSettings: DraftSettings(
+        orderType: DraftOrderType.snake,
+        pickTimerSeconds: 15,
+        draftDateTime: now.subtract(const Duration(days: 1)),
+        autoPick: true,
+        rosterSize: rosterSize,
+      ),
+      tradeSettings: TradeSettings(
+        approvalType: TradeApproval.none,
+        tradeDeadline: now.add(const Duration(days: 14)),
+        allowMultiPlayerTrades: true,
+      ),
+      rosterSize: rosterSize,
+    );
+    await _leaguesBoxInstance!.put(leagueId, json.encode(league.toJson()));
+
+    final userMember = LeagueMember(
+      id: _uuid.v4(),
+      leagueId: leagueId,
+      oderId: currentUser.oderId,
+      userName: currentUser.userName,
+      userImageUrl: currentUser.userImageUrl,
+      joinedAt: now.subtract(const Duration(days: 2)),
+      isCreator: true,
+      rank: 2,
+      totalPoints: 0,
+    );
+    await _membersBoxInstance!.put(
+      userMember.id,
+      json.encode(userMember.toJson()),
+    );
+
+    final userTeam = FantasyTeam(
+      id: _uuid.v4(),
+      leagueId: leagueId,
+      userId: currentUser.oderId,
+      userName: currentUser.userName,
+      teamName: '${currentUser.userName} XI',
+      players: _createDemoPlayers(
+        withPoints: false,
+        count: rosterSize,
+        seed: 2,
+      ),
+      totalCredits: 100.0,
+      budgetRemaining: 6.0,
+      totalPoints: 0.0,
+      createdAt: now.subtract(const Duration(days: 1)),
+      updatedAt: now.subtract(const Duration(hours: 12)),
+      isLocked: false,
+      formation: '4-4-2',
+    );
+    await _teamsBoxInstance!.put(userTeam.id, json.encode(userTeam.toJson()));
+
+    await _addAiMembersWithTeamsAndPredictions(leagueId, const [
+      ('Carlos García', 1),
+      ('María López', 3),
+      ('Juan Hernández', 4),
+      ('Ana Martínez', 5),
+      ('Pedro Sánchez', 6),
+    ]);
+
+    debugPrint(
+      'Ensured local trade flow test league: $_tradeFlowTestLeagueName',
+    );
+  }
+
   Future<void> _ensureDraftTodayTestLeague({
     required String leagueName,
     required String description,
@@ -1221,8 +1368,9 @@ class LeagueRepository {
     final currentUser = await getCurrentUser();
     final now = DateTime.now();
 
-    String? existingLeagueId;
+    final existingLeagueIds = <String>[];
     for (final key in _leaguesBoxInstance!.keys) {
+      if (_isReservedLeagueBoxKey(key)) continue;
       final data = _leaguesBoxInstance!.get(key);
       if (data == null) continue;
 
@@ -1231,19 +1379,27 @@ class LeagueRepository {
           json.decode(data) as Map<String, dynamic>,
         );
         if (league.name == leagueName) {
-          existingLeagueId = league.id;
-          break;
+          existingLeagueIds.add(league.id);
         }
       } catch (e) {
         debugPrint('Error parsing draft test league seed: $e');
       }
     }
 
-    if (existingLeagueId != null) {
-      await _removeLocalLeagueData(existingLeagueId);
+    final leagueId = existingLeagueIds.isNotEmpty
+        ? existingLeagueIds.first
+        : _uuid.v4();
+
+    if (existingLeagueIds.length > 1) {
+      for (final duplicateLeagueId in existingLeagueIds.skip(1)) {
+        await _removeLocalLeagueData(duplicateLeagueId);
+      }
     }
 
-    final leagueId = _uuid.v4();
+    if (existingLeagueIds.isNotEmpty) {
+      await _removeLocalLeagueData(leagueId, deleteLeagueRecord: false);
+    }
+
     final draftOrder = <String>[currentUser.oderId];
     final joinedAtBase = now.subtract(const Duration(days: 1));
 
@@ -1274,7 +1430,7 @@ class LeagueRepository {
       ),
       rosterSize: 18,
     );
-    await _leaguesBoxInstance!.put(leagueId, json.encode(league.toJson()));
+    await _saveLeague(league);
 
     final currentUserMember = LeagueMember(
       id: _uuid.v4(),
@@ -1285,10 +1441,7 @@ class LeagueRepository {
       joinedAt: joinedAtBase,
       isCreator: true,
     );
-    await _membersBoxInstance!.put(
-      currentUserMember.id,
-      json.encode(currentUserMember.toJson()),
-    );
+    await _saveMember(currentUserMember);
 
     for (int i = 0; i < aiMembers.length; i++) {
       final aiUserId = _uuid.v4();
@@ -1301,22 +1454,24 @@ class LeagueRepository {
         userName: aiMembers[i],
         joinedAt: joinedAtBase.add(Duration(minutes: i + 1)),
       );
-      await _membersBoxInstance!.put(member.id, json.encode(member.toJson()));
+      await _saveMember(member);
     }
 
     final seededLeague = league.copyWith(
       draftSettings: league.draftSettings?.copyWith(draftOrder: draftOrder),
     );
-    await _leaguesBoxInstance!.put(
-      leagueId,
-      json.encode(seededLeague.toJson()),
-    );
+    await _saveLeague(seededLeague);
 
     debugPrint('Ensured local draft test league for today: $leagueName');
   }
 
-  Future<void> _removeLocalLeagueData(String leagueId) async {
-    await _leaguesBoxInstance!.delete(leagueId);
+  Future<void> _removeLocalLeagueData(
+    String leagueId, {
+    bool deleteLeagueRecord = true,
+  }) async {
+    if (deleteLeagueRecord) {
+      await _leaguesBoxInstance!.delete(leagueId);
+    }
 
     final memberKeysToDelete = <dynamic>[];
     for (final key in _membersBoxInstance!.keys) {
@@ -1441,6 +1596,38 @@ class LeagueRepository {
           FantasyTeamPlayer(
             playerId: data.$1,
             playerName: data.$2,
+            playerImageUrl: _demoAvatarUrl(data.$2),
+            position: _stringToPosition(data.$3),
+            teamName: data.$4,
+            price: data.$5,
+            points: points,
+            predictedPoints: predictedPoints > 0 ? predictedPoints : 0.0,
+          ),
+        );
+      }
+    }
+
+    // Fill remaining bench slots (for draft rosters larger than XI)
+    if (count > players.length) {
+      final remaining = count - players.length;
+      final benchPlayers = shuffledData
+          .asMap()
+          .entries
+          .where((e) => !usedIndices.contains(e.key))
+          .take(remaining);
+
+      for (final p in benchPlayers) {
+        usedIndices.add(p.key);
+        final data = p.value;
+        final basePoints = highScoring ? data.$6 * 1.5 : data.$6;
+        final points = withPoints ? basePoints + (p.key % 5) : 0.0;
+        final predictedPoints = data.$7 + (seed % 3) * 0.5 - 0.5;
+
+        players.add(
+          FantasyTeamPlayer(
+            playerId: data.$1,
+            playerName: data.$2,
+            playerImageUrl: _demoAvatarUrl(data.$2),
             position: _stringToPosition(data.$3),
             teamName: data.$4,
             price: data.$5,
@@ -1510,6 +1697,11 @@ class LeagueRepository {
       default:
         return PlayerPosition.midfielder;
     }
+  }
+
+  String _demoAvatarUrl(String name) {
+    final encoded = Uri.encodeComponent(name);
+    return 'https://ui-avatars.com/api/?name=$encoded&size=256&background=0F141A&color=FFFFFF&format=png';
   }
 
   /// Add AI members with optional teams

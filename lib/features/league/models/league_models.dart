@@ -155,7 +155,7 @@ class League {
   final String? inviteCode;
   final int maxMembers;
   final double
-  budget; // Total budget per team (in millions of USD, e.g., 100.0 = $100M)
+  budget; // Total budget per team (in millions of USD, e.g., 150.0 = $150M)
   final int? matchId; // Associated match ID from SportMonks
   final String? matchName; // e.g., "Team A vs Team B"
   final DateTime? matchDateTime;
@@ -182,7 +182,7 @@ class League {
     this.status = LeagueStatus.draft,
     this.inviteCode,
     this.maxMembers = 20,
-    this.budget = 100.0,
+    this.budget = 150.0,
     this.matchId,
     this.matchName,
     this.matchDateTime,
@@ -343,7 +343,7 @@ Or click: $inviteLink
       ),
       inviteCode: json['inviteCode'] as String?,
       maxMembers: json['maxMembers'] as int? ?? 20,
-      budget: (json['budget'] as num?)?.toDouble() ?? 100.0,
+      budget: (json['budget'] as num?)?.toDouble() ?? 150.0,
       matchId: json['matchId'] as int?,
       matchName: json['matchName'] as String?,
       matchDateTime: json['matchDateTime'] != null
@@ -358,20 +358,9 @@ Or click: $inviteLink
       entryFee: (json['entryFee'] as num?)?.toDouble(),
       prizePool: (json['prizePool'] as num?)?.toDouble(),
       leagueImageUrl: json['leagueImageUrl'] as String?,
-      mode: LeagueMode.values.firstWhere(
-        (e) => e.name == json['mode'],
-        orElse: () => LeagueMode.classic,
-      ),
-      draftSettings: json['draftSettings'] != null
-          ? DraftSettings.fromJson(
-              json['draftSettings'] as Map<String, dynamic>,
-            )
-          : null,
-      tradeSettings: json['tradeSettings'] != null
-          ? TradeSettings.fromJson(
-              json['tradeSettings'] as Map<String, dynamic>,
-            )
-          : null,
+      mode: LeagueMode.classic,
+      draftSettings: null,
+      tradeSettings: null,
       rosterSize: json['rosterSize'] as int? ?? 18,
     );
   }

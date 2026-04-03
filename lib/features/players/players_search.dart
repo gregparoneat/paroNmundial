@@ -5,6 +5,7 @@ import 'package:fantacy11/features/player/models/player_info.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/routes/routes.dart';
 import 'package:fantacy11/services/cache_service.dart';
+import 'package:fantacy11/utils/country_name_localizer.dart';
 import 'package:flutter/material.dart';
 
 /// Helper to convert position icon name to IconData
@@ -67,6 +68,24 @@ class _PlayersSearchState extends State<PlayersSearch> {
   // Available filter options (populated from data)
   List<String> _availableTeams = [];
   final List<String> _availablePositions = ['GK', 'DEF', 'MID', 'FWD'];
+
+  String _tr(String en, String es) =>
+      Localizations.localeOf(context).languageCode == 'es' ? es : en;
+
+  String _sortLabel(PlayerSortOption option) {
+    switch (option) {
+      case PlayerSortOption.pointsHighToLow:
+        return _tr('Points (High → Low)', 'Puntos (Mayor → Menor)');
+      case PlayerSortOption.pointsLowToHigh:
+        return _tr('Points (Low → High)', 'Puntos (Menor → Mayor)');
+      case PlayerSortOption.priceHighToLow:
+        return _tr('Price (High → Low)', 'Precio (Mayor → Menor)');
+      case PlayerSortOption.priceLowToHigh:
+        return _tr('Price (Low → High)', 'Precio (Menor → Mayor)');
+      case PlayerSortOption.nameAZ:
+        return _tr('Name (A → Z)', 'Nombre (A → Z)');
+    }
+  }
 
   @override
   void initState() {
@@ -343,7 +362,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
               ),
             ),
             onPressed: () => setState(() => _showFilters = !_showFilters),
-            tooltip: 'Filters',
+            tooltip: _tr('Filters', 'Filtros'),
           ),
           const SizedBox(width: 8),
         ],
@@ -359,7 +378,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
               onChanged: _onSearchChanged,
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
-                hintText: 'Search players...',
+                hintText: S.of(context).searchPlayersHint,
                 hintStyle: TextStyle(color: Colors.grey[500]),
                 prefixIcon: Icon(Icons.search, color: Colors.grey[500]),
                 suffixIcon: _searchController.text.isNotEmpty
@@ -395,8 +414,14 @@ class _PlayersSearchState extends State<PlayersSearch> {
                   const SizedBox(width: 6),
                   Text(
                     _hasActiveFilters
-                        ? '${_filteredPlayers.length} of ${_cachedPlayers.length} players'
-                        : '${_cachedPlayers.length} players available',
+                        ? _tr(
+                            '${_filteredPlayers.length} of ${_cachedPlayers.length} players',
+                            '${_filteredPlayers.length} de ${_cachedPlayers.length} jugadores',
+                          )
+                        : _tr(
+                            '${_cachedPlayers.length} players available',
+                            '${_cachedPlayers.length} jugadores disponibles',
+                          ),
                     style: TextStyle(fontSize: 12, color: bgTextColor),
                   ),
                   if (_hasActiveFilters) ...[
@@ -404,7 +429,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
                     TextButton.icon(
                       onPressed: _clearFilters,
                       icon: const Icon(Icons.clear, size: 14),
-                      label: const Text('Clear filters'),
+                      label: Text(_tr('Clear filters', 'Limpiar filtros')),
                       style: TextButton.styleFrom(
                         foregroundColor: theme.primaryColor,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -440,7 +465,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
         children: [
           // Position filter chips
           Text(
-            'Position',
+            _tr('Position', 'Posición'),
             style: TextStyle(
               fontSize: 11,
               color: bgTextColor,
@@ -452,7 +477,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _buildPositionChip(null, 'All', theme),
+                _buildPositionChip(null, _tr('All', 'Todos'), theme),
                 ..._availablePositions.map(
                   (pos) => _buildPositionChip(pos, pos, theme),
                 ),
@@ -464,7 +489,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
 
           // Team dropdown
           Text(
-            'Team',
+            _tr('Team', 'Equipo'),
             style: TextStyle(
               fontSize: 11,
               color: bgTextColor,
@@ -481,20 +506,26 @@ class _PlayersSearchState extends State<PlayersSearch> {
             ),
             child: DropdownButton<String?>(
               value: _selectedTeam,
-              hint: const Text('All Teams', style: TextStyle(fontSize: 13)),
+              hint: Text(
+                _tr('All Teams', 'Todos los equipos'),
+                style: const TextStyle(fontSize: 13),
+              ),
               isExpanded: true,
               underline: const SizedBox.shrink(),
               dropdownColor: theme.colorScheme.surface,
               style: TextStyle(color: Colors.white, fontSize: 13),
               items: [
-                const DropdownMenuItem<String?>(
+                DropdownMenuItem<String?>(
                   value: null,
-                  child: Text('All Teams'),
+                  child: Text(_tr('All Teams', 'Todos los equipos')),
                 ),
                 ..._availableTeams.map(
                   (team) => DropdownMenuItem<String?>(
                     value: team,
-                    child: Text(team, overflow: TextOverflow.ellipsis),
+                    child: Text(
+                      CountryNameLocalizer.localize(context, team),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
               ],
@@ -511,7 +542,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
 
           // Sort dropdown
           Text(
-            'Sort by',
+            _tr('Sort by', 'Ordenar por'),
             style: TextStyle(
               fontSize: 11,
               color: bgTextColor,
@@ -532,14 +563,14 @@ class _PlayersSearchState extends State<PlayersSearch> {
               underline: const SizedBox.shrink(),
               dropdownColor: theme.colorScheme.surface,
               style: TextStyle(color: Colors.white, fontSize: 13),
-              items: const [
+              items: [
                 DropdownMenuItem(
                   value: PlayerSortOption.pointsHighToLow,
                   child: Row(
                     children: [
                       Icon(Icons.trending_up, size: 16, color: Colors.green),
                       SizedBox(width: 8),
-                      Text('Points (High → Low)'),
+                      Text(_sortLabel(PlayerSortOption.pointsHighToLow)),
                     ],
                   ),
                 ),
@@ -549,7 +580,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
                     children: [
                       Icon(Icons.trending_down, size: 16, color: Colors.red),
                       SizedBox(width: 8),
-                      Text('Points (Low → High)'),
+                      Text(_sortLabel(PlayerSortOption.pointsLowToHigh)),
                     ],
                   ),
                 ),
@@ -559,7 +590,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
                     children: [
                       Icon(Icons.attach_money, size: 16, color: Colors.amber),
                       SizedBox(width: 8),
-                      Text('Price (High → Low)'),
+                      Text(_sortLabel(PlayerSortOption.priceHighToLow)),
                     ],
                   ),
                 ),
@@ -569,7 +600,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
                     children: [
                       Icon(Icons.money_off, size: 16, color: Colors.grey),
                       SizedBox(width: 8),
-                      Text('Price (Low → High)'),
+                      Text(_sortLabel(PlayerSortOption.priceLowToHigh)),
                     ],
                   ),
                 ),
@@ -579,7 +610,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
                     children: [
                       Icon(Icons.sort_by_alpha, size: 16, color: Colors.blue),
                       SizedBox(width: 8),
-                      Text('Name (A → Z)'),
+                      Text(_sortLabel(PlayerSortOption.nameAZ)),
                     ],
                   ),
                 ),
@@ -687,15 +718,21 @@ class _PlayersSearchState extends State<PlayersSearch> {
       if (_searchResults.isEmpty) {
         return _buildEmptySearchState();
       }
-      return _buildRosterPlayersList(_searchResults, 'Search Results');
+      return _buildRosterPlayersList(
+        _searchResults,
+        _tr('Search Results', 'Resultados de búsqueda'),
+      );
     }
 
     // Filtered results (filters active but no text search)
     if (_hasActiveFilters && _filteredPlayers.isNotEmpty) {
       return _buildRosterPlayersList(
         _filteredPlayers.take(100).toList(),
-        'Filtered Players',
-        subtitle: '${_filteredPlayers.length} found',
+        _tr('Filtered Players', 'Jugadores filtrados'),
+        subtitle: _tr(
+          '${_filteredPlayers.length} found',
+          '${_filteredPlayers.length} encontrados',
+        ),
       );
     }
 
@@ -710,7 +747,10 @@ class _PlayersSearchState extends State<PlayersSearch> {
               Icon(Icons.filter_alt_off, size: 48, color: Colors.grey[600]),
               const SizedBox(height: 16),
               Text(
-                'No players match your filters',
+                _tr(
+                  'No players match your filters',
+                  'No hay jugadores que coincidan con tus filtros',
+                ),
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey[500]),
               ),
@@ -718,7 +758,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
               ElevatedButton.icon(
                 onPressed: _clearFilters,
                 icon: const Icon(Icons.clear),
-                label: const Text('Clear Filters'),
+                label: Text(_tr('Clear Filters', 'Limpiar filtros')),
               ),
             ],
           ),
@@ -733,8 +773,11 @@ class _PlayersSearchState extends State<PlayersSearch> {
       )..sort((a, b) => b.projectedPoints.compareTo(a.projectedPoints));
       return _buildRosterPlayersList(
         popularPlayers.take(50).toList(),
-        'Top Players',
-        subtitle: '${_cachedPlayers.length} total',
+        _tr('Top Players', 'Jugadores destacados'),
+        subtitle: _tr(
+          '${_cachedPlayers.length} total',
+          '${_cachedPlayers.length} en total',
+        ),
       );
     }
 
@@ -757,12 +800,15 @@ class _PlayersSearchState extends State<PlayersSearch> {
             Icon(Icons.person_search, size: 64, color: Colors.grey[700]),
             const SizedBox(height: 24),
             Text(
-              'No Players Loaded',
+              _tr('No Players Loaded', 'No hay jugadores cargados'),
               style: theme.textTheme.titleLarge?.copyWith(color: Colors.white),
             ),
             const SizedBox(height: 8),
             Text(
-              'Create or join a league and build your team to load players',
+              _tr(
+                'Create or join a league and build your team to load players',
+                'Crea o únete a una liga y arma tu equipo para cargar jugadores',
+              ),
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey[500]),
             ),
@@ -1071,7 +1117,10 @@ class _PlayersSearchState extends State<PlayersSearch> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            player.teamName,
+                            CountryNameLocalizer.localize(
+                              context,
+                              player.teamName,
+                            ),
                             style: TextStyle(fontSize: 12, color: bgTextColor),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1085,7 +1134,7 @@ class _PlayersSearchState extends State<PlayersSearch> {
                         Icon(Icons.trending_up, size: 12, color: Colors.green),
                         const SizedBox(width: 2),
                         Text(
-                          '${player.projectedPoints.toStringAsFixed(1)} next • ${player.projectedSeasonPoints.toStringAsFixed(1)} season',
+                          player.projectionSummary,
                           style: const TextStyle(
                             fontSize: 11,
                             color: Colors.green,

@@ -4,6 +4,7 @@ import 'package:fantacy11/api/repositories/players_repository.dart';
 import 'package:fantacy11/features/components/custom_button.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/services/cache_service.dart';
+import 'package:fantacy11/utils/country_name_localizer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -11,10 +12,7 @@ import 'package:flutter/services.dart';
 class FavoriteTeamSelectionPage extends StatefulWidget {
   final VoidCallback onComplete;
 
-  const FavoriteTeamSelectionPage({
-    super.key,
-    required this.onComplete,
-  });
+  const FavoriteTeamSelectionPage({super.key, required this.onComplete});
 
   @override
   State<FavoriteTeamSelectionPage> createState() =>
@@ -24,7 +22,7 @@ class FavoriteTeamSelectionPage extends StatefulWidget {
 class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
   final CacheService _cacheService = CacheService();
   final PlayersRepository _playersRepository = PlayersRepository();
-  
+
   List<LigaMxTeam> _teams = [];
   LigaMxTeam? _selectedTeam;
   bool _isLoading = true;
@@ -68,11 +66,13 @@ class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
 
     try {
       // Save to cache
-      await _cacheService.saveFavoriteTeam(FavoriteTeam(
-        id: _selectedTeam!.id,
-        name: _selectedTeam!.name,
-        logo: _selectedTeam!.logo,
-      ));
+      await _cacheService.saveFavoriteTeam(
+        FavoriteTeam(
+          id: _selectedTeam!.id,
+          name: _selectedTeam!.name,
+          logo: _selectedTeam!.logo,
+        ),
+      );
 
       // Mark onboarding as completed
       await _cacheService.setOnboardingCompleted(true);
@@ -101,7 +101,9 @@ class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
     if (_selectedTeam == null) return;
 
     try {
-      debugPrint('Pre-loading players from favorite team: ${_selectedTeam!.name}');
+      debugPrint(
+        'Pre-loading players from favorite team: ${_selectedTeam!.name}',
+      );
       // This will cache the players for faster loading later
       await _playersRepository.getTeamPlayers(
         teamId: _selectedTeam!.id,
@@ -148,7 +150,9 @@ class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
                     child: Text(
                       locale.favoriteTeamDescription,
                       style: theme.textTheme.bodyLarge?.copyWith(
-                        color: theme.textTheme.bodyLarge?.color?.withValues(alpha: 0.7),
+                        color: theme.textTheme.bodyLarge?.color?.withValues(
+                          alpha: 0.7,
+                        ),
                       ),
                     ),
                   ),
@@ -157,9 +161,7 @@ class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
             ),
 
             // Teams grid
-            Expanded(
-              child: _buildTeamsGrid(theme),
-            ),
+            Expanded(child: _buildTeamsGrid(theme)),
 
             // Continue button
             Padding(
@@ -179,9 +181,7 @@ class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
 
   Widget _buildTeamsGrid(ThemeData theme) {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (_error != null) {
@@ -189,11 +189,7 @@ class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: theme.colorScheme.error,
-            ),
+            Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
             const SizedBox(height: 16),
             Text(
               S.of(context).errorLoadingTeams,
@@ -242,7 +238,7 @@ class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
 
   Widget _buildTeamCard(ThemeData theme, LigaMxTeam team, bool isSelected) {
     final primaryColor = theme.colorScheme.primary;
-    
+
     return GestureDetector(
       onTap: () {
         HapticFeedback.selectionClick();
@@ -299,11 +295,7 @@ class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
                           color: primaryColor,
                         ),
                       )
-                    : Icon(
-                        Icons.sports_soccer,
-                        size: 32,
-                        color: primaryColor,
-                      ),
+                    : Icon(Icons.sports_soccer, size: 32, color: primaryColor),
               ),
             ),
             const SizedBox(height: 8),
@@ -312,7 +304,7 @@ class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Text(
-                team.name,
+                CountryNameLocalizer.localize(context, team.name),
                 style: theme.textTheme.bodySmall?.copyWith(
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                   color: isSelected
@@ -328,11 +320,7 @@ class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
             // Check mark for selected
             if (isSelected) ...[
               const SizedBox(height: 4),
-              Icon(
-                Icons.check_circle,
-                size: 20,
-                color: primaryColor,
-              ),
+              Icon(Icons.check_circle, size: 20, color: primaryColor),
             ],
           ],
         ),
@@ -340,4 +328,3 @@ class _FavoriteTeamSelectionPageState extends State<FavoriteTeamSelectionPage> {
     );
   }
 }
-

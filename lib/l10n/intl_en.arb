@@ -1,6 +1,7 @@
 {
   "home": "Home",
   "myMatches": "My Matches",
+  "fixtures": "Fixtures",
   "myLeagues": "My Leagues",
   "wallet": "Wallet",
   "account": "Account",
@@ -284,7 +285,7 @@
   "plusMatchup": "+ matchup",
   
   "selectFavoriteTeam": "Select Your Favorite Team",
-  "favoriteTeamDescription": "Choose your favorite Liga MX team. We'll personalize your experience and show players from your team first.",
+  "favoriteTeamDescription": "Choose your favorite national team. We'll personalize your experience and show players from your team first.",
   "errorLoadingTeams": "Error loading teams",
   "noTeamsFound": "No teams found",
   "retry": "Retry",
@@ -306,5 +307,614 @@
   },
   "playerLimitedPlaytime": "Limited playtime recently - may be injured or benched",
   "viewAdvancedStats": "View Advanced Statistics",
-  "viewStatsDetails": "View Stats Details"
+  "viewStatsDetails": "View Stats Details",
+  "countryCode": "Country Code",
+  "searchCountryOrCode": "Search country or code",
+  "pleaseEnterPhoneNumber": "Please enter your phone number",
+  "pleaseCompleteNameAndPhone": "Please complete at least name and phone number",
+  "enterSixDigitVerificationCode": "Enter the 6-digit verification code",
+  "pleaseWaitBeforeResending": "Please wait {seconds} seconds before resending",
+  "@pleaseWaitBeforeResending": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "verificationCodeResent": "Verification code resent",
+  "clearingCache": "Clearing cache...",
+  "cacheClearedRestart": "Cache cleared! Restart app for fresh data.",
+  "errorLabel": "Error",
+  "clearCacheTitle": "Clear Cache",
+  "clearCacheSubtitle": "Clear all cached data (for testing)",
+  "overview": "Overview",
+  "members": "Members",
+  "standings": "Standings",
+  "rules": "Rules",
+  "draftCompleted": "Draft completed",
+  "howDraftLeaguesWork": "How Draft Leagues Work",
+  "quickDraftGuideSubtitle": "Quick guide for users coming from classic budget fantasy.",
+  "fullDraftGuide": "Full Draft Guide",
+  "draftVsClassic": "Draft vs Classic",
+  "joinDraftNow": "Join Draft Now",
+  "draftRoomOpens15MinBeforeStart": "Draft Room Opens 15 Min Before Start",
+  "noMembersYet": "No members yet",
+  "leagueFull": "League Full",
+  "joinLeague": "Join League",
+  "trades": "Trades",
+  "freeAgency": "Free Agency",
+  "enterDraftRoom": "Enter Draft Room",
+  "editTeam": "Edit Team",
+  "buildTeam": "Build Team"
+  ,"nameYourTeam": "Name Your Team",
+  "chooseTeamNamePrompt": "Choose a name for your fantasy team:",
+  "leaveLeagueQuestion": "Leave League?",
+  "leaveLabel": "Leave",
+  "leftLeagueMessage": "You have left the league",
+  "inviteCodeCopied": "Invite code copied!",
+  "share": "Share",
+  "copyCode": "Copy Code",
+  "draftSchedule": "Draft Schedule",
+  "timePending": "Time pending",
+  "failedToLoadLeagues": "Failed to load leagues: {error}",
+  "@failedToLoadLeagues": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "leaguesTitle": "paroNfantasyMx Leagues",
+  "joinWithCode": "Join with code",
+  "publicLeagues": "Public Leagues",
+  "createLeagueLabel": "Create League",
+  "noPublicLeaguesAvailable": "No Public Leagues Available",
+  "noLeaguesYet": "No Leagues Yet",
+  "createPublicLeagueOrWait": "Create a public league or wait for others to create one",
+  "createOrJoinFirstLeague": "Create your first league or join an existing one",
+  "create": "Create",
+  "join": "Join",
+  "membersCount": "{current}/{max} members",
+  "@membersCount": {
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "matchTbd": "Match TBD",
+  "viewArrow": "View →",
+  "joinArrow": "Join →",
+  "full": "Full",
+  "started": "Started",
+  "minutesShort": "{minutes}m",
+  "@minutesShort": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "hoursMinutesShort": "{hours}h {minutes}m",
+  "@hoursMinutesShort": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "tomorrow": "Tomorrow",
+  "daysShort": "{days}d",
+  "@daysShort": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "cancelled": "Cancelled",
+  "pleaseSetDraftDateAndTime": "Please set a draft date and time",
+  "leagueCreated": "League \"{name}\" created!",
+  "@leagueCreated": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "failedToCreateLeague": "Failed to create league: {error}",
+  "@failedToCreateLeague": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "leagueMode": "League Mode",
+  "classic": "Classic",
+  "budgetBased": "Budget-based",
+  "draft": "Draft",
+  "uniqueOwnership": "Unique ownership",
+  "leagueVisibility": "League Visibility",
+  "publicLeague": "Public",
+  "anyoneCanJoin": "Anyone can join",
+  "privateLeague": "Private",
+  "inviteOnly": "Invite only",
+  "leagueDetails": "League Details",
+  "leagueName": "League Name",
+  "enterLeagueName": "Enter a name for your league",
+  "pleaseEnterLeagueName": "Please enter a league name",
+  "nameMustBeAtLeast3Characters": "Name must be at least 3 characters",
+  "descriptionOptional": "Description (Optional)",
+  "describeYourLeague": "Describe your league",
+  "settings": "Settings",
+  "maxMembers": "Max Members",
+  "range2to20": "2-20",
+  "rosterSize": "Roster Size",
+  "range11to25": "11-25",
+  "teamBudget": "Team Budget",
+  "millionUsd": "Million USD",
+  "range50to1000": "50-1000",
+  "draftSettings": "Draft Settings",
+  "draftDateTime": "Draft Date & Time",
+  "tapToSelect": "Tap to select",
+  "snake": "Snake",
+  "snakeOrderExample": "1→10, 10→1...",
+  "linear": "Linear",
+  "sameOrder": "Same order",
+  "pickTimer": "Pick Timer",
+  "tradeSettings": "Trade Settings",
+  "tradeApprovalTitle": "Trade Approval",
+  "tradeDeadlineOptional": "Trade Deadline (Optional)",
+  "noDeadline": "No deadline",
+  "howClassicModeWorks": "How Classic Mode Works",
+  "howDraftModeWorks": "How Draft Mode Works",
+  "classicInfoCreateInvite": "Create your league and invite friends",
+  "classicInfoBudgetTeam": "Each member builds a team within the budget",
+  "classicInfoSamePlayersAllowed": "Multiple managers can have the same players",
+  "classicInfoEarnPoints": "Earn points based on real player performance",
+  "draftInfoScheduleDraft": "Set up your league and schedule the draft",
+  "draftInfoTakeTurns": "On draft day, take turns picking players",
+  "draftInfoUniquePlayers": "Each player can only be owned by one team",
+  "draftInfoTradesAndFreeAgency": "Trade players and pick up free agents during the season",
+  "draftInfoCompeteChampionship": "Compete for the championship!",
+  "shareInviteCodeWithFriends": "Share the invite code with friends to join",
+  "tradeApprovalNone": "No Approval",
+  "tradeApprovalCommissioner": "Commissioner Approval",
+  "tradeApprovalLeagueVote": "League Vote",
+  "tradeApprovalNoneDescription": "Trades are processed immediately",
+  "tradeApprovalCommissionerDescription": "Commissioner must approve all trades",
+  "tradeApprovalLeagueVoteDescription": "League members vote on trades (majority wins)",
+  "enterValidInviteCode": "Enter a valid invite code",
+  "leagueNotFoundCheckInviteCode": "League not found. Check the invite code.",
+  "thisLeagueIsFull": "This league is full",
+  "leagueNoLongerAcceptingMembers": "This league is no longer accepting members",
+  "errorSearchingForLeague": "Error searching for league",
+  "failedToJoinLeague": "Failed to join league",
+  "errorJoiningLeague": "Error joining league: {error}",
+  "@errorJoiningLeague": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "joinPrivateLeague": "Join Private League",
+  "joinPrivateLeagueDescription": "Enter the invite code shared by your friend to join their private league.",
+  "inviteCode": "Invite Code",
+  "searching": "Searching...",
+  "findLeague": "Find League",
+  "leagueFound": "League Found!",
+  "availableTab": "Available",
+  "myRosterTab": "My Roster",
+  "transactionsTab": "Transactions",
+  "rosterCount": "Roster: {current} / {max}",
+  "@rosterCount": {
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "rosterFullDropPlayerToAdd": "Roster Full - Drop a player to add",
+  "spotsAvailable": "{count} spots available",
+  "@spotsAvailable": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "searchPlayersHintShort": "Search players...",
+  "pointsNext": "{value} next",
+  "@pointsNext": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "pointsSeason": "{value} season",
+  "@pointsSeason": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "projectionLabel": "projection",
+  "addPlayerAction": "Add",
+  "swapAction": "Swap",
+  "noPlayersOnRoster": "No players on roster",
+  "addPlayersFromAvailableTab": "Add players from the Available tab",
+  "dropPlayerTooltip": "Drop player",
+  "noTransactionsYet": "No transactions yet",
+  "youLabel": "You",
+  "rosterIsFullSwapOrDropFirst": "Roster is full. Swap or drop a player first.",
+  "playerAlreadyOnRoster": "Player is already on your roster",
+  "cannotAddPlayerFixtureStarted": "Cannot add player - fixture has already started",
+  "addedPlayer": "Added {name}",
+  "@addedPlayer": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "addedLocallyPersistFailed": "Added locally, but failed to persist roster update",
+  "selectPlayerToDrop": "Select player to drop",
+  "cannotSwapDropPlayerNotOnRoster": "Cannot swap: drop player is not on your roster",
+  "swappedPlayers": "Swapped {dropPlayer} for {addPlayer}",
+  "@swappedPlayers": {
+    "placeholders": {
+      "dropPlayer": {
+        "type": "String"
+      },
+      "addPlayer": {
+        "type": "String"
+      }
+    }
+  },
+  "swapCompletedLocallyPersistFailed": "Swap completed locally, but failed to persist roster update",
+  "failedToCompleteSwap": "Failed to complete swap",
+  "dropPlayerQuestion": "Drop Player?",
+  "dropPlayerConfirmation": "Are you sure you want to drop {name}? They will become available to other teams.",
+  "@dropPlayerConfirmation": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "dropAction": "Drop",
+  "playerNotOnSavedRoster": "Player is not on your saved roster",
+  "droppedPlayer": "Dropped {name}",
+  "@droppedPlayer": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "droppedLocallyPersistFailed": "Dropped locally, but failed to persist roster update",
+  "seasonLabel": "Season",
+  "priceLabel": "Price",
+  "addToRoster": "Add to Roster",
+  "allLabel": "All",
+  "inboxTab": "Inbox",
+  "proposeTab": "Propose",
+  "historyTab": "History",
+  "tradeDeadlineHasPassed": "Trade deadline has passed",
+  "tradeDeadline": "Trade deadline: {date}",
+  "@tradeDeadline": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "noPendingTrades": "No pending trades",
+  "proposeTradeToGetStarted": "Propose a trade to get started",
+  "incomingTrades": "Incoming Trades",
+  "outgoingTrades": "Outgoing Trades",
+  "awaitingLeagueVote": "Awaiting League Vote",
+  "fromUser": "From: {name}",
+  "@fromUser": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "toUser": "To: {name}",
+  "@toUser": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "youReceive": "You receive:",
+  "youGive": "You give:",
+  "rejectAction": "Reject",
+  "acceptAction": "Accept",
+  "cancelTradeAction": "Cancel Trade",
+  "leagueVoteTitle": "League Vote",
+  "voteFor": "For",
+  "voteAgainst": "Against",
+  "voteAgainstAction": "Vote Against",
+  "voteForAction": "Vote For",
+  "youCannotVoteOwnTrade": "You cannot vote on your own trade",
+  "youAlreadyVoted": "You have already voted",
+  "tradingClosed": "Trading is closed",
+  "findPlayerToTarget": "Find a player to target",
+  "searchPlayersInOtherSquads": "Search players in other squads...",
+  "chooseOnePlayerToOffer": "Choose one of your players to offer:",
+  "messageOptional": "Message (optional)",
+  "proposeTradeAction": "Propose Trade",
+  "noTradeTargetsFound": "No trade targets found",
+  "tradeTargetSubtitle": "{team} • Owned by {owner} • {points} next",
+  "@tradeTargetSubtitle": {
+    "placeholders": {
+      "team": {
+        "type": "String"
+      },
+      "owner": {
+        "type": "String"
+      },
+      "points": {
+        "type": "String"
+      }
+    }
+  },
+  "ownedBy": "Owned by {owner}",
+  "@ownedBy": {
+    "placeholders": {
+      "owner": {
+        "type": "String"
+      }
+    }
+  },
+  "requestedPlayerSummary": "{points} next • {team}",
+  "@requestedPlayerSummary": {
+    "placeholders": {
+      "points": {
+        "type": "String"
+      },
+      "team": {
+        "type": "String"
+      }
+    }
+  },
+  "noTradeHistory": "No trade history",
+  "tradeProposedSuccessfully": "Trade proposed successfully",
+  "tradeAccepted": "Trade accepted",
+  "tradeRejected": "Trade rejected",
+  "tradeCancelled": "Trade cancelled",
+  "voteRecorded": "Vote recorded: {side}",
+  "@voteRecorded": {
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "tradeStatusPending": "Pending",
+  "tradeStatusAccepted": "Accepted",
+  "tradeStatusCompleted": "Completed",
+  "tradeStatusRejected": "Rejected",
+  "tradeStatusVetoed": "Vetoed",
+  "tradeStatusCancelled": "Cancelled",
+  "tradeStatusExpired": "Expired",
+  "seedTradeMessage1": "Need midfield creativity. Interested in a direct swap?",
+  "seedTradeMessage2": "I can overpay at MID if you can spare defensive depth.",
+  "classicBudgetRecommendation": "Recommended budget: 130-150M for a balanced 18-player squad.",
+  "joinedSuccessfullyTeamCreationOpensOn": "Joined successfully. Team creation opens on {time}.",
+  "@joinedSuccessfullyTeamCreationOpensOn": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "joinedSuccessfullyTeamCreationOnDraftDay": "Joined successfully. Team creation opens on draft day.",
+  "welcomeToLeagueTeamReady": "Welcome to the league! Your team \"{teamName}\" is ready.",
+  "@welcomeToLeagueTeamReady": {
+    "placeholders": {
+      "teamName": {
+        "type": "String"
+      }
+    }
+  },
+  "teamNameExampleHint": "e.g., Los Galacticos FC",
+  "leaveLeagueConfirmation": "Are you sure you want to leave this league? Your team will be deleted.",
+  "joinLeagueOnFantasy11": "Join {leagueName} on Fantasy 11!",
+  "@joinLeagueOnFantasy11": {
+    "placeholders": {
+      "leagueName": {
+        "type": "String"
+      }
+    }
+  },
+  "shareInvite": "Share invite",
+  "budgetLabel": "Budget",
+  "ruleSelect18PlayersDraft": "Select 18 players (11 starters + 7 subs) through the live draft",
+  "ruleSelect18PlayersBudget": "Select 18 players (11 starters + 7 subs) within \\${budget}M",
+  "@ruleSelect18PlayersBudget": {
+    "placeholders": {
+      "budget": {
+        "type": "int"
+      }
+    }
+  },
+  "ruleSquad18Players": "Squad: 18 total players",
+  "ruleCaptainViceCaptainPoints": "Captain gets 2x points, Vice-captain gets 1.5x",
+  "ruleMax4PlayersOneTeam": "Max 4 players from one team",
+  "ruleTeamLocksWhenMatchStarts": "Team locks when match starts",
+  "draftGuideBullet1": "Each manager takes turns selecting one player at a time. Once a player is drafted, nobody else can roster him.",
+  "draftGuideBullet2": "There is no transfer budget during the draft. Your advantage comes from pick timing, queue priority, and roster balance.",
+  "draftGuideBullet3": "Auto-pick can step in if your clock expires, so your queue matters even when you are not actively selecting.",
+  "draftLeagueGuideTitle": "Draft League Guide",
+  "guideHowDraftWorksTitle": "How The Draft Works",
+  "guideHowDraftWorksItem1": "When the draft starts, managers pick one player at a time in the draft order shown by the room.",
+  "guideHowDraftWorksItem2": "If the league uses snake order, the order reverses every round so the manager picking last in one round picks first in the next.",
+  "guideHowDraftWorksItem3": "Every player can belong to only one manager. If someone drafts a player before you, that player is gone from the pool.",
+  "guideHowDraftWorksItem4": "You can queue players before your turn so the app can auto-pick from your priority list if your clock expires.",
+  "guideWhatYouAreBuildingTitle": "What You Are Building",
+  "guideWhatYouAreBuildingItem1": "Your draft roster has 18 players total.",
+  "guideWhatYouAreBuildingItem2": "You must still be able to finish with at least 1 goalkeeper, 3 defenders, 3 midfielders, and 1 forward.",
+  "guideWhatYouAreBuildingItem3": "Beyond those minimums, the remaining spots are flexible, so strategy matters.",
+  "guideDraftVsClassicTitle": "Draft Vs Classic",
+  "guideDraftVsClassicItem1": "Draft mode is exclusive: once you draft a player, nobody else in the league can own him.",
+  "guideDraftVsClassicItem2": "Classic mode is budget-based: multiple users can buy the same player as long as they can afford him.",
+  "guideDraftVsClassicItem3": "In draft mode, your decisions are about scarcity, timing, and roster construction. In classic mode, they are about value under budget.",
+  "guideDraftVsClassicItem4": "Season projection is most useful during drafting and buying, while next-match projection is more useful later when deciding starters and substitutions.",
+  "guidePracticalTipsTitle": "Practical Tips",
+  "guidePracticalTipsItem1": "Use the queue to rank fallback picks before your turn arrives.",
+  "guidePracticalTipsItem2": "Watch the turns-left indicator so you know when to stop browsing and start narrowing your shortlist.",
+  "guidePracticalTipsItem3": "Do not ignore position balance early enough that you become forced into weak picks late in the draft.",
+  "myTeamLabel": "My Team",
+  "waitingForOpponentEllipsis": "Waiting for opponent...",
+  "nextMatchupTitle": "Next Matchup",
+  "pointsAbbrev": "{points} pts",
+  "@pointsAbbrev": {
+    "placeholders": {
+      "points": {
+        "type": "String"
+      }
+    }
+  },
+  "vsUpper": "VS",
+  "projectedWinBy": "You are projected to win by {points} pts!",
+  "@projectedWinBy": {
+    "placeholders": {
+      "points": {
+        "type": "String"
+      }
+    }
+  },
+  "behindByEditTeam": "Behind by {points} pts - Edit your team!",
+  "@behindByEditTeam": {
+    "placeholders": {
+      "points": {
+        "type": "String"
+      }
+    }
+  },
+  "closeMatchup": "It is a close matchup!",
+  "draftRoomReady": "Draft Room Ready",
+  "teamWillBeDraftedLive": "Team Will Be Drafted Live",
+  "draftLiveEnterRoomDescription": "The draft is live. Enter the room to make your picks while other managers auto-pick when their timers expire.",
+  "teamCreatedThroughLiveDraftDescription": "Your team is created through the live draft, not with the classic team builder.",
+  "waitingForDraftStart": "Waiting For Draft Start",
+  "noTeamYet": "No Team Yet",
+  "buildFantasyTeamCompete": "Build your fantasy team to compete in this league!",
+  "playersCountOfTotal": "{count}/{total} players",
+  "@playersCountOfTotal": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "playersAndBudgetLeft": "{count}/{total} players • \\${budget}M left",
+  "@playersAndBudgetLeft": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "budget": {
+        "type": "String"
+      }
+    }
+  },
+  "pickStartersAndFormation": "Pick Your Starters And Formation",
+  "draftSquadReadySetStarters": "Your draft squad is ready. Set your starting XI, choose a formation, and assign captain roles before the matchup locks.",
+  "setStarters": "Set Starters",
+  "currentFormation": "Current Formation",
+  "projectedPoints": "Projected Points",
+  "ptsShort": "pts",
+  "teamCreated": "Team created",
+  "waitingForOpponent": "Waiting for opponent",
+  "yourPredictedPoints": "Your Predicted Points",
+  "nextOpponent": "Next Opponent",
+  "noStandingsYet": "No standings yet",
+  "standingsAppearAfterMatchStarts": "Standings will appear after match starts",
+  "playersAndMoneyLeft": "{count} players • \\${budget}M left",
+  "@playersAndMoneyLeft": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "budget": {
+        "type": "String"
+      }
+    }
+  },
+  "draftAt": "Draft: {time}",
+  "@draftAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "failedToLoadPlayers": "Failed to load players: {error}",
+  "@failedToLoadPlayers": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "tbd": "TBD",
+  "now": "Now",
+  "draftTimeNotScheduledYet": "Draft time has not been scheduled yet",
+  "draftIsLiveNow": "Draft is live now",
+  "startsInDaysHoursMinutes": "Starts in {days}d {hours}h {minutes}m",
+  "@startsInDaysHoursMinutes": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      },
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "startsInCountdown": "Starts in {hh}:{mm}:{ss}",
+  "@startsInCountdown": {
+    "placeholders": {
+      "hh": {
+        "type": "String"
+      },
+      "mm": {
+        "type": "String"
+      },
+      "ss": {
+        "type": "String"
+      }
+    }
+  },
+  "freeLabel": "FREE",
+  "youUpper": "YOU",
+  "creatorUpper": "CREATOR"
 }

@@ -4,7 +4,16 @@ import 'package:flutter/material.dart';
 
 class VerificationUiWeb extends StatelessWidget {
   final VerificationInteractor interactor;
-  const VerificationUiWeb(this.interactor, {super.key});
+  final TextEditingController? otpController;
+  final int resendCooldownSeconds;
+  final ValueChanged<String>? onOtpChanged;
+  const VerificationUiWeb(
+    this.interactor, {
+    super.key,
+    this.otpController,
+    this.resendCooldownSeconds = 0,
+    this.onOtpChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -23,14 +32,21 @@ class VerificationUiWeb extends StatelessWidget {
                 Positioned(
                   top: 100,
                   child: Image.asset(
-                    "assets/logo.png",
+                    "assets/paroNmundialTransparent.png",
                     scale: 3,
                   ),
                 ),
               ],
             ),
           ),
-          Expanded(child: VerificationColumn(interactor)),
+          Expanded(
+            child: VerificationColumn(
+              interactor,
+              otpController: otpController,
+              resendCooldownSeconds: resendCooldownSeconds,
+              onOtpChanged: onOtpChanged,
+            ),
+          ),
         ],
       ),
     );

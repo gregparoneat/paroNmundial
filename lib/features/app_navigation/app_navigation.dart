@@ -36,7 +36,10 @@ class AppNavigationState extends State<AppNavigation> {
   Widget build(BuildContext context) {
     var s = S.of(context);
     return Scaffold(
-      body: _children[_selectedIndex],
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: _children,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         items: <BottomNavigationBarItem>[
           BottomNavigationBarItem(

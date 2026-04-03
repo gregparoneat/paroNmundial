@@ -1,7 +1,7 @@
 import 'package:fantacy11/api/sportmonks_client.dart';
 import 'package:fantacy11/api/sportmonks_config.dart';
 
-/// Model representing a stage/tournament within a season (e.g., Apertura, Clausura)
+/// Model representing a stage/tournament within a season.
 class StageInfo {
   final int id;
   final String name;
@@ -132,8 +132,7 @@ class SeasonInfo {
   }
 }
 
-/// Repository for managing season/tournament data
-/// Handles Liga MX's Apertura/Clausura tournament structure
+/// Repository for managing competition season/tournament data.
 class SeasonsRepository {
   final SportMonksClient _client;
   
@@ -143,14 +142,13 @@ class SeasonsRepository {
   static DateTime? _lastFetchTime;
   static const _cacheDuration = Duration(hours: 6);
   
-  // Liga MX League ID in SportMonks
-  static const int ligaMxLeagueId = 262;
+  static const int competitionLeagueId = SportMonksConfig.competitionLeagueId;
   
   SeasonsRepository({SportMonksClient? client}) 
       : _client = client ?? SportMonksClient();
 
-  /// Get the current active Liga MX season with stage info
-  Future<SeasonInfo?> getCurrentLigaMxSeason({bool forceRefresh = false}) async {
+  /// Get the current active season with stage info for the configured competition.
+  Future<SeasonInfo?> getCurrentCompetitionSeason({bool forceRefresh = false}) async {
     // Return cached if still valid
     if (!forceRefresh && 
         _currentSeason != null && 
@@ -169,16 +167,16 @@ class SeasonsRepository {
     }
 
     try {
-      print('Fetching Liga MX seasons from API...');
+      print('Fetching ${SportMonksConfig.competitionName} seasons from API...');
       
-      // Get all seasons for Liga MX with stages included
+      // Get all seasons for the configured competition with stages included
       final response = await _client.getSeasonsByLeague(
-        ligaMxLeagueId,
+        competitionLeagueId,
         includes: ['currentStage', 'stages'],
       );
 
       if (response.data.isEmpty) {
-        print('No seasons found for Liga MX');
+        print('No seasons found for ${SportMonksConfig.competitionName}');
         return _getFallbackSeason();
       }
 
@@ -232,9 +230,13 @@ class SeasonsRepository {
     }
   }
 
-  /// Get the current stage/tournament (e.g., Clausura 2026)
+  Future<SeasonInfo?> getCurrentLigaMxSeason({bool forceRefresh = false}) {
+    return getCurrentCompetitionSeason(forceRefresh: forceRefresh);
+  }
+
+  /// Get the current stage/tournament for the configured competition.
   Future<StageInfo?> getCurrentStage() async {
-    final season = await getCurrentLigaMxSeason();
+    final season = await getCurrentCompetitionSeason();
     return season?.currentStage ?? _currentStage;
   }
 
@@ -272,7 +274,7 @@ class SeasonsRepository {
 
   /// Get the current season ID (cached for quick access)
   Future<int?> getCurrentSeasonId() async {
-    final season = await getCurrentLigaMxSeason();
+    final season = await getCurrentCompetitionSeason();
     return season?.id;
   }
 
@@ -280,16 +282,10 @@ class SeasonsRepository {
   SeasonInfo _getFallbackSeason() {
     print('WARNING: Using fallback season data');
     return SeasonInfo(
-      id: 23744, // Liga MX 2025/2026 season ID (update as needed)
-      name: '2025/2026',
-      leagueId: ligaMxLeagueId,
+      id: SportMonksConfig.fallbackSeasonId,
+      name: '2026',
+      leagueId: competitionLeagueId,
       isCurrent: true,
-      currentStage: const StageInfo(
-        id: 77471483, // Clausura 2026 stage ID (update as needed)
-        name: 'Clausura',
-        seasonId: 23744,
-        isCurrent: true,
-      ),
     );
   }
 
@@ -304,4 +300,3 @@ class SeasonsRepository {
     _client.dispose();
   }
 }
-

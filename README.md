@@ -1,7 +1,7 @@
 # Fantasy 11 - Fantasy Sports Application
 
 <p align="center">
-  <img src="assets/logo.png" alt="Fantasy 11 Logo" width="200"/>
+  <img src="assets/paroNmundialTransparent.png" alt="paroNmundial Logo" width="200"/>
 </p>
 
 A comprehensive Fantasy Sports mobile application built with Flutter, featuring real-time sports data integration via SportMonks API, intelligent fantasy points prediction, and support for Liga MX (Mexican Football League).

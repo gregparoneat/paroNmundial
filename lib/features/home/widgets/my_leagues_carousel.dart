@@ -60,7 +60,7 @@ class _MyLeaguesCarouselState extends State<MyLeaguesCarousel> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Container(
-        height: 140,
+        height: 184,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         child: const Center(
           child: CircularProgressIndicator(strokeWidth: 2),
@@ -80,7 +80,7 @@ class _MyLeaguesCarouselState extends State<MyLeaguesCarousel> {
             return _buildLeagueCard(_leagues[index]);
           },
           options: CarouselOptions(
-            height: 140,
+            height: 184,
             enableInfiniteScroll: _leagues.length > 1,
             viewportFraction: 0.92,
             enlargeCenterPage: true,
@@ -269,7 +269,7 @@ class _MyLeaguesCarouselState extends State<MyLeaguesCarousel> {
               ),
               
               const SizedBox(height: 12),
-              
+
               // League name
               Text(
                 league.name,
@@ -281,7 +281,7 @@ class _MyLeaguesCarouselState extends State<MyLeaguesCarousel> {
               ),
               
               const SizedBox(height: 8),
-              
+
               // Match info row
               Row(
                 children: [
@@ -313,8 +313,8 @@ class _MyLeaguesCarouselState extends State<MyLeaguesCarousel> {
                 ],
               ),
               
-              const Spacer(),
-              
+              const SizedBox(height: 12),
+
               // Bottom row - members and projected points
               Row(
                 children: [
@@ -365,4 +365,3 @@ class _MyLeaguesCarouselState extends State<MyLeaguesCarousel> {
     }
   }
 }
-

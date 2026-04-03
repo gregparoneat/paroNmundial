@@ -1,0 +1,49 @@
+team,asset
+England,assets/MarketValues/england.csv
+France,assets/MarketValues/france.csv
+Spain,assets/MarketValues/spain.csv
+Portugal,assets/MarketValues/portugal.csv
+Brazil,assets/MarketValues/brazil.csv
+Germany,assets/MarketValues/germany.csv
+Netherlands,assets/MarketValues/netherlands.csv
+Argentina,assets/MarketValues/argentina.csv
+Belgium,assets/MarketValues/belgium.csv
+Norway,assets/MarketValues/norway.csv
+Senegal,assets/MarketValues/senegal.csv
+Morocco,assets/MarketValues/morocco.csv
+Turkiye,assets/MarketValues/turkiye.csv
+Ivory Coast,assets/MarketValues/ivory_coast.csv
+Ecuador,assets/MarketValues/ecuador.csv
+Uruguay,assets/MarketValues/uruguay.csv
+Sweden,assets/MarketValues/sweden.csv
+United States,assets/MarketValues/united_states.csv
+Switzerland,assets/MarketValues/switzerland.csv
+Colombia,assets/MarketValues/colombia.csv
+Croatia,assets/MarketValues/croatia.csv
+Japan,assets/MarketValues/japan.csv
+Austria,assets/MarketValues/austria.csv
+Algeria,assets/MarketValues/algeria.csv
+Ghana,assets/MarketValues/ghana.csv
+Scotland,assets/MarketValues/scotland.csv
+Czechia,assets/MarketValues/czechia.csv
+Mexico,assets/MarketValues/mexico.csv
+DR Congo,assets/MarketValues/dr_congo.csv
+Paraguay,assets/MarketValues/paraguay.csv
+South Korea,assets/MarketValues/south_korea.csv
+Canada,assets/MarketValues/canada.csv
+Bosnia-Herzegovina,assets/MarketValues/bosnia_herzegovina.csv
+Egypt,assets/MarketValues/egypt.csv
+Uzbekistan,assets/MarketValues/uzbekistan.csv
+Haiti,assets/MarketValues/haiti.csv
+Tunisia,assets/MarketValues/tunisia.csv
+Australia,assets/MarketValues/australia.csv
+Cape Verde,assets/MarketValues/cape_verde.csv
+South Africa,assets/MarketValues/south_africa.csv
+Iran,assets/MarketValues/iran.csv
+Panama,assets/MarketValues/panama.csv
+Curacao,assets/MarketValues/curacao.csv
+Saudi Arabia,assets/MarketValues/saudi_arabia.csv
+New Zealand,assets/MarketValues/new_zealand.csv
+Iraq,assets/MarketValues/iraq.csv
+Qatar,assets/MarketValues/qatar.csv
+Jordan,assets/MarketValues/jordan.csv

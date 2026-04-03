@@ -1,5 +1,7 @@
 import 'package:fantacy11/api/repositories/players_repository.dart';
-import 'package:fantacy11/features/auth/login_navigator.dart';
+import 'package:fantacy11/features/auth/auth_gate.dart';
+import 'package:fantacy11/features/auth/auth_repository.dart';
+import 'package:fantacy11/features/auth/auth_session_cubit.dart';
 import 'package:fantacy11/features/responsive_widget.dart';
 import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/services/cache_service.dart';
@@ -16,6 +18,8 @@ import 'app_config/styles.dart';
 import 'features/language/language_cubit.dart';
 import 'firebase_options.dart';
 import 'routes/routes.dart';
+
+const _splashBackground = Color(0xFFF6F6F6);
 
 /// Pre-load players from Firestore into Hive cache
 /// This runs in the background to speed up subsequent player loads
@@ -68,8 +72,18 @@ void main() async {
       const SystemUiOverlayStyle(statusBarColor: Colors.transparent));
   runApp(
     Phoenix(
-      child: BlocProvider(
-        create: (context) => LanguageCubit()..getCurrentLanguage(),
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider(
+            create: (context) => LanguageCubit()..getCurrentLanguage(),
+          ),
+          BlocProvider(
+            create: (context) => AuthSessionCubit(
+              authRepository: AuthRepository(),
+              cacheService: CacheService(),
+            )..initialize(),
+          ),
+        ],
         child: const Fantasy11(),
       ),
     ),
@@ -95,9 +109,15 @@ class Fantasy11 extends StatelessWidget {
           theme: appTheme,
           initialRoute: "/",
           debugShowCheckedModeBanner: false,
+          builder: (context, child) {
+            return ColoredBox(
+              color: _splashBackground,
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
           routes: <String, WidgetBuilder>{
             '/': (BuildContext context) =>
-                const ResponsiveWidget(child: LoginNavigator()),
+                const ResponsiveWidget(child: AuthGate()),
             '/app_navigation': (BuildContext context) =>
                 const ResponsiveWidget(child: AppNavigator()),
           },

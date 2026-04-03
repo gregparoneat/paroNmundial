@@ -39,7 +39,7 @@ class AboutUs extends StatelessWidget {
               height: 30,
             ),
             Image.asset(
-              'assets/logo.png',
+              'assets/paroNmundialTransparent.png',
               scale: 3,
             ),
             const SizedBox(

@@ -2,7 +2,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fantacy11/api/repositories/fixtures_repository.dart';
 import 'package:fantacy11/app_config/colors.dart';
 import 'package:fantacy11/features/match/models/match_info.dart';
+import 'package:fantacy11/generated/l10n.dart';
 import 'package:fantacy11/routes/routes.dart';
+import 'package:fantacy11/utils/country_name_localizer.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -10,15 +12,15 @@ import 'package:intl/intl.dart';
 class UpcomingFixturesPage extends StatefulWidget {
   /// If true, shows without its own Scaffold (for embedding in tabs)
   final bool embedded;
-  
+
   /// If true, shows matches in a non-scrolling Column (for embedding in scrollable parent)
   final bool shrinkWrap;
-  
+
   /// Maximum number of matches to show when shrinkWrap is true
   final int? maxMatches;
-  
+
   const UpcomingFixturesPage({
-    super.key, 
+    super.key,
     this.embedded = true,
     this.shrinkWrap = false,
     this.maxMatches,
@@ -28,60 +30,69 @@ class UpcomingFixturesPage extends StatefulWidget {
   State<UpcomingFixturesPage> createState() => _UpcomingFixturesPageState();
 }
 
-class _UpcomingFixturesPageState extends State<UpcomingFixturesPage> 
+class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
     with AutomaticKeepAliveClientMixin {
   final FixturesRepository _repository = FixturesRepository();
-  
+
   List<MatchInfo> _matches = [];
   bool _isLoading = true;
   String? _error;
   int _daysAhead = 7;
-  
+
+  String _tr(String en, String es) =>
+      Localizations.localeOf(context).languageCode == 'es' ? es : en;
+
   @override
   bool get wantKeepAlive => true;
-  
+
   @override
   void initState() {
     super.initState();
     _loadUpcomingFixtures();
   }
-  
+
   Future<void> _loadUpcomingFixtures() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _error = null;
     });
-    
+
     try {
       final fixtures = await _repository.getUpcomingFixtures(days: _daysAhead);
-      
+
       // Filter to only future matches
       final now = DateTime.now();
       final upcomingMatches = fixtures.where((m) {
         if (m.startingAtTimestamp == null) return true;
-        final matchTime = DateTime.fromMillisecondsSinceEpoch(m.startingAtTimestamp! * 1000);
+        final matchTime = DateTime.fromMillisecondsSinceEpoch(
+          m.startingAtTimestamp! * 1000,
+        );
         return matchTime.isAfter(now);
       }).toList();
-      
+
+      if (!mounted) return;
       setState(() {
         _matches = upcomingMatches;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = 'Failed to load fixtures: $e';
+        _error =
+            '${_tr('Failed to load fixtures', 'No se pudieron cargar los partidos')}: $e';
         _isLoading = false;
       });
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final theme = Theme.of(context);
-    
+
     Widget content;
-    
+
     if (_isLoading) {
       content = const Center(child: CircularProgressIndicator());
     } else if (_error != null) {
@@ -91,19 +102,17 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
     } else {
       content = _buildMatchList(theme);
     }
-    
+
     if (widget.embedded) {
       return content;
     }
-    
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Upcoming Fixtures'),
-      ),
+      appBar: AppBar(title: Text(S.of(context).fixtures)),
       body: content,
     );
   }
-  
+
   Widget _buildError(ThemeData theme) {
     return Center(
       child: Column(
@@ -112,12 +121,15 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
           Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
           const SizedBox(height: 16),
           Text(
-            'Failed to load fixtures',
+            _tr(
+              'Failed to load fixtures',
+              'No se pudieron cargar los partidos',
+            ),
             style: theme.textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
           Text(
-            _error ?? 'Unknown error',
+            _error ?? _tr('Unknown error', 'Error desconocido'),
             style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
             textAlign: TextAlign.center,
           ),
@@ -125,13 +137,13 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
           ElevatedButton.icon(
             onPressed: _loadUpcomingFixtures,
             icon: const Icon(Icons.refresh),
-            label: const Text('Retry'),
+            label: Text(S.of(context).retry),
           ),
         ],
       ),
     );
   }
-  
+
   Widget _buildEmpty(ThemeData theme) {
     return Center(
       child: Column(
@@ -140,46 +152,53 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
           Icon(Icons.sports_soccer, size: 64, color: Colors.grey.shade600),
           const SizedBox(height: 16),
           Text(
-            'No upcoming fixtures',
+            _tr('No upcoming fixtures', 'No hay próximos partidos'),
             style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey),
           ),
           const SizedBox(height: 8),
           Text(
-            'Check back later for upcoming matches',
-            style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+            _tr(
+              'Check back later for upcoming matches',
+              'Vuelve más tarde para ver los próximos partidos',
+            ),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.grey.shade600,
+            ),
           ),
           const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: _loadUpcomingFixtures,
             icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+            label: Text(_tr('Refresh', 'Actualizar')),
           ),
         ],
       ),
     );
   }
-  
+
   Widget _buildMatchList(ThemeData theme) {
     // Limit matches if maxMatches is set and shrinkWrap is true
     List<MatchInfo> displayMatches = _matches;
     if (widget.shrinkWrap && widget.maxMatches != null) {
       displayMatches = _matches.take(widget.maxMatches!).toList();
     }
-    
+
     // Group matches by date
     final matchesByDate = <String, List<MatchInfo>>{};
-    
+
     for (final match in displayMatches) {
       String dateKey;
       if (match.startingAtTimestamp != null) {
-        final date = DateTime.fromMillisecondsSinceEpoch(match.startingAtTimestamp! * 1000);
+        final date = DateTime.fromMillisecondsSinceEpoch(
+          match.startingAtTimestamp! * 1000,
+        );
         dateKey = DateFormat('EEEE, d MMMM').format(date);
       } else {
-        dateKey = 'Date TBD';
+        dateKey = _tr('Date TBD', 'Fecha por confirmar');
       }
       matchesByDate.putIfAbsent(dateKey, () => []).add(match);
     }
-    
+
     // ShrinkWrap mode: return Column instead of ListView
     if (widget.shrinkWrap) {
       return Padding(
@@ -207,14 +226,16 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
                 ),
               ),
               // Match cards
-              ...matchesByDate[dateKey]!.map((match) => _buildMatchCard(match, theme)),
+              ...matchesByDate[dateKey]!.map(
+                (match) => _buildMatchCard(match, theme),
+              ),
               const SizedBox(height: 8),
             ],
           ],
         ),
       );
     }
-    
+
     return RefreshIndicator(
       onRefresh: _loadUpcomingFixtures,
       child: ListView.builder(
@@ -223,7 +244,7 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
         itemBuilder: (context, index) {
           final dateKey = matchesByDate.keys.elementAt(index);
           final matches = matchesByDate[dateKey]!;
-          
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -244,10 +265,10 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
                   ],
                 ),
               ),
-              
+
               // Match cards
               ...matches.map((match) => _buildMatchCard(match, theme)),
-              
+
               const SizedBox(height: 8),
             ],
           );
@@ -255,12 +276,12 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
       ),
     );
   }
-  
+
   Widget _buildMatchCard(MatchInfo match, ThemeData theme) {
     final matchTime = match.startingAtTimestamp != null
         ? DateTime.fromMillisecondsSinceEpoch(match.startingAtTimestamp! * 1000)
         : null;
-    
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -295,7 +316,7 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
                   ),
                 ),
                 const SizedBox(height: 12),
-                
+
                 // Teams row
                 Row(
                   children: [
@@ -306,7 +327,10 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
                           _buildTeamLogo(match.team1Logo, 40),
                           const SizedBox(height: 8),
                           Text(
-                            match.team1Name,
+                            CountryNameLocalizer.localize(
+                              context,
+                              match.team1Name,
+                            ),
                             style: theme.textTheme.bodyMedium?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
@@ -317,10 +341,13 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
                         ],
                       ),
                     ),
-                    
+
                     // Time
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: bgColor,
                         borderRadius: BorderRadius.circular(12),
@@ -346,7 +373,7 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
                         ],
                       ),
                     ),
-                    
+
                     // Away team
                     Expanded(
                       child: Column(
@@ -354,7 +381,10 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
                           _buildTeamLogo(match.team2Logo, 40),
                           const SizedBox(height: 8),
                           Text(
-                            match.team2Name,
+                            CountryNameLocalizer.localize(
+                              context,
+                              match.team2Name,
+                            ),
                             style: theme.textTheme.bodyMedium?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
@@ -367,14 +397,18 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
                     ),
                   ],
                 ),
-                
+
                 // Tap hint
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.touch_app, size: 14, color: Colors.grey.shade500),
+                      Icon(
+                        Icons.touch_app,
+                        size: 14,
+                        color: Colors.grey.shade500,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         'Tap to view predicted lineups',
@@ -393,7 +427,7 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
       ),
     );
   }
-  
+
   Widget _buildTeamLogo(String? logoUrl, double size) {
     if (logoUrl != null && logoUrl.isNotEmpty) {
       return CachedNetworkImage(
@@ -407,15 +441,15 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
     }
     return Icon(Icons.shield, size: size);
   }
-  
+
   String _getTimeUntil(DateTime matchTime) {
     final now = DateTime.now();
     final difference = matchTime.difference(now);
-    
+
     if (difference.isNegative) {
       return 'Started';
     }
-    
+
     if (difference.inDays > 0) {
       return '${difference.inDays}d ${difference.inHours % 24}h';
     } else if (difference.inHours > 0) {
@@ -425,4 +459,3 @@ class _UpcomingFixturesPageState extends State<UpcomingFixturesPage>
     }
   }
 }
-
